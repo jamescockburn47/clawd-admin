@@ -288,16 +288,22 @@ async function fetchEmailSummary() {
   const gmail = google.gmail({ version: 'v1', auth });
 
   try {
+    // Unread count (primary inbox only)
     const unreadRes = await gmail.users.messages.list({
-      userId: 'me', q: 'is:unread is:inbox', maxResults: 1,
+      userId: 'me', q: 'is:unread is:inbox category:primary', maxResults: 1,
     });
 
+    // Fetch 20 recent primary inbox emails (excludes promotions, social, updates, forums)
     const recentRes = await gmail.users.messages.list({
-      userId: 'me', q: 'is:inbox', maxResults: 5,
+      userId: 'me', q: 'is:inbox category:primary', maxResults: 20,
     });
 
+    const recentMsgs = (recentRes.data.messages || []).slice(0, 20);
     const recent = [];
-    for (const msg of (recentRes.data.messages || []).slice(0, 5)) {
+    const threadIds = new Set();
+
+    // Fetch message metadata
+    for (const msg of recentMsgs) {
       const detail = await gmail.users.messages.get({
         userId: 'me', id: msg.id, format: 'metadata',
         metadataHeaders: ['From', 'Subject', 'Date'],
@@ -306,12 +312,39 @@ async function fetchEmailSummary() {
       const getH = (name) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
       recent.push({
         id: msg.id,
+        threadId: detail.data.threadId,
         from: getH('From'),
         subject: getH('Subject'),
         date: getH('Date'),
         snippet: detail.data.snippet || '',
         unread: (detail.data.labelIds || []).includes('UNREAD'),
+        needsReply: false,
       });
+      threadIds.add(detail.data.threadId);
+    }
+
+    // Check which threads need a reply (last message not from me)
+    for (const threadId of threadIds) {
+      try {
+        const thread = await gmail.users.threads.get({
+          userId: 'me', id: threadId, format: 'minimal',
+        });
+        const msgs = thread.data.messages || [];
+        if (msgs.length > 0) {
+          const lastMsg = msgs[msgs.length - 1];
+          const labels = lastMsg.labelIds || [];
+          // If last message in thread is SENT, user has replied
+          const userReplied = labels.includes('SENT');
+          if (!userReplied) {
+            // Mark all emails from this thread as needs-reply
+            for (const email of recent) {
+              if (email.threadId === threadId) email.needsReply = true;
+            }
+          }
+        }
+      } catch (_) {
+        // Thread fetch failed — skip
+      }
     }
 
     return {

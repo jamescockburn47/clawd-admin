@@ -111,16 +111,56 @@
 
   /* Email list */
   .email-item {
-    padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer;
+    padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer;
+    display: flex; gap: 8px; align-items: flex-start;
   }
   .email-item:last-child { border-bottom: none; }
-  .email-from { font-size: 13px; font-weight: 600; }
-  .email-subject { font-size: 13px; color: var(--text-dim); }
+  .email-indicators {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    min-width: 10px; padding-top: 3px;
+  }
+  .email-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .email-dot.unread { background: var(--blue); }
+  .email-dot.needs-reply { background: var(--orange); }
+  .email-content { flex: 1; min-width: 0; }
+  .email-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .email-from { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .email-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
+  .email-subject { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .email-snippet { font-size: 11px; color: var(--text-dim); opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
   .email-unread .email-from { color: var(--blue); }
+  .email-needs-reply .email-from { color: var(--orange); }
   .unread-count {
     background: var(--red); color: #fff; font-size: 11px; font-weight: 700;
     padding: 2px 7px; border-radius: 10px; margin-left: 8px;
   }
+  .needs-reply-count {
+    background: var(--orange); color: #000; font-size: 11px; font-weight: 700;
+    padding: 2px 7px; border-radius: 10px; margin-left: 4px;
+  }
+
+  /* On-screen keyboard */
+  .keyboard-overlay {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--surface); border-top: 2px solid var(--accent);
+    padding: 6px 4px 8px; z-index: 100;
+    display: none; flex-direction: column; gap: 4px;
+  }
+  .keyboard-overlay.visible { display: flex; }
+  .kb-row { display: flex; justify-content: center; gap: 3px; }
+  .kb-key {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); font-size: 14px; font-family: inherit;
+    min-width: 32px; height: 36px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none; -webkit-user-select: none; transition: background 0.1s;
+  }
+  .kb-key:active { background: var(--accent); color: #fff; }
+  .kb-key.wide { min-width: 52px; font-size: 12px; }
+  .kb-key.space { flex: 1; max-width: 280px; }
+  .kb-key.send { background: var(--accent); color: #fff; min-width: 60px; font-weight: 700; }
+  .kb-key.send:active { background: var(--accent2); }
+  .kb-key.dismiss { background: transparent; border-color: transparent; color: var(--text-dim); font-size: 11px; }
 
   /* Last message bar */
   .last-message {
@@ -183,6 +223,13 @@
     .henry-card { padding: 20px; }
     .meeting-item { padding: 16px 0; min-height: 56px; }
     .chat-input { padding: 16px 20px; font-size: 16px; }
+  }
+
+  /* Compact keyboard for short screens */
+  @media (max-height: 700px) {
+    .kb-key { height: 30px; min-width: 28px; font-size: 13px; }
+    .kb-key.wide { min-width: 44px; font-size: 11px; }
+    .keyboard-overlay { padding: 4px 3px 6px; gap: 3px; }
   }
 
   /* Compact layout for Pi touchscreen (1024x600 and similar) */
@@ -270,7 +317,7 @@
       <div class="panel" id="emailPanel">
         <div class="panel-title">
           <span class="panel-nav" onclick="swipePanel('right', 0)">&larr; Gig</span>
-          Email <span id="unreadBadge"></span>
+          Email <span id="unreadBadge"></span><span id="replyBadge"></span>
           <span class="panel-nav" onclick="swipePanel('right', 2)">Soul &rarr;</span>
         </div>
         <div id="emailList"><div class="empty">Loading...</div></div>
@@ -306,6 +353,14 @@
   <button class="send-btn" id="sendBtn" onclick="sendChat()">&#9654;</button>
 </div>
 <div class="voice-status" id="voiceStatus"></div>
+
+<!-- On-screen keyboard -->
+<div class="keyboard-overlay" id="keyboard">
+  <div class="kb-row" id="kbRow1"></div>
+  <div class="kb-row" id="kbRow2"></div>
+  <div class="kb-row" id="kbRow3"></div>
+  <div class="kb-row" id="kbRow4"></div>
+</div>
 
 <script>
 // --- Config ---
@@ -461,14 +516,38 @@ function renderCalendar(events) {
   }).join('');
 }
 
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now - d;
+  const mins = Math.floor(diffMs / 60000);
+  const hrs = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  if (hrs < 24) return `${hrs}h`;
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d`;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
 function renderEmail(email) {
   const el = document.getElementById('emailList');
   const badge = document.getElementById('unreadBadge');
+  const replyBadge = document.getElementById('replyBadge');
 
   if (email.unreadCount > 0) {
     badge.innerHTML = `<span class="unread-count">${email.unreadCount}</span>`;
   } else {
     badge.innerHTML = '';
+  }
+
+  const needsReplyCount = (email.recent || []).filter((e) => e.needsReply).length;
+  if (needsReplyCount > 0) {
+    replyBadge.innerHTML = `<span class="needs-reply-count">${needsReplyCount} awaiting</span>`;
+  } else {
+    replyBadge.innerHTML = '';
   }
 
   if (!email.recent || email.recent.length === 0) {
@@ -477,10 +556,22 @@ function renderEmail(email) {
   }
 
   el.innerHTML = email.recent.map((e) => {
-    const from = (e.from || '').replace(/<.*>/, '').trim();
-    return `<div class="email-item${e.unread ? ' email-unread' : ''}">
-      <div class="email-from">${from}</div>
-      <div class="email-subject">${e.subject || '(no subject)'}</div>
+    const from = (e.from || '').replace(/<[^>]*>/g, '').replace(/"/g, '').trim();
+    const classes = ['email-item'];
+    if (e.unread) classes.push('email-unread');
+    if (e.needsReply) classes.push('email-needs-reply');
+
+    let dot = '';
+    if (e.needsReply) dot = '<div class="email-dot needs-reply" title="Needs reply"></div>';
+    else if (e.unread) dot = '<div class="email-dot unread" title="Unread"></div>';
+
+    return `<div class="${classes.join(' ')}">
+      <div class="email-indicators">${dot}</div>
+      <div class="email-content">
+        <div class="email-row"><div class="email-from">${from}</div><div class="email-time">${timeAgo(e.date)}</div></div>
+        <div class="email-subject">${e.subject || '(no subject)'}</div>
+        <div class="email-snippet">${e.snippet || ''}</div>
+      </div>
     </div>`;
   }).join('');
 }
@@ -911,6 +1002,96 @@ function processVoiceCommand(text) {
   document.getElementById('chatInput').value = command;
   sendChat();
 }
+
+// --- On-screen keyboard ---
+const KB_LAYOUTS = {
+  lower: [
+    ['q','w','e','r','t','y','u','i','o','p'],
+    ['a','s','d','f','g','h','j','k','l'],
+    ['SHIFT','z','x','c','v','b','n','m','BKSP'],
+    ['123','SPACE','SEND','HIDE'],
+  ],
+  upper: [
+    ['Q','W','E','R','T','Y','U','I','O','P'],
+    ['A','S','D','F','G','H','J','K','L'],
+    ['SHIFT','Z','X','C','V','B','N','M','BKSP'],
+    ['123','SPACE','SEND','HIDE'],
+  ],
+  symbols: [
+    ['1','2','3','4','5','6','7','8','9','0'],
+    ['@','#','£','&','*','(',')','-','+'],
+    ['ABC','.', ',','?','!','\'','"',':','BKSP'],
+    ['123','SPACE','SEND','HIDE'],
+  ],
+};
+let kbMode = 'lower'; // lower | upper | symbols
+let kbVisible = false;
+
+function buildKeyboard() {
+  const layout = KB_LAYOUTS[kbMode];
+  const rowIds = ['kbRow1','kbRow2','kbRow3','kbRow4'];
+  layout.forEach((row, i) => {
+    const el = document.getElementById(rowIds[i]);
+    el.innerHTML = row.map((key) => {
+      if (key === 'SPACE') return '<div class="kb-key space" data-key=" ">&nbsp;</div>';
+      if (key === 'BKSP') return '<div class="kb-key wide" data-key="BKSP">&larr;</div>';
+      if (key === 'SHIFT') return '<div class="kb-key wide" data-key="SHIFT">&uarr;</div>';
+      if (key === 'SEND') return '<div class="kb-key send" data-key="SEND">Send</div>';
+      if (key === 'HIDE') return '<div class="kb-key dismiss" data-key="HIDE">Done</div>';
+      if (key === '123') return '<div class="kb-key wide" data-key="123">123</div>';
+      if (key === 'ABC') return '<div class="kb-key wide" data-key="ABC">ABC</div>';
+      return `<div class="kb-key" data-key="${key}">${key}</div>`;
+    }).join('');
+  });
+}
+
+function showKeyboard() {
+  if (kbVisible) return;
+  kbVisible = true;
+  kbMode = 'lower';
+  buildKeyboard();
+  document.getElementById('keyboard').classList.add('visible');
+}
+
+function hideKeyboard() {
+  kbVisible = false;
+  document.getElementById('keyboard').classList.remove('visible');
+}
+
+// Keyboard tap handler (delegated)
+document.getElementById('keyboard').addEventListener('pointerdown', (e) => {
+  e.preventDefault(); // prevent input blur
+  const keyEl = e.target.closest('.kb-key');
+  if (!keyEl) return;
+  const key = keyEl.dataset.key;
+  const input = document.getElementById('chatInput');
+
+  if (key === 'HIDE') { hideKeyboard(); return; }
+  if (key === 'SEND') { hideKeyboard(); sendChat(); return; }
+  if (key === 'SHIFT') {
+    kbMode = kbMode === 'upper' ? 'lower' : 'upper';
+    buildKeyboard();
+    return;
+  }
+  if (key === '123') { kbMode = 'symbols'; buildKeyboard(); return; }
+  if (key === 'ABC') { kbMode = 'lower'; buildKeyboard(); return; }
+  if (key === 'BKSP') {
+    input.value = input.value.slice(0, -1);
+    return;
+  }
+  input.value += key;
+  // Auto-lowercase after typing a letter in upper mode
+  if (kbMode === 'upper' && key.length === 1) { kbMode = 'lower'; buildKeyboard(); }
+});
+
+// Show keyboard when chat input tapped
+document.getElementById('chatInput').addEventListener('focus', () => showKeyboard());
+// Hide if tapping outside keyboard and input
+document.addEventListener('pointerdown', (e) => {
+  if (!kbVisible) return;
+  if (e.target.closest('#keyboard') || e.target.closest('#chatInput') || e.target.closest('.chat-bar')) return;
+  hideKeyboard();
+});
 
 // --- Init ---
 loadWidgets();
