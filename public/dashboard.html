@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=1280, initial-scale=1, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Clawd — Command Wall</title>
 <style>
@@ -183,6 +183,42 @@
     .henry-card { padding: 20px; }
     .meeting-item { padding: 16px 0; min-height: 56px; }
     .chat-input { padding: 16px 20px; font-size: 16px; }
+  }
+
+  /* Compact layout for Pi touchscreen (1024x600 and similar) */
+  @media (max-height: 700px) {
+    .header { height: 40px; padding: 8px 16px; }
+    .header-left { font-size: 16px; }
+    .header-right { font-size: 13px; gap: 10px; }
+    .cost-display { font-size: 11px; padding: 2px 8px; }
+    .panels { height: calc(100% - 40px - 36px - 56px); }
+    .panel { padding: 10px 14px; }
+    .panel-title { font-size: 11px; margin-bottom: 10px; }
+    .henry-card { padding: 10px 12px; margin-bottom: 8px; border-radius: 8px; }
+    .henry-dates { font-size: 14px; margin-bottom: 2px; }
+    .henry-pattern { font-size: 12px; margin-bottom: 6px; }
+    .status-badge { font-size: 11px; padding: 3px 8px; }
+    .meeting-item { padding: 8px 0; }
+    .meeting-date .day { font-size: 16px; }
+    .meeting-date { font-size: 11px; min-width: 50px; }
+    .meeting-title { font-size: 13px; }
+    .cal-event { padding: 6px 0; font-size: 12px; }
+    .email-from { font-size: 12px; }
+    .email-subject { font-size: 12px; }
+    .last-message { height: 36px; padding: 6px 16px; font-size: 12px; }
+    .chat-bar { height: 56px; padding: 8px 14px; gap: 8px; }
+    .chat-input { padding: 10px 14px; font-size: 14px; }
+    .send-btn { width: 40px; height: 40px; font-size: 18px; }
+    .mic-btn { width: 40px; height: 40px; font-size: 18px; }
+    .empty { font-size: 12px; padding: 10px 0; }
+  }
+
+  /* Tab layout for narrow widths (under 800px) */
+  @media (max-width: 800px) {
+    .panels { flex-direction: column; }
+    .divider { display: none; }
+    .panel-container { flex: none; height: 50%; }
+    .panel { padding: 10px 14px; }
   }
 </style>
 </head>
