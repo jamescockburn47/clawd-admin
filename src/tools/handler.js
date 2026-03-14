@@ -1,5 +1,5 @@
 // Tool execution dispatcher — routes Claude tool calls to handlers
-import { calendarListEvents, calendarCreateEvent, calendarFindFreeTime } from './calendar.js';
+import { calendarListEvents, calendarCreateEvent, calendarUpdateEvent, calendarFindFreeTime } from './calendar.js';
 import { gmailSearch, gmailRead, gmailDraft, gmailConfirmSend } from './gmail.js';
 import { searchTrains, searchAccommodation } from './travel.js';
 import { trainDepartures, trainFares } from './darwin.js';
@@ -10,6 +10,7 @@ import { soulRead, soulPropose, soulConfirm } from './soul.js';
 const TOOL_MAP = {
   calendar_list_events: calendarListEvents,
   calendar_create_event: calendarCreateEvent,
+  calendar_update_event: calendarUpdateEvent,
   calendar_find_free_time: calendarFindFreeTime,
   gmail_search: gmailSearch,
   gmail_read: gmailRead,

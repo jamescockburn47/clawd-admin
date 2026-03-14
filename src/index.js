@@ -93,6 +93,22 @@ async function simulateTyping(sock, chatJid, responseLength) {
   } catch (_) {}
 }
 
+// --- Owner JID resolution ---
+// WhatsApp uses both phone format (xxx@s.whatsapp.net) and LID format (xxx@lid).
+// We check against both OWNER_JID and OWNER_LID for reliable owner detection.
+const ownerJids = new Set();
+if (config.ownerJid) ownerJids.add(config.ownerJid);
+if (config.ownerLid) ownerJids.add(config.ownerLid);
+
+function isOwnerJid(jid) {
+  if (!jid || ownerJids.size === 0) return true; // no owner configured = everyone is owner
+  return ownerJids.has(jid);
+}
+
+function isOwnerChat(chatJid) {
+  return ownerJids.has(chatJid);
+}
+
 async function handleMessage(sock, message, botJid) {
   try {
     const chatJid = message.key.remoteJid;
@@ -102,7 +118,7 @@ async function handleMessage(sock, message, botJid) {
     const text = extractText(message);
     const msgHasImage = hasImageMsg(message);
 
-    console.log(`[msg] ${chatJid} | ${senderName}: ${text || (msgHasImage ? '[photo]' : '[empty]')}`);
+    console.log(`[msg] ${senderJid} | ${senderName}: ${text || (msgHasImage ? '[photo]' : '[empty]')}`);
 
     if (!text && !msgHasImage) return;
 
@@ -114,8 +130,8 @@ async function handleMessage(sock, message, botJid) {
     });
 
     // Broadcast incoming messages from owner to dashboard
-    if (chatJid === config.ownerJid && text) {
-      broadcastSSE('message', { sender: senderName, text, timestamp: Date.now() });
+    if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
+      if (text) broadcastSSE('message', { sender: senderName, text, timestamp: Date.now() });
     }
 
     const repliedToBot = isReplyToBot(message, botJid);
@@ -167,7 +183,7 @@ async function handleMessage(sock, message, botJid) {
     });
 
     // Broadcast Clawd's response to dashboard (full response, not chunks)
-    if (chatJid === config.ownerJid) {
+    if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
       broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
     }
 

@@ -23,6 +23,7 @@ const config = {
 
   // Owner (James) — for proactive outbound messages
   ownerJid: process.env.OWNER_JID || '',
+  ownerLid: process.env.OWNER_LID || '',   // WhatsApp Linked ID format (xxx@lid)
 
   // Travel APIs
   darwinToken: process.env.DARWIN_TOKEN || '',

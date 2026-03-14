@@ -50,6 +50,40 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'calendar_update_event',
+    description: 'Update an existing Google Calendar event. Use calendar_list_events first to get the event ID.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        event_id: {
+          type: 'string',
+          description: 'The event ID from calendar_list_events.',
+        },
+        summary: {
+          type: 'string',
+          description: 'New event title (optional — only include to change).',
+        },
+        start: {
+          type: 'string',
+          description: 'New start date/time. Use YYYY-MM-DD for all-day or ISO 8601 for timed events.',
+        },
+        end: {
+          type: 'string',
+          description: 'New end date/time. For all-day events, use the day AFTER the last day (Google Calendar exclusive end).',
+        },
+        description: {
+          type: 'string',
+          description: 'New event description.',
+        },
+        location: {
+          type: 'string',
+          description: 'New event location.',
+        },
+      },
+      required: ['event_id'],
+    },
+  },
+  {
     name: 'calendar_find_free_time',
     description: 'Check calendar availability for a specific date or date range.',
     input_schema: {

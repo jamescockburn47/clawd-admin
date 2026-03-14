@@ -125,7 +125,7 @@ function checkDailyLimit() {
 const OWNER_ONLY_TOOLS = new Set([
   'gmail_search', 'gmail_read', 'gmail_draft', 'gmail_confirm_send',
   'soul_propose', 'soul_confirm',
-  'calendar_create_event',
+  'calendar_create_event', 'calendar_update_event',
 ]);
 
 // Build available tools based on configured credentials and sender permissions
@@ -162,7 +162,11 @@ export async function getClawdResponse(context, mode, senderJid) {
 
   try {
     dailyCalls++;
-    const isOwner = !senderJid || !config.ownerJid || senderJid === config.ownerJid;
+    // Check both phone JID (@s.whatsapp.net) and LID (@lid) formats
+    const ownerJids = new Set();
+    if (config.ownerJid) ownerJids.add(config.ownerJid);
+    if (config.ownerLid) ownerJids.add(config.ownerLid);
+    const isOwner = !senderJid || ownerJids.size === 0 || ownerJids.has(senderJid);
     const tools = getAvailableTools(isOwner);
 
     // Mark last tool for prompt caching (system prompt + tools = stable prefix)

@@ -42,7 +42,7 @@ export async function calendarListEvents({ days_ahead = 7, query }) {
   return events.map((e) => {
     const start = e.start?.dateTime || e.start?.date;
     const end = e.end?.dateTime || e.end?.date;
-    return `• ${e.summary || '(No title)'}\n  ${start} → ${end}${e.location ? '\n  📍 ' + e.location : ''}`;
+    return `• ${e.summary || '(No title)'}\n  ${start} → ${end}${e.location ? '\n  📍 ' + e.location : ''}\n  id: ${e.id}`;
   }).join('\n\n');
 }
 
@@ -62,6 +62,43 @@ export async function calendarCreateEvent({ summary, start, end, description, lo
 
   const res = await cal.events.insert({ calendarId: 'primary', resource: event });
   return `Event created: "${res.data.summary}" on ${res.data.start.dateTime || res.data.start.date}\nLink: ${res.data.htmlLink}`;
+}
+
+export async function calendarUpdateEvent({ event_id, summary, start, end, description, location }) {
+  const cal = getCalendar();
+
+  // Fetch existing event first
+  const existing = await cal.events.get({ calendarId: 'primary', eventId: event_id });
+  const patch = {};
+
+  if (summary !== undefined) patch.summary = summary;
+  if (description !== undefined) patch.description = description;
+  if (location !== undefined) patch.location = location;
+
+  if (start !== undefined) {
+    const startDT = new Date(start);
+    // Detect all-day format (YYYY-MM-DD without time)
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start)) {
+      patch.start = { date: start };
+    } else {
+      patch.start = { dateTime: startDT.toISOString(), timeZone: 'Europe/London' };
+    }
+  }
+  if (end !== undefined) {
+    const endDT = new Date(end);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      patch.end = { date: end };
+    } else {
+      patch.end = { dateTime: endDT.toISOString(), timeZone: 'Europe/London' };
+    }
+  }
+
+  const res = await cal.events.patch({
+    calendarId: 'primary',
+    eventId: event_id,
+    resource: patch,
+  });
+  return `Event updated: "${res.data.summary}" — ${res.data.start.dateTime || res.data.start.date} → ${res.data.end.dateTime || res.data.end.date}\nLink: ${res.data.htmlLink}`;
 }
 
 export async function calendarFindFreeTime({ date, days = 1 }) {

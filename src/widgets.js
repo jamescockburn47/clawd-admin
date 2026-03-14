@@ -42,9 +42,17 @@ function parseHenryEvent(event) {
   const text = summary + ' ' + description;
 
   const startDate = event.start?.date || (event.start?.dateTime || '').split('T')[0];
-  const endDate = event.end?.date || (event.end?.dateTime || '').split('T')[0];
+  let endDate = event.end?.date || (event.end?.dateTime || '').split('T')[0];
 
-  // Determine pattern from keywords (or infer from start day)
+  // Google Calendar all-day events use exclusive end dates (Sat-Sun event → end = Monday)
+  // Subtract 1 day to get the actual last day of the event
+  if (event.end?.date && !event.end?.dateTime) {
+    const d = new Date(endDate + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    endDate = d.toISOString().split('T')[0];
+  }
+
+  // Determine pattern from keywords (or infer from start/end days)
   let pattern = null;
   if (text.includes('4-trip') || text.includes('4 trip') || text.includes('four trip')) {
     pattern = '4-trip';
@@ -56,10 +64,14 @@ function parseHenryEvent(event) {
     pattern = 'driving';
   }
 
-  // Infer from start day of week if not set
-  if (!pattern && startDate) {
-    const dow = new Date(startDate + 'T12:00:00').getDay();
-    pattern = dow === 5 ? 'fri-sun' : dow === 6 ? 'sat-sun' : 'fri-sun';
+  // Infer from start/end days of week if not set by keywords
+  if (!pattern && startDate && endDate) {
+    const startDow = new Date(startDate + 'T12:00:00').getDay();
+    const endDow = new Date(endDate + 'T12:00:00').getDay();
+    if (startDow === 5) pattern = 'fri-sun';       // Friday start
+    else if (startDow === 6 && endDow === 0) pattern = 'sat-sun';  // Sat-Sun
+    else if (startDow === 6) pattern = 'fri-sun';   // Sat start but multi-day → likely fri-sun with travel Fri eve
+    else pattern = 'fri-sun';                       // fallback
   }
 
   // Determine if up north (needs accommodation) or London-based (4-trip, no accommodation)
