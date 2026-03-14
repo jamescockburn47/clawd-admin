@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# Auth state (WhatsApp session)
+auth_state/
+
+# Soul data (user-specific runtime state)
+data/soul*.json
+src/data/
+
+# Claude Code local settings
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp/
+*.log

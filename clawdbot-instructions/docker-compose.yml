@@ -1,0 +1,15 @@
+services:
+  clawdbot:
+    build: .
+    container_name: clawdbot-monet
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./auth_state:/app/auth_state
+    stdin_open: true
+    tty: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

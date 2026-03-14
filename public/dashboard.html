@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280, initial-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Clawd — Command Wall</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #0a0a0f; --surface: #14141f; --surface2: #1c1c2e; --border: #2a2a40;
+    --text: #e8e8f0; --text-dim: #8888a0; --accent: #6c5ce7; --accent2: #00cec9;
+    --red: #ff6b6b; --green: #51cf66; --orange: #ffa94d; --blue: #4dabf7;
+    --ai-blue: #4dabf7; --lq-green: #51cf66;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, 'Segoe UI', sans-serif; overflow: hidden; }
+
+  /* Header */
+  .header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+    height: 52px;
+  }
+  .header-left { font-size: 20px; font-weight: 700; letter-spacing: 2px; color: var(--accent); }
+  .header-right { font-size: 15px; color: var(--text-dim); display: flex; align-items: center; gap: 16px; }
+  .cost-display { font-size: 12px; color: var(--text-dim); cursor: pointer; padding: 3px 10px; border: 1px solid var(--border); border-radius: 10px; }
+  .cost-display .amount { color: var(--accent2); font-weight: 600; }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: var(--red); }
+  .status-dot.online { background: var(--green); }
+
+  /* Main panels area */
+  .panels {
+    display: flex; height: calc(100% - 52px - 100px - 56px); /* header - lastMsg - chatBar */
+    overflow: hidden;
+  }
+
+  /* Panel container with swipe */
+  .panel-container {
+    flex: 1; position: relative; overflow: hidden;
+  }
+  .panel-track {
+    display: flex; width: 200%; height: 100%; transition: transform 0.3s ease;
+  }
+  .panel-track.no-transition { transition: none; }
+  .panel {
+    width: 50%; height: 100%; overflow-y: auto; padding: 16px 20px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .panel::-webkit-scrollbar { width: 4px; }
+  .panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  #rightTrack { width: 300%; }
+  #rightTrack .panel { width: 33.333%; }
+
+  .divider { width: 1px; background: var(--border); flex-shrink: 0; }
+
+  /* Panel headers */
+  .panel-title {
+    font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--text-dim); margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;
+  }
+  .panel-nav {
+    font-size: 11px; color: var(--accent); cursor: pointer; padding: 4px 8px;
+    border: 1px solid var(--border); border-radius: 12px;
+  }
+
+  /* Henry weekend cards */
+  .henry-card {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; margin-bottom: 12px; cursor: pointer; transition: border-color 0.2s;
+    min-height: 48px;
+  }
+  .henry-card:active { border-color: var(--accent); }
+  .henry-dates { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .henry-pattern { font-size: 13px; color: var(--text-dim); margin-bottom: 10px; }
+  .henry-status { display: flex; gap: 12px; flex-wrap: wrap; }
+  .status-badge {
+    font-size: 12px; padding: 4px 10px; border-radius: 8px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .status-badge.booked { background: rgba(81,207,102,0.15); color: var(--green); }
+  .status-badge.not-booked { background: rgba(255,107,107,0.15); color: var(--red); }
+  .status-badge.na { background: rgba(136,136,160,0.1); color: var(--text-dim); }
+
+  /* Side gig meetings */
+  .meeting-item {
+    display: flex; align-items: center; gap: 12px; padding: 12px 0;
+    border-bottom: 1px solid var(--border); cursor: pointer;
+  }
+  .meeting-item:last-child { border-bottom: none; }
+  .meeting-date {
+    font-size: 12px; color: var(--text-dim); min-width: 60px; text-align: center;
+    line-height: 1.3;
+  }
+  .meeting-date .day { font-size: 20px; font-weight: 700; color: var(--text); }
+  .meeting-title { flex: 1; font-size: 14px; }
+  .meeting-tags { display: flex; gap: 4px; }
+  .tag {
+    font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .tag.ai { background: rgba(77,171,247,0.2); color: var(--ai-blue); }
+  .tag.lq { background: rgba(81,207,102,0.2); color: var(--lq-green); }
+
+  /* Calendar events */
+  .cal-event {
+    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .cal-event:last-child { border-bottom: none; }
+  .cal-time { color: var(--accent2); font-weight: 600; margin-right: 8px; }
+
+  /* Email list */
+  .email-item {
+    padding: 10px 0; border-bottom: 1px solid var(--border); cursor: pointer;
+  }
+  .email-item:last-child { border-bottom: none; }
+  .email-from { font-size: 13px; font-weight: 600; }
+  .email-subject { font-size: 13px; color: var(--text-dim); }
+  .email-unread .email-from { color: var(--blue); }
+  .unread-count {
+    background: var(--red); color: #fff; font-size: 11px; font-weight: 700;
+    padding: 2px 7px; border-radius: 10px; margin-left: 8px;
+  }
+
+  /* Last message bar */
+  .last-message {
+    padding: 10px 24px; background: var(--surface); border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-dim);
+    height: 56px; display: flex; align-items: center; overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis;
+  }
+  .last-message strong { color: var(--accent2); margin-right: 8px; }
+
+  /* Chat bar */
+  .chat-bar {
+    display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+    background: var(--surface); height: 100px;
+  }
+  .chat-input {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 24px;
+    padding: 14px 20px; font-size: 15px; color: var(--text); outline: none;
+    font-family: inherit;
+  }
+  .chat-input::placeholder { color: var(--text-dim); }
+  .chat-input:focus { border-color: var(--accent); }
+  .send-btn {
+    width: 52px; height: 52px; border-radius: 50%; background: var(--accent); border: none;
+    color: #fff; font-size: 22px; cursor: pointer; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0; transition: opacity 0.2s;
+  }
+  .send-btn:active { opacity: 0.7; }
+  .send-btn:disabled { opacity: 0.3; }
+
+  /* Mic button */
+  .mic-btn {
+    width: 52px; height: 52px; border-radius: 50%; border: 2px solid var(--border);
+    background: transparent; color: var(--text-dim); font-size: 22px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    transition: all 0.3s; position: relative;
+  }
+  .mic-btn.unsupported { display: none; }
+  .mic-btn.passive { border-color: var(--accent); color: var(--accent); animation: mic-pulse 3s ease-in-out infinite; }
+  .mic-btn.listening { border-color: var(--red); color: var(--red); background: rgba(255,107,107,0.1); animation: mic-glow 1s ease-in-out infinite; }
+  .mic-btn:active { transform: scale(0.92); }
+  @keyframes mic-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(108,92,231,0); } 50% { box-shadow: 0 0 0 6px rgba(108,92,231,0.2); } }
+  @keyframes mic-glow { 0%,100% { box-shadow: 0 0 0 0 rgba(255,107,107,0); } 50% { box-shadow: 0 0 0 8px rgba(255,107,107,0.3); } }
+  .voice-status {
+    position: absolute; bottom: 62px; right: 20px; font-size: 11px; color: var(--text-dim);
+    background: var(--surface2); padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border);
+    pointer-events: none; opacity: 0; transition: opacity 0.3s;
+  }
+  .voice-status.visible { opacity: 1; }
+
+  /* Empty state */
+  .empty { color: var(--text-dim); font-size: 13px; font-style: italic; padding: 20px 0; }
+
+  /* Loading spinner */
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Responsive: ensure 48px+ touch targets */
+  @media (pointer: coarse) {
+    .henry-card { padding: 20px; }
+    .meeting-item { padding: 16px 0; min-height: 56px; }
+    .chat-input { padding: 16px 20px; font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left"><span class="status-dot" id="statusDot"></span>CLAWD</div>
+  <div class="header-right">
+    <div class="cost-display" id="costDisplay" onclick="toggleCostDetail()" title="Click for details">Today: <span class="amount" id="costAmount">--</span></div>
+    <div id="clockDisplay"></div>
+  </div>
+</div>
+
+<!-- Main panels -->
+<div class="panels">
+  <!-- Left: Henry Weekends / Calendar -->
+  <div class="panel-container" id="leftContainer">
+    <div class="panel-track" id="leftTrack">
+      <div class="panel" id="henryPanel">
+        <div class="panel-title">
+          Henry Weekends
+          <span class="panel-nav" onclick="swipePanel('left', 1)">Calendar &rarr;</span>
+        </div>
+        <div id="henryList"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="panel" id="calendarPanel">
+        <div class="panel-title">
+          <span class="panel-nav" onclick="swipePanel('left', 0)">&larr; Henry</span>
+          Calendar (14 days)
+        </div>
+        <div id="calendarList"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Right: Side Gig / Email -->
+  <div class="panel-container" id="rightContainer">
+    <div class="panel-track" id="rightTrack">
+      <div class="panel" id="gigPanel">
+        <div class="panel-title">
+          Side Gig
+          <span class="panel-nav" onclick="swipePanel('right', 1)">Email &rarr;</span>
+        </div>
+        <div id="gigList"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="panel" id="emailPanel">
+        <div class="panel-title">
+          <span class="panel-nav" onclick="swipePanel('right', 0)">&larr; Gig</span>
+          Email <span id="unreadBadge"></span>
+          <span class="panel-nav" onclick="swipePanel('right', 2)">Soul &rarr;</span>
+        </div>
+        <div id="emailList"><div class="empty">Loading...</div></div>
+      </div>
+      <div class="panel" id="soulPanel">
+        <div class="panel-title">
+          <span class="panel-nav" onclick="swipePanel('right', 1)">&larr; Email</span>
+          Soul
+        </div>
+        <div id="soulSections"><div class="empty">Loading...</div></div>
+        <div id="soulPending" style="display:none"></div>
+        <div style="margin-top:16px">
+          <div class="panel-title" style="margin-bottom:8px">Recent Changes</div>
+          <div id="soulHistory"><div class="empty">No changes yet.</div></div>
+        </div>
+        <div style="margin-top:20px; text-align:center">
+          <button onclick="resetSoul()" style="background:transparent;border:1px solid var(--red);color:var(--red);padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer">Reset Soul</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Last Clawd message -->
+<div class="last-message" id="lastMessage">
+  <strong>Clawd:</strong> <span id="lastMessageText">Connecting...</span>
+</div>
+
+<!-- Chat bar -->
+<div class="chat-bar">
+  <input type="text" class="chat-input" id="chatInput" placeholder="Talk to Clawd..." autocomplete="off">
+  <button class="mic-btn unsupported" id="micBtn" onclick="toggleMic()">&#x1f3a4;</button>
+  <button class="send-btn" id="sendBtn" onclick="sendChat()">&#9654;</button>
+</div>
+<div class="voice-status" id="voiceStatus"></div>
+
+<script>
+// --- Config ---
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+const API_BASE = location.origin;
+const headers = TOKEN ? { 'Authorization': `Bearer ${TOKEN}` } : {};
+
+// --- State ---
+let panelPositions = { left: 0, right: 0 };
+let widgetData = null;
+let lastClawdMessage = '';
+
+// --- Clock ---
+function updateClock() {
+  const now = new Date();
+  const opts = { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' };
+  document.getElementById('clockDisplay').textContent = now.toLocaleDateString('en-GB', opts);
+}
+updateClock();
+setInterval(updateClock, 30000);
+
+// --- Panel swipe ---
+function swipePanel(side, index) {
+  panelPositions[side] = index;
+  const track = document.getElementById(side === 'left' ? 'leftTrack' : 'rightTrack');
+  const panelWidth = side === 'right' ? 33.333 : 50;
+  track.style.transform = `translateX(-${index * panelWidth}%)`;
+}
+
+// Touch swipe support
+function initSwipe(containerId, side) {
+  const el = document.getElementById(containerId);
+  let startX = 0, startY = 0, tracking = false;
+
+  el.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    tracking = true;
+  }, { passive: true });
+
+  el.addEventListener('touchend', (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx)) return;
+    const current = panelPositions[side];
+    const maxPanel = side === 'right' ? 2 : 1;
+    if (dx < 0 && current < maxPanel) swipePanel(side, current + 1);
+    if (dx > 0 && current > 0) swipePanel(side, current - 1);
+  }, { passive: true });
+}
+initSwipe('leftContainer', 'left');
+initSwipe('rightContainer', 'right');
+
+// --- API fetch ---
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(API_BASE + path, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json();
+}
+
+// --- Render widgets ---
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T12:00:00');
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]}`;
+}
+
+function formatTime(isoStr) {
+  if (!isoStr || !isoStr.includes('T')) return '';
+  const d = new Date(isoStr);
+  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+}
+
+function patternLabel(p) {
+  const labels = { 'fri-sun': 'Fri-Sun', 'sat-sun': 'Sat-Sun', '4-trip': '4-trip weekend', 'driving': 'Driving' };
+  return labels[p] || p;
+}
+
+function locationLabel(loc) {
+  return loc === 'up-north' ? 'Up north' : loc === 'london' ? 'London (4-trip)' : loc;
+}
+
+function renderHenryWeekends(weekends) {
+  const el = document.getElementById('henryList');
+  if (!weekends || weekends.length === 0) {
+    el.innerHTML = '<div class="empty">No Henry weekends in the next 3 months. Add events with "Henry" in the title.</div>';
+    return;
+  }
+
+  el.innerHTML = weekends.map((w, i) => {
+    const travelBadge = !w.needsTravel
+      ? '<span class="status-badge na">N/A (driving)</span>'
+      : w.travelBooked
+        ? `<span class="status-badge booked">&#x1f686; BOOKED${w.travelPrice ? ' ' + w.travelPrice : ''}</span>`
+        : '<span class="status-badge not-booked">&#x1f686; NOT BOOKED</span>';
+
+    const accomBadge = !w.needsAccommodation
+      ? '<span class="status-badge na">&#x1f3e0; N/A</span>'
+      : w.accommodationBooked
+        ? `<span class="status-badge booked">&#x1f3e0; BOOKED${w.accommodationDetails ? ' ' + w.accommodationDetails : ''}</span>`
+        : '<span class="status-badge not-booked">&#x1f3e0; NOT BOOKED</span>';
+
+    return `<div class="henry-card" onclick="planHenryWeekend(${i})">
+      <div class="henry-dates">${formatDate(w.startDate)} &mdash; ${formatDate(w.endDate)}</div>
+      <div class="henry-pattern">${patternLabel(w.pattern)} &bull; ${locationLabel(w.location)}</div>
+      <div class="henry-status">${travelBadge}${accomBadge}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderSideGig(meetings) {
+  const el = document.getElementById('gigList');
+  if (!meetings || meetings.length === 0) {
+    el.innerHTML = '<div class="empty">No AI/LQ meetings found. Tag events with "AI" or "LQ".</div>';
+    return;
+  }
+
+  el.innerHTML = meetings.map((m) => {
+    const d = new Date(m.start);
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const tags = (m.tags || []).map((t) =>
+      `<span class="tag ${t.toLowerCase()}">${t}</span>`
+    ).join('');
+    const time = m.start.includes('T') ? formatTime(m.start) : '';
+
+    return `<div class="meeting-item">
+      <div class="meeting-date"><div class="day">${d.getDate()}</div>${days[d.getDay()]} ${months[d.getMonth()]}</div>
+      <div class="meeting-title">${m.summary || 'Meeting'}${time ? '<br><small style="color:var(--text-dim)">' + time + '</small>' : ''}</div>
+      <div class="meeting-tags">${tags}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderCalendar(events) {
+  const el = document.getElementById('calendarList');
+  if (!events || events.length === 0) {
+    el.innerHTML = '<div class="empty">No events in the next 14 days.</div>';
+    return;
+  }
+
+  let lastDate = '';
+  el.innerHTML = events.map((e) => {
+    const dateStr = (e.start || '').split('T')[0];
+    const dateLabel = dateStr !== lastDate ? `<div style="font-size:12px;color:var(--accent);margin-top:12px;margin-bottom:4px;font-weight:600">${formatDate(dateStr)}</div>` : '';
+    lastDate = dateStr;
+    const time = e.start.includes('T') ? formatTime(e.start) : 'All day';
+    return `${dateLabel}<div class="cal-event"><span class="cal-time">${time}</span>${e.summary || '(No title)'}${e.location ? ' <small style="color:var(--text-dim)">@ ' + e.location + '</small>' : ''}</div>`;
+  }).join('');
+}
+
+function renderEmail(email) {
+  const el = document.getElementById('emailList');
+  const badge = document.getElementById('unreadBadge');
+
+  if (email.unreadCount > 0) {
+    badge.innerHTML = `<span class="unread-count">${email.unreadCount}</span>`;
+  } else {
+    badge.innerHTML = '';
+  }
+
+  if (!email.recent || email.recent.length === 0) {
+    el.innerHTML = '<div class="empty">No recent emails.</div>';
+    return;
+  }
+
+  el.innerHTML = email.recent.map((e) => {
+    const from = (e.from || '').replace(/<.*>/, '').trim();
+    return `<div class="email-item${e.unread ? ' email-unread' : ''}">
+      <div class="email-from">${from}</div>
+      <div class="email-subject">${e.subject || '(no subject)'}</div>
+    </div>`;
+  }).join('');
+}
+
+// --- Soul functions ---
+async function loadSoul() {
+  try {
+    const data = await apiFetch('/api/soul');
+    renderSoulSections(data.soul);
+    renderSoulPending(data.pending);
+    renderSoulHistory(data.history);
+  } catch (err) {
+    console.error('Soul load error:', err);
+  }
+}
+
+function renderSoulSections(soul) {
+  const el = document.getElementById('soulSections');
+  if (!soul) { el.innerHTML = '<div class="empty">No soul data.</div>'; return; }
+  const sections = ['personality', 'preferences', 'context', 'custom'];
+  el.innerHTML = sections.map((s) => {
+    const content = soul[s] || '';
+    return '<div style="margin-bottom:12px">' +
+      '<div style="font-size:12px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">' + s + '</div>' +
+      '<div style="font-size:13px;color:' + (content ? 'var(--text)' : 'var(--text-dim)') + ';background:var(--surface2);padding:10px 12px;border-radius:8px;border:1px solid var(--border);min-height:32px">' + (content || '<em>empty</em>') + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+function renderSoulPending(pending) {
+  const el = document.getElementById('soulPending');
+  if (!pending) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<div style="background:rgba(108,92,231,0.1);border:1px solid var(--accent);border-radius:12px;padding:14px;margin-top:12px">' +
+    '<div style="font-size:12px;font-weight:600;color:var(--accent);margin-bottom:8px">PENDING CHANGE</div>' +
+    '<div style="font-size:13px;margin-bottom:4px"><strong>Section:</strong> ' + pending.section + '</div>' +
+    '<div style="font-size:13px;margin-bottom:4px"><strong>Current:</strong> ' + (pending.previous || '(empty)') + '</div>' +
+    '<div style="font-size:13px;margin-bottom:4px"><strong>Proposed:</strong> ' + pending.content + '</div>' +
+    '<div style="font-size:13px;margin-bottom:8px"><strong>Reason:</strong> ' + (pending.reason || '(none)') + '</div>' +
+    '<div style="display:flex;gap:8px">' +
+      '<button onclick="approveSoulChange()" style="background:var(--green);color:#000;border:none;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">Approve</button>' +
+      '<button onclick="rejectSoulChange()" style="background:transparent;border:1px solid var(--red);color:var(--red);padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer">Reject</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderSoulHistory(history) {
+  const el = document.getElementById('soulHistory');
+  if (!history || history.length === 0) { el.innerHTML = '<div class="empty">No changes yet.</div>'; return; }
+  const recent = history.slice(-10).reverse();
+  el.innerHTML = recent.map((h) => {
+    const date = new Date(h.confirmedAt || h.timestamp);
+    const dateStr = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+    const timeStr = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px">' +
+      '<span style="color:var(--accent2)">' + dateStr + ' ' + timeStr + '</span>' +
+      '<span style="color:var(--text-dim);margin:0 6px">&bull;</span>' +
+      '<span style="color:var(--accent);font-weight:600">' + h.section + '</span>' +
+      '<div style="color:var(--text-dim);margin-top:2px">' + (h.content || h.newValue || '').slice(0, 80) + ((h.content || h.newValue || '').length > 80 ? '...' : '') + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+async function approveSoulChange() {
+  document.getElementById('chatInput').value = 'Yes, approve the soul change.';
+  sendChat();
+  setTimeout(loadSoul, 3000);
+}
+
+function rejectSoulChange() {
+  document.getElementById('chatInput').value = 'No, reject the soul change.';
+  sendChat();
+  setTimeout(loadSoul, 3000);
+}
+
+async function resetSoul() {
+  if (!confirm('Reset all soul sections to empty? This cannot be undone.')) return;
+  try {
+    await apiFetch('/api/soul/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    loadSoul();
+  } catch (err) {
+    console.error('Soul reset error:', err);
+  }
+}
+
+// --- Load widgets ---
+async function loadWidgets() {
+  try {
+    widgetData = await apiFetch('/api/widgets');
+    renderHenryWeekends(widgetData.henryWeekends);
+    renderSideGig(widgetData.sideGig);
+    renderCalendar(widgetData.calendar);
+    renderEmail(widgetData.email);
+  } catch (err) {
+    console.error('Widget load error:', err);
+  }
+}
+
+// --- Henry weekend tap-to-plan ---
+async function planHenryWeekend(index) {
+  if (!widgetData || !widgetData.henryWeekends[index]) return;
+  const w = widgetData.henryWeekends[index];
+
+  let message = `Plan Henry weekend ${formatDate(w.startDate)} to ${formatDate(w.endDate)}. `;
+  message += `${patternLabel(w.pattern)}, ${locationLabel(w.location)}. `;
+
+  if (!w.travelBooked && w.needsTravel) {
+    if (w.pattern === 'fri-sun') {
+      message += `Find cheapest trains KGX to YRK Friday evening + YRK to KGX Sunday. `;
+    } else if (w.pattern === 'sat-sun') {
+      message += `Find cheapest trains KGX to YRK Saturday morning + YRK to KGX Sunday. `;
+    } else if (w.pattern === '4-trip') {
+      message += `4-trip: KGX to YRK, YRK to KGX, KGX to YRK, YRK to KGX across the weekend. Find cheapest for all 4 legs. `;
+    }
+  }
+
+  if (!w.accommodationBooked && w.needsAccommodation) {
+    message += `Find accommodation near North York Moors - cottages, glamping, shepherd's huts, landpods, B&Bs, camping. Budget-friendly.`;
+  }
+
+  if (w.travelBooked && w.accommodationBooked) {
+    message += `Both travel and accommodation are booked. Show me the details.`;
+  }
+
+  document.getElementById('chatInput').value = message;
+  sendChat();
+}
+
+// --- Chat ---
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  const btn = document.getElementById('sendBtn');
+  const message = input.value.trim();
+  if (!message) return;
+
+  input.value = '';
+  btn.disabled = true;
+  updateLastMessage('You', message);
+
+  try {
+    const result = await apiFetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    });
+    if (result.response) {
+      updateLastMessage('Clawd', result.response);
+    }
+  } catch (err) {
+    updateLastMessage('Error', err.message);
+  } finally {
+    btn.disabled = false;
+    input.focus();
+    loadUsage();
+  }
+}
+
+// Enter key sends
+document.getElementById('chatInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
+});
+
+function updateLastMessage(sender, text) {
+  const el = document.getElementById('lastMessageText');
+  document.querySelector('#lastMessage strong').textContent = sender + ':';
+  el.textContent = text.length > 200 ? text.slice(0, 200) + '...' : text;
+  if (sender === 'Clawd') lastClawdMessage = text;
+}
+
+// --- SSE ---
+function connectSSE() {
+  const url = `${API_BASE}/api/events${TOKEN ? '?token=' + TOKEN : ''}`;
+  const es = new EventSource(url);
+
+  es.addEventListener('connected', () => {
+    document.getElementById('statusDot').classList.add('online');
+  });
+
+  es.addEventListener('widgets', (e) => {
+    try {
+      widgetData = JSON.parse(e.data);
+      renderHenryWeekends(widgetData.henryWeekends);
+      renderSideGig(widgetData.sideGig);
+      renderCalendar(widgetData.calendar);
+      renderEmail(widgetData.email);
+    } catch (_) {}
+  });
+
+  es.addEventListener('soul', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      renderSoulSections(data.soul);
+      renderSoulPending(data.pending);
+      renderSoulHistory(data.history);
+    } catch (_) {}
+  });
+
+  es.addEventListener('message', (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.sender === 'Clawd') {
+        updateLastMessage('Clawd', msg.text);
+      }
+    } catch (_) {}
+  });
+
+  es.onerror = () => {
+    document.getElementById('statusDot').classList.remove('online');
+    es.close();
+    setTimeout(connectSSE, 5000);
+  };
+}
+
+// --- Status check ---
+async function checkStatus() {
+  try {
+    const status = await apiFetch('/api/status');
+    const dot = document.getElementById('statusDot');
+    if (status.connected) { dot.classList.add('online'); } else { dot.classList.remove('online'); }
+  } catch (_) {}
+}
+
+// --- Usage / cost ---
+let costDetailMode = false; // false = today, true = total
+
+async function loadUsage() {
+  try {
+    const data = await apiFetch('/api/usage');
+    renderCost(data);
+  } catch (_) {}
+}
+
+function renderCost(data) {
+  const el = document.getElementById('costAmount');
+  const display = document.getElementById('costDisplay');
+  if (!data) return;
+
+  if (costDetailMode) {
+    const cost = data.total.cost.toFixed(2);
+    const calls = data.total.calls;
+    display.innerHTML = `Total: <span class="amount">$${cost}</span> <small>(${calls} calls)</small>`;
+  } else {
+    const cost = data.today.cost.toFixed(2);
+    const calls = data.today.calls;
+    display.innerHTML = `Today: <span class="amount">$${cost}</span> <small>(${calls}/${data.dailyLimit})</small>`;
+  }
+}
+
+function toggleCostDetail() {
+  costDetailMode = !costDetailMode;
+  loadUsage();
+}
+
+// --- Voice activation ---
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let voiceMode = 'off'; // off | passive | listening | push
+let recognition = null;
+let wakeWordRestart = null;
+
+function initVoice() {
+  if (!SpeechRecognition) return;
+
+  const micBtn = document.getElementById('micBtn');
+  micBtn.classList.remove('unsupported');
+
+  // Start in passive (wake word) mode
+  startWakeWordListener();
+}
+
+function setVoiceState(state, statusText) {
+  voiceMode = state;
+  const micBtn = document.getElementById('micBtn');
+  const statusEl = document.getElementById('voiceStatus');
+  micBtn.className = 'mic-btn';
+
+  if (state === 'passive') {
+    micBtn.classList.add('passive');
+    statusEl.textContent = statusText || 'Say "Clawd" to activate';
+    statusEl.classList.add('visible');
+    setTimeout(() => statusEl.classList.remove('visible'), 3000);
+  } else if (state === 'listening') {
+    micBtn.classList.add('listening');
+    statusEl.textContent = statusText || 'Listening...';
+    statusEl.classList.add('visible');
+  } else if (state === 'off') {
+    statusEl.classList.remove('visible');
+  }
+}
+
+function startWakeWordListener() {
+  if (!SpeechRecognition) return;
+  stopRecognition();
+
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-GB';
+
+  let commandBuffer = '';
+  let wakeDetected = false;
+
+  recognition.onresult = (event) => {
+    // Check all results for wake word
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript.toLowerCase().trim();
+      const isFinal = event.results[i].isFinal;
+
+      if (!wakeDetected) {
+        // Look for wake word
+        const wakeIdx = findWakeWord(transcript);
+        if (wakeIdx >= 0) {
+          wakeDetected = true;
+          commandBuffer = transcript.slice(wakeIdx).trim();
+          setVoiceState('listening', 'Heard you — speak your command');
+
+          if (isFinal && commandBuffer.length > 0) {
+            // Command came with the wake word
+            processVoiceCommand(commandBuffer);
+            wakeDetected = false;
+            commandBuffer = '';
+            setVoiceState('passive');
+          }
+        }
+      } else {
+        // Wake word already detected — capturing command
+        commandBuffer = transcript.trim();
+        if (isFinal && commandBuffer.length > 0) {
+          processVoiceCommand(commandBuffer);
+          wakeDetected = false;
+          commandBuffer = '';
+          setVoiceState('passive');
+        }
+      }
+    }
+  };
+
+  recognition.onerror = (e) => {
+    // 'no-speech' is normal — just restart
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    console.error('Speech error:', e.error);
+    setVoiceState('off');
+  };
+
+  recognition.onend = () => {
+    // Chrome stops continuous recognition after silence — restart
+    if (voiceMode === 'passive' || voiceMode === 'listening') {
+      clearTimeout(wakeWordRestart);
+      wakeWordRestart = setTimeout(startWakeWordListener, 300);
+    }
+  };
+
+  try {
+    recognition.start();
+    setVoiceState('passive');
+  } catch (e) {
+    console.error('Speech start error:', e);
+  }
+}
+
+function findWakeWord(text) {
+  // Match "clawd", "claude", "claud", "clawed" — common speech recognition variants
+  const patterns = ['clawd', 'claude', 'claud', 'clawed', 'cloud'];
+  for (const p of patterns) {
+    const idx = text.indexOf(p);
+    if (idx >= 0) return idx + p.length;
+  }
+  return -1;
+}
+
+function stopRecognition() {
+  clearTimeout(wakeWordRestart);
+  if (recognition) {
+    try { recognition.abort(); } catch (_) {}
+    recognition = null;
+  }
+}
+
+// Push-to-talk: tap mic to record one command (no wake word needed)
+function toggleMic() {
+  if (voiceMode === 'listening' || voiceMode === 'push') {
+    // Stop and go back to passive
+    stopRecognition();
+    startWakeWordListener();
+    return;
+  }
+
+  // Start push-to-talk
+  stopRecognition();
+  voiceMode = 'push';
+
+  const rec = new SpeechRecognition();
+  rec.continuous = false;
+  rec.interimResults = false;
+  rec.lang = 'en-GB';
+  recognition = rec;
+
+  rec.onresult = (event) => {
+    const transcript = event.results[0][0].transcript.trim();
+    if (transcript) processVoiceCommand(transcript);
+  };
+
+  rec.onerror = (e) => {
+    if (e.error !== 'no-speech') console.error('Push-to-talk error:', e.error);
+  };
+
+  rec.onend = () => {
+    // Return to wake word mode
+    startWakeWordListener();
+  };
+
+  try {
+    rec.start();
+    setVoiceState('listening', 'Speak now...');
+  } catch (e) {
+    startWakeWordListener();
+  }
+}
+
+function processVoiceCommand(text) {
+  // Strip any leading wake word remnant
+  let command = text;
+  const wakeIdx = findWakeWord(command.toLowerCase());
+  if (wakeIdx >= 0 && wakeIdx < command.length) {
+    command = command.slice(wakeIdx).trim();
+  }
+  if (!command) return;
+
+  document.getElementById('chatInput').value = command;
+  sendChat();
+}
+
+// --- Init ---
+loadWidgets();
+loadSoul();
+connectSSE();
+checkStatus();
+loadUsage();
+initVoice();
+setInterval(checkStatus, 60000);
+setInterval(loadWidgets, 5 * 60 * 1000);
+setInterval(loadSoul, 5 * 60 * 1000);
+setInterval(loadUsage, 2 * 60 * 60 * 1000);
+</script>
+</body>
+</html>

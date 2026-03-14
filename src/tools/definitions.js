@@ -1,0 +1,366 @@
+// Tool definitions for Claude tool_use
+export const TOOL_DEFINITIONS = [
+  // === GOOGLE CALENDAR ===
+  {
+    name: 'calendar_list_events',
+    description: 'List upcoming events from Google Calendar. Returns events for the specified number of days ahead.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        days_ahead: {
+          type: 'number',
+          description: 'Number of days to look ahead. Default 7.',
+        },
+        query: {
+          type: 'string',
+          description: 'Optional search query to filter events.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'calendar_create_event',
+    description: 'Create a new Google Calendar event.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        summary: {
+          type: 'string',
+          description: 'Event title.',
+        },
+        start: {
+          type: 'string',
+          description: 'Start datetime in ISO 8601 format (e.g., 2026-03-15T10:00:00). Use Europe/London timezone.',
+        },
+        end: {
+          type: 'string',
+          description: 'End datetime in ISO 8601 format. If not provided, defaults to 1 hour after start.',
+        },
+        description: {
+          type: 'string',
+          description: 'Optional event description.',
+        },
+        location: {
+          type: 'string',
+          description: 'Optional event location.',
+        },
+      },
+      required: ['summary', 'start'],
+    },
+  },
+  {
+    name: 'calendar_find_free_time',
+    description: 'Check calendar availability for a specific date or date range.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: {
+          type: 'string',
+          description: 'Date to check in YYYY-MM-DD format.',
+        },
+        days: {
+          type: 'number',
+          description: 'Number of days to check. Default 1.',
+        },
+      },
+      required: ['date'],
+    },
+  },
+
+  // === GMAIL ===
+  {
+    name: 'gmail_search',
+    description: 'Search Gmail inbox. Returns message summaries.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Gmail search query (same syntax as Gmail search bar). E.g., "from:john subject:meeting is:unread"',
+        },
+        max_results: {
+          type: 'number',
+          description: 'Max results to return. Default 10.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'gmail_read',
+    description: 'Read the full content of a specific email by ID.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        message_id: {
+          type: 'string',
+          description: 'The Gmail message ID to read.',
+        },
+      },
+      required: ['message_id'],
+    },
+  },
+  {
+    name: 'gmail_draft',
+    description: 'Create a draft email (does NOT send). Always use this first — James must confirm before sending. Returns draft ID and preview.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        to: {
+          type: 'string',
+          description: 'Recipient email address.',
+        },
+        subject: {
+          type: 'string',
+          description: 'Email subject line.',
+        },
+        body: {
+          type: 'string',
+          description: 'Email body text.',
+        },
+        thread_id: {
+          type: 'string',
+          description: 'Optional thread ID to reply to an existing conversation.',
+        },
+      },
+      required: ['to', 'subject', 'body'],
+    },
+  },
+  {
+    name: 'gmail_confirm_send',
+    description: 'Send an existing draft email. ONLY call this after James has explicitly confirmed he wants the draft sent. Requires the draft ID from gmail_draft.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        draft_id: {
+          type: 'string',
+          description: 'The draft ID returned by gmail_draft.',
+        },
+      },
+      required: ['draft_id'],
+    },
+  },
+
+  // === LIVE TRAVEL DATA ===
+  {
+    name: 'train_departures',
+    description: 'Get live train departure board from National Rail Darwin. Shows next trains, platforms, delays, and cancellations. Use for "when\'s the next train to York?" or "any delays at Kings Cross?"',
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: {
+          type: 'string',
+          description: 'Departure station CRS code (e.g., "KGX" for Kings Cross, "YRK" for York, "LDS" for Leeds).',
+        },
+        to: {
+          type: 'string',
+          description: 'Optional destination CRS code to filter departures.',
+        },
+      },
+      required: ['from'],
+    },
+  },
+  {
+    name: 'train_fares',
+    description: 'Get actual ticket prices for a rail journey. Shows Advance, Off-Peak, and Anytime fares. Use for "how much are tickets to York?" or "cheapest train fare Kings Cross to York".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: {
+          type: 'string',
+          description: 'Origin station CRS code (e.g., "KGX").',
+        },
+        to: {
+          type: 'string',
+          description: 'Destination station CRS code (e.g., "YRK").',
+        },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'hotel_search',
+    description: 'Search for hotels with real-time prices and availability via Amadeus. Supports search by coordinates or area name (e.g., "north_york_moors", "helmsley", "york"). Use for "find a hotel near Helmsley for this weekend".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        area: {
+          type: 'string',
+          description: 'Named area: "north_york_moors", "york", "helmsley", "pickering", "whitby", "malton", "scarborough". Resolves to coordinates automatically.',
+        },
+        latitude: {
+          type: 'number',
+          description: 'Latitude for custom location search. Overrides area.',
+        },
+        longitude: {
+          type: 'number',
+          description: 'Longitude for custom location search. Overrides area.',
+        },
+        checkin: {
+          type: 'string',
+          description: 'Check-in date YYYY-MM-DD.',
+        },
+        checkout: {
+          type: 'string',
+          description: 'Check-out date YYYY-MM-DD.',
+        },
+        adults: {
+          type: 'number',
+          description: 'Number of adults. Default 2.',
+        },
+        radius: {
+          type: 'number',
+          description: 'Search radius in km. Default 30.',
+        },
+      },
+      required: ['checkin', 'checkout'],
+    },
+  },
+
+  // === TRAVEL BOOKING LINKS ===
+  {
+    name: 'search_trains',
+    description: 'Search for train tickets (LNER, National Rail). Supports single journeys, returns, and multi-leg weekend trips. For James\'s York visits, use legs for complex patterns (e.g. 4-trip weekends).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        from: {
+          type: 'string',
+          description: 'Departure station (e.g., "London Kings Cross", "York"). Used for single/return journeys or as default for legs.',
+        },
+        to: {
+          type: 'string',
+          description: 'Arrival station. Used for single/return journeys or as default for legs.',
+        },
+        date: {
+          type: 'string',
+          description: 'Travel date YYYY-MM-DD. Used for single journey or as default for legs.',
+        },
+        time: {
+          type: 'string',
+          description: 'Preferred departure time (e.g., "18:00"). Used for single journey or as default for legs.',
+        },
+        return_date: {
+          type: 'string',
+          description: 'Return date for simple return tickets.',
+        },
+        legs: {
+          type: 'array',
+          description: 'For multi-leg trips (e.g. 4-trip weekends). Each leg has from, to, date, and optional time. Overrides single journey params.',
+          items: {
+            type: 'object',
+            properties: {
+              from: { type: 'string', description: 'Departure station for this leg.' },
+              to: { type: 'string', description: 'Arrival station for this leg.' },
+              date: { type: 'string', description: 'Date YYYY-MM-DD for this leg.' },
+              time: { type: 'string', description: 'Preferred time for this leg.' },
+            },
+            required: ['from', 'to', 'date'],
+          },
+        },
+      },
+      required: ['from', 'to', 'date'],
+    },
+  },
+  {
+    name: 'search_accommodation',
+    description: 'Search for accommodation. Has special North York Moors support — use area="north_york_moors" or mention "moors" in location for NYM-specific results with local area knowledge.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        location: {
+          type: 'string',
+          description: 'Destination (e.g., "Helmsley, North Yorkshire", "North York Moors", "Pickering")',
+        },
+        checkin: {
+          type: 'string',
+          description: 'Check-in date YYYY-MM-DD',
+        },
+        checkout: {
+          type: 'string',
+          description: 'Check-out date YYYY-MM-DD',
+        },
+        guests: {
+          type: 'number',
+          description: 'Number of guests. Default 2.',
+        },
+        budget: {
+          type: 'string',
+          description: 'Budget preference: "budget", "mid", "luxury"',
+        },
+        area: {
+          type: 'string',
+          description: 'Special area flag. Use "north_york_moors" for NYM-specific results with local village suggestions and rural stays.',
+        },
+      },
+      required: ['location', 'checkin', 'checkout'],
+    },
+  },
+  // === WEB SEARCH ===
+  {
+    name: 'web_search',
+    description: 'Search the web for current information. Use when you need facts, prices, contact details, news, or anything outside your training data. Returns titles, URLs, and snippets.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query.',
+        },
+        count: {
+          type: 'number',
+          description: 'Number of results (1-10). Default 5.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+
+  // === SOUL SYSTEM (Self-Recode) ===
+  {
+    name: 'soul_read',
+    description: 'Read current soul sections — your learned preferences, personality adjustments, and context. Always safe to call.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        section: {
+          type: 'string',
+          description: 'Optional: specific section to read (personality, preferences, context, custom). Omit to read all.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'soul_propose',
+    description: 'Propose a change to one of your soul sections. This stages the change for James to review — it does NOT apply it. Show James the diff and wait for his explicit approval before calling soul_confirm. NEVER chain soul_propose and soul_confirm in the same turn.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        section: {
+          type: 'string',
+          description: 'Section to modify: personality, preferences, context, or custom.',
+        },
+        content: {
+          type: 'string',
+          description: 'New content for the section (max 500 chars).',
+        },
+        reason: {
+          type: 'string',
+          description: 'Why you want to make this change.',
+        },
+      },
+      required: ['section', 'content', 'reason'],
+    },
+  },
+  {
+    name: 'soul_confirm',
+    description: 'Apply the pending soul change. ONLY call this after James has explicitly approved (e.g., "yes", "approve", "go ahead"). NEVER call without explicit confirmation.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+];

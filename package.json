@@ -1,0 +1,24 @@
+{
+  "name": "clawdbot",
+  "version": "1.0.0",
+  "description": "Clawd — WhatsApp admin assistant powered by Claude",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@whiskeysockets/baileys": "^6.7.16",
+    "amadeus": "^11.0.0",
+    "googleapis": "^171.4.0",
+    "national-rail-darwin-promises": "^2.1.3",
+    "pino": "^9.6.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

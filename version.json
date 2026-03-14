@@ -1,0 +1,9 @@
+{
+  "version": "1.5.0",
+  "notes": [
+    "Permissions: sender-aware tool access — MG and other group members restricted from email, soul, and calendar write tools",
+    "Restricted mode: non-owner senders get friendly responses but cannot access private tools",
+    "Message splitting: long responses auto-split at paragraph boundaries to fix mobile WhatsApp rendering",
+    "System prompt: restricted sender instructions injected when non-owner detected"
+  ]
+}

@@ -1,0 +1,412 @@
+// Widget data cache for the RPi5 dashboard
+// Periodically fetches Henry weekends, side gig meetings, email summary, booking status
+
+import { google } from 'googleapis';
+import config from './config.js';
+
+let authClient = null;
+
+function getAuth() {
+  if (authClient) return authClient;
+  if (!config.googleClientId || !config.googleRefreshToken) return null;
+  authClient = new google.auth.OAuth2(config.googleClientId, config.googleClientSecret);
+  authClient.setCredentials({ refresh_token: config.googleRefreshToken });
+  return authClient;
+}
+
+// --- Cache ---
+let widgetCache = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// --- SSE subscribers ---
+const sseClients = new Set();
+
+export function addSSEClient(res) {
+  sseClients.add(res);
+  res.on('close', () => sseClients.delete(res));
+}
+
+export function broadcastSSE(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of sseClients) {
+    try { client.write(payload); } catch (_) { sseClients.delete(client); }
+  }
+}
+
+// --- Henry Weekend parsing ---
+
+function parseHenryEvent(event) {
+  const summary = (event.summary || '').toLowerCase();
+  const description = (event.description || '').toLowerCase();
+  const text = summary + ' ' + description;
+
+  const startDate = event.start?.date || (event.start?.dateTime || '').split('T')[0];
+  const endDate = event.end?.date || (event.end?.dateTime || '').split('T')[0];
+
+  // Determine pattern from keywords (or infer from start day)
+  let pattern = null;
+  if (text.includes('4-trip') || text.includes('4 trip') || text.includes('four trip')) {
+    pattern = '4-trip';
+  } else if (text.includes('sat-sun') || text.includes('sat - sun')) {
+    pattern = 'sat-sun';
+  } else if (text.includes('fri-sun') || text.includes('fri - sun')) {
+    pattern = 'fri-sun';
+  } else if (text.includes('driving') || text.includes('drive')) {
+    pattern = 'driving';
+  }
+
+  // Infer from start day of week if not set
+  if (!pattern && startDate) {
+    const dow = new Date(startDate + 'T12:00:00').getDay();
+    pattern = dow === 5 ? 'fri-sun' : dow === 6 ? 'sat-sun' : 'fri-sun';
+  }
+
+  // Determine if up north (needs accommodation) or London-based (4-trip, no accommodation)
+  let location = 'up-north';
+  if (text.includes('london') || pattern === '4-trip') {
+    location = 'london';
+  }
+
+  const needsAccommodation = location === 'up-north' && pattern !== 'driving';
+  const needsTravel = pattern !== 'driving';
+
+  return {
+    summary: event.summary || 'Henry weekend',
+    startDate,
+    endDate,
+    pattern,
+    location,
+    needsTravel,
+    needsAccommodation,
+    travelBooked: false,
+    travelPrice: null,
+    accommodationBooked: false,
+    accommodationDetails: null,
+    eventId: event.id,
+  };
+}
+
+// --- Booking status from Gmail ---
+
+function formatGmailDate(d) {
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function checkBookingStatus(weekends) {
+  const auth = getAuth();
+  if (!auth || weekends.length === 0) return weekends;
+
+  const gmail = google.gmail({ version: 'v1', auth });
+
+  // Fetch recent travel and accommodation emails in one batch each
+  let travelEmails = [];
+  let accomEmails = [];
+
+  try {
+    const travelRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: '(from:lner.co.uk OR from:trainline.com OR from:nationalrail.co.uk OR subject:"e-ticket" subject:train) newer_than:90d',
+      maxResults: 20,
+    });
+    const travelMsgs = travelRes.data.messages || [];
+    for (const msg of travelMsgs.slice(0, 10)) {
+      const detail = await gmail.users.messages.get({
+        userId: 'me', id: msg.id, format: 'metadata',
+        metadataHeaders: ['Subject', 'Date'],
+      });
+      travelEmails.push({
+        subject: (detail.data.payload?.headers || []).find((h) => h.name === 'Subject')?.value || '',
+        snippet: detail.data.snippet || '',
+        date: (detail.data.payload?.headers || []).find((h) => h.name === 'Date')?.value || '',
+      });
+    }
+  } catch (err) {
+    console.error('[widgets] Travel email check error:', err.message);
+  }
+
+  try {
+    const accomRes = await gmail.users.messages.list({
+      userId: 'me',
+      q: '(from:booking.com OR from:airbnb.com OR from:airbnb.co.uk OR from:cottages.com OR from:pitchup.com OR from:canopyandstars.co.uk) newer_than:90d',
+      maxResults: 20,
+    });
+    const accomMsgs = accomRes.data.messages || [];
+    for (const msg of accomMsgs.slice(0, 10)) {
+      const detail = await gmail.users.messages.get({
+        userId: 'me', id: msg.id, format: 'metadata',
+        metadataHeaders: ['Subject', 'Date'],
+      });
+      accomEmails.push({
+        subject: (detail.data.payload?.headers || []).find((h) => h.name === 'Subject')?.value || '',
+        snippet: detail.data.snippet || '',
+        date: (detail.data.payload?.headers || []).find((h) => h.name === 'Date')?.value || '',
+      });
+    }
+  } catch (err) {
+    console.error('[widgets] Accommodation email check error:', err.message);
+  }
+
+  // Try to match emails to weekends by date references in subject/snippet
+  for (const weekend of weekends) {
+    if (!weekend.needsTravel && !weekend.needsAccommodation) continue;
+
+    const startD = new Date(weekend.startDate + 'T12:00:00');
+    const endD = new Date(weekend.endDate + 'T12:00:00');
+
+    // Build date patterns to search for in email text
+    const datePatterns = [];
+    for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+      const day = d.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      const m = d.getMonth();
+      const dd = String(day).padStart(2, '0');
+      const mm = String(m + 1).padStart(2, '0');
+      const yyyy = d.getFullYear();
+
+      datePatterns.push(
+        `${day} ${monthNames[m]}`, `${day} ${monthFull[m]}`,
+        `${dd}/${mm}`, `${dd}-${mm}`,
+        `${yyyy}-${mm}-${dd}`,
+      );
+    }
+
+    // Check travel emails
+    if (weekend.needsTravel) {
+      for (const email of travelEmails) {
+        const text = (email.subject + ' ' + email.snippet).toLowerCase();
+        const matched = datePatterns.some((p) => text.includes(p.toLowerCase()));
+        if (matched) {
+          weekend.travelBooked = true;
+          // Try to extract price
+          const priceMatch = text.match(/£(\d+(?:\.\d{2})?)/);
+          if (priceMatch) weekend.travelPrice = '£' + priceMatch[1];
+          break;
+        }
+      }
+    }
+
+    // Check accommodation emails
+    if (weekend.needsAccommodation) {
+      for (const email of accomEmails) {
+        const text = (email.subject + ' ' + email.snippet).toLowerCase();
+        const matched = datePatterns.some((p) => text.includes(p.toLowerCase()));
+        if (matched) {
+          weekend.accommodationBooked = true;
+          const priceMatch = text.match(/£(\d+(?:\.\d{2})?)/);
+          weekend.accommodationDetails = priceMatch ? '£' + priceMatch[1] : 'Confirmed';
+          break;
+        }
+      }
+    }
+  }
+
+  return weekends;
+}
+
+// --- Fetch functions ---
+
+async function fetchHenryWeekends() {
+  const auth = getAuth();
+  if (!auth) return [];
+
+  const cal = google.calendar({ version: 'v3', auth });
+  const now = new Date();
+  const future = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+  try {
+    const res = await cal.events.list({
+      calendarId: 'primary',
+      timeMin: now.toISOString(),
+      timeMax: future.toISOString(),
+      q: 'Henry',
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 10,
+    });
+
+    const events = res.data.items || [];
+    const weekends = events.map(parseHenryEvent);
+    return checkBookingStatus(weekends);
+  } catch (err) {
+    console.error('[widgets] Henry weekends fetch error:', err.message);
+    return [];
+  }
+}
+
+async function fetchSideGigMeetings() {
+  const auth = getAuth();
+  if (!auth) return [];
+
+  const cal = google.calendar({ version: 'v3', auth });
+  const now = new Date();
+  const future = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+
+  try {
+    const res = await cal.events.list({
+      calendarId: 'primary',
+      timeMin: now.toISOString(),
+      timeMax: future.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 50,
+    });
+
+    const events = res.data.items || [];
+
+    return events
+      .filter((e) => {
+        const text = ((e.summary || '') + ' ' + (e.description || '')).toLowerCase();
+        return /\bai\b/.test(text) || /\blq\b/.test(text) || text.includes('legal quants');
+      })
+      .map((e) => {
+        const text = ((e.summary || '') + ' ' + (e.description || '')).toLowerCase();
+        const tags = [];
+        if (/\bai\b/.test(text)) tags.push('AI');
+        if (/\blq\b/.test(text) || text.includes('legal quants')) tags.push('LQ');
+        return {
+          summary: e.summary,
+          start: e.start?.dateTime || e.start?.date,
+          end: e.end?.dateTime || e.end?.date,
+          location: e.location || null,
+          tags,
+          eventId: e.id,
+        };
+      })
+      .slice(0, 8);
+  } catch (err) {
+    console.error('[widgets] Side gig fetch error:', err.message);
+    return [];
+  }
+}
+
+async function fetchEmailSummary() {
+  const auth = getAuth();
+  if (!auth) return { unreadCount: 0, recent: [] };
+
+  const gmail = google.gmail({ version: 'v1', auth });
+
+  try {
+    const unreadRes = await gmail.users.messages.list({
+      userId: 'me', q: 'is:unread is:inbox', maxResults: 1,
+    });
+
+    const recentRes = await gmail.users.messages.list({
+      userId: 'me', q: 'is:inbox', maxResults: 5,
+    });
+
+    const recent = [];
+    for (const msg of (recentRes.data.messages || []).slice(0, 5)) {
+      const detail = await gmail.users.messages.get({
+        userId: 'me', id: msg.id, format: 'metadata',
+        metadataHeaders: ['From', 'Subject', 'Date'],
+      });
+      const headers = detail.data.payload?.headers || [];
+      const getH = (name) => headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value || '';
+      recent.push({
+        id: msg.id,
+        from: getH('From'),
+        subject: getH('Subject'),
+        date: getH('Date'),
+        snippet: detail.data.snippet || '',
+        unread: (detail.data.labelIds || []).includes('UNREAD'),
+      });
+    }
+
+    return {
+      unreadCount: unreadRes.data.resultSizeEstimate || 0,
+      recent,
+    };
+  } catch (err) {
+    console.error('[widgets] Email summary error:', err.message);
+    return { unreadCount: 0, recent: [] };
+  }
+}
+
+async function fetchCalendarEvents() {
+  const auth = getAuth();
+  if (!auth) return [];
+
+  const cal = google.calendar({ version: 'v3', auth });
+  const now = new Date();
+  const future = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+  try {
+    const res = await cal.events.list({
+      calendarId: 'primary',
+      timeMin: now.toISOString(),
+      timeMax: future.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 15,
+    });
+    return (res.data.items || []).map((e) => ({
+      summary: e.summary,
+      start: e.start?.dateTime || e.start?.date,
+      end: e.end?.dateTime || e.end?.date,
+      location: e.location || null,
+    }));
+  } catch (err) {
+    console.error('[widgets] Calendar events error:', err.message);
+    return [];
+  }
+}
+
+// --- Main refresh ---
+
+async function refreshWidgets() {
+  console.log('[widgets] Refreshing...');
+  const start = Date.now();
+
+  try {
+    const [henryWeekends, sideGig, email, calendar] = await Promise.all([
+      fetchHenryWeekends(),
+      fetchSideGigMeetings(),
+      fetchEmailSummary(),
+      fetchCalendarEvents(),
+    ]);
+
+    widgetCache = { henryWeekends, sideGig, email, calendar, lastRefresh: new Date().toISOString() };
+    cacheTimestamp = Date.now();
+
+    console.log(`[widgets] Done in ${Date.now() - start}ms — ${henryWeekends.length} Henry, ${sideGig.length} gig, ${email.recent.length} emails`);
+
+    // Notify dashboard clients
+    broadcastSSE('widgets', widgetCache);
+  } catch (err) {
+    console.error('[widgets] Refresh error:', err.message);
+  }
+}
+
+// --- Public API ---
+
+export async function getWidgetData() {
+  if (!widgetCache || Date.now() - cacheTimestamp > CACHE_TTL) {
+    await refreshWidgets();
+  }
+  return widgetCache || {
+    henryWeekends: [], sideGig: [], email: { unreadCount: 0, recent: [] },
+    calendar: [], lastRefresh: null,
+  };
+}
+
+export function forceRefresh() {
+  return refreshWidgets();
+}
+
+let refreshInterval = null;
+
+export function startWidgetRefresh() {
+  if (!config.googleClientId || !config.googleRefreshToken) {
+    console.log('[widgets] Google not configured — widget refresh disabled');
+    return;
+  }
+  refreshWidgets();
+  refreshInterval = setInterval(refreshWidgets, CACHE_TTL);
+  console.log('[widgets] Periodic refresh started (every 5 min)');
+}
+
+export function stopWidgetRefresh() {
+  if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+}
