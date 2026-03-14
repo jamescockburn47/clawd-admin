@@ -27,6 +27,7 @@ function printBanner() {
   Prefix:   ${config.triggerPrefix}
   Limit:    ${config.dailyCallLimit} calls/day
   Group:    ${config.whatsappGroupJid || '(all groups)'}
+  HTTP:     port ${config.httpPort}
 `);
 }
 
@@ -462,16 +463,19 @@ createServer(async (req, res) => {
     return;
   }
 
-  // Default: QR code page
-  if (existsSync('/tmp/qr.png')) {
+  // Default: QR code page (auto-refreshes every 5s so QR stays fresh)
+  if (activeSock?.user?.id) {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(`<html><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>✅ Connected as ${activeSock.user.name || 'Clawd'}</h2><p>Dashboard: <a href="/dashboard?token=${config.dashboardToken}">/dashboard</a></p></body></html>`);
+  } else if (existsSync('/tmp/qr.png')) {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     const img = readFileSync('/tmp/qr.png').toString('base64');
-    res.end('<html><body style="text-align:center;padding:40px"><img src="data:image/png;base64,' + img + '" style="width:400px"/></body></html>');
+    res.end(`<html><head><meta http-equiv="refresh" content="5"></head><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Scan QR to link WhatsApp</h2><img src="data:image/png;base64,${img}" style="width:400px"/><p style="color:#888">Auto-refreshing every 5s</p></body></html>`);
   } else {
     res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end('<html><body><p>Waiting for QR...</p></body></html>');
+    res.end('<html><head><meta http-equiv="refresh" content="3"></head><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Waiting for QR...</h2><p style="color:#888">Auto-refreshing</p></body></html>');
   }
-}).listen(8080, () => console.log('  HTTP server on port 8080'));
+}).listen(config.httpPort, () => console.log(`  HTTP server on port ${config.httpPort}`));
 
 // Start widget cache refresh
 startWidgetRefresh();

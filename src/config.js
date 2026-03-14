@@ -38,6 +38,7 @@ const config = {
   braveApiKey: process.env.BRAVE_API_KEY || '',
 
   // Dashboard
+  httpPort: parseInt(process.env.HTTP_PORT) || 8080,
   dashboardToken: process.env.DASHBOARD_TOKEN || '',
 };
 
