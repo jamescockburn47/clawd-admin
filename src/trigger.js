@@ -47,6 +47,11 @@ export function shouldRespond({ text, hasImage, isFromMe, isGroup, senderJid, bo
     return { respond: true, mode: 'direct' };
   }
 
+  // 4. Task/reminder patterns — respond without prefix (MG can say "remind james to X")
+  if (/\b(remind\s+(james|him|me)|add\s+(to\s+)?(the\s+)?(to-?do|list|tasks?)|don'?t\s+forget|put\s+(it\s+)?on\s+the\s+list)\b/i.test(lowerText)) {
+    return { respond: true, mode: 'direct' };
+  }
+
   // Conversation flow — respond if bot recently spoke and message looks directed
   const recentlySpoke = botRecentlySpokeIn(groupJid);
 

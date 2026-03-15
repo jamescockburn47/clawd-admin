@@ -23,12 +23,23 @@
   }
   .header-left { font-size: 20px; font-weight: 700; letter-spacing: 2px; color: var(--accent); }
   .header-right { font-size: 15px; color: var(--text-dim); display: flex; align-items: center; gap: 16px; }
-  .cost-display { font-size: 12px; color: var(--text-dim); cursor: pointer; padding: 3px 10px; border: 1px solid var(--border); border-radius: 10px; }
+  .cost-display { font-size: 12px; color: var(--text-dim); cursor: pointer; padding: 3px 10px; border: 1px solid var(--border); border-radius: 10px; transition: border-color 0.3s, color 0.3s; }
   .cost-display .amount { color: var(--accent2); font-weight: 600; }
+  .cost-display.usage-warn { border-color: var(--orange); color: var(--orange); }
+  .cost-display.usage-warn .amount { color: var(--orange); }
+  .cost-display.usage-critical { border-color: var(--red); color: var(--red); animation: usage-pulse 1.5s ease-in-out infinite; }
+  .cost-display.usage-critical .amount { color: var(--red); }
+  @keyframes usage-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
   .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; background: var(--red); }
   .status-dot.online { background: var(--green); }
+  .status-dot.stale { background: var(--orange); }
+  .weather-bar { font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 2px; }
+  .weather-bar .wx-loc { color: var(--text-dim); }
+  .weather-bar .wx-temp { color: var(--accent2); font-weight: 600; }
+  .weather-bar .wx-sep { margin: 0 6px; opacity: 0.4; }
+  .model-indicator { font-size: 10px; color: var(--text-dim); opacity: 0.7; margin-left: 4px; }
 
-  /* Main panels area */
+  /* Main panels area — 3 columns */
   .panels {
     display: flex; height: calc(100% - 52px - 100px - 56px); /* header - lastMsg - chatBar */
     overflow: hidden;
@@ -49,10 +60,52 @@
   .panel::-webkit-scrollbar { width: 4px; }
   .panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-  #rightTrack { width: 300%; }
-  #rightTrack .panel { width: 33.333%; }
+  #rightTrack { width: 400%; }
+  #rightTrack .panel { width: 25%; }
+
+  /* Center panel (no swipe) */
+  .panel-static {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .panel-static::-webkit-scrollbar { width: 4px; }
+  .panel-static::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   .divider { width: 1px; background: var(--border); flex-shrink: 0; }
+
+  /* Todo items */
+  .todo-item {
+    display: flex; align-items: flex-start; gap: 10px; padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .todo-item:last-child { border-bottom: none; }
+  .todo-check {
+    width: 20px; height: 20px; border-radius: 4px; border: 2px solid var(--border);
+    cursor: pointer; flex-shrink: 0; margin-top: 1px; display: flex;
+    align-items: center; justify-content: center; transition: all 0.2s;
+    background: transparent; color: transparent; font-size: 12px; font-weight: 800;
+  }
+  .todo-check:hover { border-color: var(--accent); }
+  .todo-check.done { background: var(--green); border-color: var(--green); color: #000; }
+  .todo-content { flex: 1; min-width: 0; }
+  .todo-text { font-size: 13px; line-height: 1.3; }
+  .todo-text.done { text-decoration: line-through; color: var(--text-dim); }
+  .todo-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .todo-priority-high { border-left: 3px solid var(--red); padding-left: 8px; }
+  .todo-priority-low { opacity: 0.7; }
+  .todo-reminder-badge {
+    font-size: 10px; color: var(--accent); background: rgba(108,92,231,0.15);
+    padding: 1px 6px; border-radius: 4px; margin-left: 4px;
+  }
+  .todo-due-badge {
+    font-size: 10px; color: var(--orange); margin-left: 4px;
+  }
+  .todo-due-badge.overdue { color: var(--red); font-weight: 600; }
+  .todo-section-title {
+    font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase;
+    letter-spacing: 1px; margin-top: 12px; margin-bottom: 6px;
+  }
+  .todo-section-title:first-child { margin-top: 0; }
 
   /* Panel headers */
   .panel-title {
@@ -75,12 +128,18 @@
   .henry-pattern { font-size: 13px; color: var(--text-dim); margin-bottom: 10px; }
   .henry-status { display: flex; gap: 12px; flex-wrap: wrap; }
   .status-badge {
-    font-size: 12px; padding: 4px 10px; border-radius: 8px; font-weight: 600;
-    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; padding: 5px 12px; border-radius: 8px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid transparent;
   }
-  .status-badge.booked { background: rgba(81,207,102,0.15); color: var(--green); }
-  .status-badge.not-booked { background: rgba(255,107,107,0.15); color: var(--red); }
+  .status-badge.booked { background: rgba(81,207,102,0.2); color: #6de68a; border-color: rgba(81,207,102,0.3); }
+  .status-badge.not-booked { background: rgba(255,107,107,0.2); color: #ff8787; border-color: rgba(255,107,107,0.35); }
   .status-badge.na { background: rgba(136,136,160,0.1); color: var(--text-dim); }
+  .status-badge .badge-icon { font-size: 11px; font-weight: 800; width: 16px; height: 16px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .status-badge.booked .badge-icon { background: var(--green); color: #000; }
+  .status-badge.not-booked .badge-icon { background: var(--red); color: #fff; }
+  .status-badge.na .badge-icon { background: rgba(136,136,160,0.25); color: var(--text-dim); }
+  .status-badge .badge-label { text-transform: uppercase; letter-spacing: 0.5px; }
 
   /* Side gig meetings */
   .meeting-item {
@@ -88,6 +147,17 @@
     border-bottom: 1px solid var(--border); cursor: pointer;
   }
   .meeting-item:last-child { border-bottom: none; }
+  .meeting-item:active { background: var(--surface2); }
+  .meeting-details {
+    display: none; margin-top: 6px; padding: 6px 10px; background: var(--surface2);
+    border-radius: 6px; font-size: 12px; color: var(--text-dim); line-height: 1.5;
+    grid-column: 1 / -1;
+  }
+  .meeting-item.expanded { display: grid; grid-template-columns: auto 1fr auto; }
+  .meeting-item.expanded .meeting-details { display: block; }
+  .meeting-details .cal-detail-row { margin-bottom: 2px; }
+  .meeting-details .cal-detail-label { color: var(--accent2); font-weight: 600; margin-right: 4px; }
+  .meeting-details .cal-description { margin-top: 4px; white-space: pre-wrap; word-break: break-word; opacity: 0.8; }
   .meeting-date {
     font-size: 12px; color: var(--text-dim); min-width: 60px; text-align: center;
     line-height: 1.3;
@@ -104,10 +174,19 @@
 
   /* Calendar events */
   .cal-event {
-    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+    padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; cursor: pointer;
   }
   .cal-event:last-child { border-bottom: none; }
+  .cal-event:active { background: var(--surface2); }
   .cal-time { color: var(--accent2); font-weight: 600; margin-right: 8px; }
+  .cal-details {
+    display: none; margin-top: 6px; padding: 6px 10px; background: var(--surface2);
+    border-radius: 6px; font-size: 12px; color: var(--text-dim); line-height: 1.5;
+  }
+  .cal-event.expanded .cal-details { display: block; }
+  .cal-details .cal-detail-row { margin-bottom: 2px; }
+  .cal-details .cal-detail-label { color: var(--accent2); font-weight: 600; margin-right: 4px; }
+  .cal-details .cal-description { margin-top: 4px; white-space: pre-wrap; word-break: break-word; opacity: 0.8; }
 
   /* Email list */
   .email-item {
@@ -128,6 +207,15 @@
   .email-time { font-size: 11px; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; }
   .email-subject { font-size: 12px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .email-snippet { font-size: 11px; color: var(--text-dim); opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .email-item.expanded .email-subject,
+  .email-item.expanded .email-snippet,
+  .email-item.expanded .email-from { white-space: normal; overflow: visible; text-overflow: unset; }
+  .email-item.expanded .email-snippet { opacity: 0.8; font-size: 12px; line-height: 1.4; }
+  .email-expanded-meta {
+    display: none; margin-top: 4px; font-size: 11px; color: var(--text-dim); opacity: 0.7;
+  }
+  .email-item.expanded .email-expanded-meta { display: block; }
+  .email-item:active { background: var(--surface2); }
   .email-unread .email-from { color: var(--blue); }
   .email-needs-reply .email-from { color: var(--orange); }
   .unread-count {
@@ -238,13 +326,16 @@
     .header-left { font-size: 16px; }
     .header-right { font-size: 13px; gap: 10px; }
     .cost-display { font-size: 11px; padding: 2px 8px; }
+    .weather-bar { font-size: 10px; gap: 1px; }
+    .weather-bar .wx-sep { margin: 0 4px; }
     .panels { height: calc(100% - 40px - 36px - 56px); }
     .panel { padding: 10px 14px; }
     .panel-title { font-size: 11px; margin-bottom: 10px; }
     .henry-card { padding: 10px 12px; margin-bottom: 8px; border-radius: 8px; }
     .henry-dates { font-size: 14px; margin-bottom: 2px; }
     .henry-pattern { font-size: 12px; margin-bottom: 6px; }
-    .status-badge { font-size: 11px; padding: 3px 8px; }
+    .status-badge { font-size: 11px; padding: 3px 8px; gap: 4px; }
+    .status-badge .badge-icon { font-size: 12px; }
     .meeting-item { padding: 8px 0; }
     .meeting-date .day { font-size: 16px; }
     .meeting-date { font-size: 11px; min-width: 50px; }
@@ -258,13 +349,125 @@
     .send-btn { width: 40px; height: 40px; font-size: 18px; }
     .mic-btn { width: 40px; height: 40px; font-size: 18px; }
     .empty { font-size: 12px; padding: 10px 0; }
+    .panel-static { padding: 10px 14px; }
+    .todo-item { padding: 6px 0; }
+    .todo-check { width: 18px; height: 18px; }
+    .todo-text { font-size: 12px; }
+    .todo-meta { font-size: 10px; }
+    .todo-section-title { font-size: 10px; margin-top: 8px; margin-bottom: 4px; }
   }
+
+  /* Admin panel */
+  .admin-section { margin-bottom: 16px; }
+  .admin-section-title {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--accent); margin-bottom: 8px;
+  }
+  .status-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 5px 0; font-size: 12px; border-bottom: 1px solid rgba(42,42,64,0.5);
+  }
+  .status-row:last-child { border-bottom: none; }
+  .status-label { color: var(--text-dim); }
+  .status-value { font-weight: 600; }
+  .status-value.online { color: var(--green); }
+  .status-value.offline { color: var(--red); }
+  .status-value.warn { color: var(--orange); }
+  .stat-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;
+  }
+  .stat-card {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; text-align: center;
+  }
+  .stat-card .stat-num { font-size: 18px; font-weight: 700; color: var(--accent2); }
+  .stat-card .stat-lbl { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .mem-search-bar {
+    display: flex; gap: 6px; margin-bottom: 8px;
+  }
+  .mem-search-input {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; color: var(--text); outline: none; font-family: inherit;
+  }
+  .mem-search-input:focus { border-color: var(--accent); }
+  .mem-search-btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 12px; font-size: 12px; cursor: pointer; font-weight: 600;
+  }
+  .mem-search-btn:active { opacity: 0.7; }
+  .mem-item {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 6px; font-size: 12px; position: relative;
+  }
+  .mem-fact { color: var(--text); line-height: 1.3; margin-bottom: 4px; }
+  .mem-meta { color: var(--text-dim); font-size: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .mem-meta .cat { color: var(--accent); font-weight: 600; }
+  .mem-actions {
+    position: absolute; top: 6px; right: 6px; display: flex; gap: 4px;
+  }
+  .mem-action-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-dim); font-size: 10px; padding: 2px 6px; cursor: pointer;
+  }
+  .mem-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .mem-action-btn.delete:hover { border-color: var(--red); color: var(--red); }
+  .mem-pagination {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; color: var(--text-dim); margin-top: 6px;
+  }
+  .mem-page-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-dim); padding: 4px 10px; font-size: 11px; cursor: pointer;
+  }
+  .mem-page-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .mem-page-btn:disabled { opacity: 0.3; cursor: default; }
+  .note-input-area {
+    display: flex; gap: 6px;
+  }
+  .note-input {
+    flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; color: var(--text); outline: none; font-family: inherit;
+    resize: none; min-height: 36px;
+  }
+  .note-input:focus { border-color: var(--accent); }
+  .note-save-btn {
+    background: var(--accent2); color: #000; border: none; border-radius: 8px;
+    padding: 8px 12px; font-size: 12px; cursor: pointer; font-weight: 600; white-space: nowrap;
+  }
+  .note-save-btn:active { opacity: 0.7; }
+  .note-save-btn:disabled { opacity: 0.3; }
+  .mem-edit-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7);
+    z-index: 200; display: flex; align-items: center; justify-content: center;
+  }
+  .mem-edit-dialog {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; width: 90%; max-width: 400px;
+  }
+  .mem-edit-dialog h3 { font-size: 14px; margin-bottom: 12px; color: var(--accent); }
+  .mem-edit-dialog textarea {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px; font-size: 13px; color: var(--text); outline: none; font-family: inherit;
+    resize: vertical; min-height: 80px; margin-bottom: 8px;
+  }
+  .mem-edit-dialog textarea:focus { border-color: var(--accent); }
+  .mem-edit-dialog select {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px; font-size: 13px; color: var(--text); outline: none; margin-bottom: 12px;
+  }
+  .mem-edit-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .mem-edit-actions button {
+    padding: 8px 16px; border-radius: 8px; font-size: 13px; cursor: pointer; border: none;
+  }
+  .mem-edit-actions .save { background: var(--accent); color: #fff; font-weight: 600; }
+  .mem-edit-actions .cancel { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
 
   /* Tab layout for narrow widths (under 800px) */
   @media (max-width: 800px) {
     .panels { flex-direction: column; }
     .divider { display: none; }
-    .panel-container { flex: none; height: 50%; }
+    .panel-container { flex: none; height: 33%; }
+    .panel-static { flex: none; height: 34%; padding: 10px 14px; }
     .panel { padding: 10px 14px; }
   }
 </style>
@@ -275,6 +478,7 @@
 <div class="header">
   <div class="header-left"><span class="status-dot" id="statusDot"></span>CLAWD</div>
   <div class="header-right">
+    <div class="weather-bar" id="weatherBar"></div>
     <div class="cost-display" id="costDisplay" onclick="toggleCostDetail()" title="Click for details">Today: <span class="amount" id="costAmount">--</span></div>
     <div id="clockDisplay"></div>
   </div>
@@ -304,6 +508,14 @@
 
   <div class="divider"></div>
 
+  <!-- Center: Todos & Reminders -->
+  <div class="panel-static" id="todoPanel">
+    <div class="panel-title">Todos & Reminders</div>
+    <div id="todoList"><div class="empty">Loading...</div></div>
+  </div>
+
+  <div class="divider"></div>
+
   <!-- Right: Side Gig / Email -->
   <div class="panel-container" id="rightContainer">
     <div class="panel-track" id="rightTrack">
@@ -326,6 +538,7 @@
         <div class="panel-title">
           <span class="panel-nav" onclick="swipePanel('right', 1)">&larr; Email</span>
           Soul
+          <span class="panel-nav" onclick="swipePanel('right', 3)">Admin &rarr;</span>
         </div>
         <div id="soulSections"><div class="empty">Loading...</div></div>
         <div id="soulPending" style="display:none"></div>
@@ -335,6 +548,53 @@
         </div>
         <div style="margin-top:20px; text-align:center">
           <button onclick="resetSoul()" style="background:transparent;border:1px solid var(--red);color:var(--red);padding:8px 16px;border-radius:8px;font-size:12px;cursor:pointer">Reset Soul</button>
+        </div>
+      </div>
+      <div class="panel" id="adminPanel">
+        <div class="panel-title">
+          <span class="panel-nav" onclick="swipePanel('right', 2)">&larr; Soul</span>
+          Admin
+        </div>
+
+        <!-- System Status -->
+        <div class="admin-section">
+          <div class="admin-section-title">System Status</div>
+          <div id="systemStatus">
+            <div class="status-row"><span class="status-label">Pi (clawdbot)</span><span class="status-value online" id="piStatus">Online</span></div>
+            <div class="status-row"><span class="status-label">EVO X2</span><span class="status-value" id="evoStatus">--</span></div>
+            <div class="status-row"><span class="status-label">Ollama</span><span class="status-value" id="ollamaStatus">--</span></div>
+            <div class="status-row"><span class="status-label">Whisper</span><span class="status-value" id="whisperStatus">--</span></div>
+          </div>
+          <div class="stat-grid" id="memoryStats">
+            <div class="stat-card"><div class="stat-num" id="statTotal">--</div><div class="stat-lbl">Memories</div></div>
+            <div class="stat-card"><div class="stat-num" id="statQueue">--</div><div class="stat-lbl">Queue</div></div>
+            <div class="stat-card"><div class="stat-num" id="statCache">--</div><div class="stat-lbl">Cached</div></div>
+            <div class="stat-card"><div class="stat-num" id="statCacheAge">--</div><div class="stat-lbl">Cache Age</div></div>
+          </div>
+        </div>
+
+        <!-- Quick Note -->
+        <div class="admin-section">
+          <div class="admin-section-title">Quick Note</div>
+          <div class="note-input-area">
+            <input type="text" class="note-input" id="noteInput" placeholder="Type a note or memo..." autocomplete="off">
+            <button class="note-save-btn" id="noteSaveBtn" onclick="saveNote()">Save</button>
+          </div>
+        </div>
+
+        <!-- Memory Browser -->
+        <div class="admin-section">
+          <div class="admin-section-title">Memory Browser</div>
+          <div class="mem-search-bar">
+            <input type="text" class="mem-search-input" id="memSearchInput" placeholder="Search memories..." autocomplete="off">
+            <button class="mem-search-btn" onclick="searchMemories()">Search</button>
+          </div>
+          <div id="memoryList"><div class="empty">Load memories to browse.</div></div>
+          <div class="mem-pagination" id="memPagination" style="display:none">
+            <button class="mem-page-btn" id="memPrevBtn" onclick="memPagePrev()">&larr; Prev</button>
+            <span id="memPageInfo">page 1</span>
+            <button class="mem-page-btn" id="memNextBtn" onclick="memPageNext()">Next &rarr;</button>
+          </div>
         </div>
       </div>
     </div>
@@ -386,7 +646,7 @@ setInterval(updateClock, 30000);
 function swipePanel(side, index) {
   panelPositions[side] = index;
   const track = document.getElementById(side === 'left' ? 'leftTrack' : 'rightTrack');
-  const panelWidth = side === 'right' ? 33.333 : 50;
+  const panelWidth = side === 'right' ? 25 : 50;
   track.style.transform = `translateX(-${index * panelWidth}%)`;
 }
 
@@ -408,7 +668,7 @@ function initSwipe(containerId, side) {
     const dy = e.changedTouches[0].clientY - startY;
     if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx)) return;
     const current = panelPositions[side];
-    const maxPanel = side === 'right' ? 2 : 1;
+    const maxPanel = side === 'right' ? 3 : 1;
     if (dx < 0 && current < maxPanel) swipePanel(side, current + 1);
     if (dx > 0 && current > 0) swipePanel(side, current - 1);
   }, { passive: true });
@@ -455,17 +715,24 @@ function renderHenryWeekends(weekends) {
   }
 
   el.innerHTML = weekends.map((w, i) => {
-    const travelBadge = !w.needsTravel
-      ? '<span class="status-badge na">N/A (driving)</span>'
-      : w.travelBooked
-        ? `<span class="status-badge booked">&#x1f686; BOOKED${w.travelPrice ? ' ' + w.travelPrice : ''}</span>`
-        : '<span class="status-badge not-booked">&#x1f686; NOT BOOKED</span>';
-
-    const accomBadge = !w.needsAccommodation
-      ? '<span class="status-badge na">&#x1f3e0; N/A</span>'
-      : w.accommodationBooked
-        ? `<span class="status-badge booked">&#x1f3e0; BOOKED${w.accommodationDetails ? ' ' + w.accommodationDetails : ''}</span>`
-        : '<span class="status-badge not-booked">&#x1f3e0; NOT BOOKED</span>';
+    let travelBadge, accomBadge;
+    if (!w.needsTravel) {
+      travelBadge = '<span class="status-badge na"><span class="badge-icon">&rarr;</span><span class="badge-label">Driving</span></span>';
+      accomBadge = !w.needsAccommodation
+        ? '<span class="status-badge na"><span class="badge-icon">&mdash;</span><span class="badge-label">Stay N/A</span></span>'
+        : w.accommodationBooked
+          ? `<span class="status-badge booked"><span class="badge-icon">&check;</span><span class="badge-label">Stay booked${w.accommodationDetails ? ' ' + w.accommodationDetails : ''}</span></span>`
+          : '<span class="status-badge not-booked"><span class="badge-icon">!</span><span class="badge-label">No stay booked</span></span>';
+    } else {
+      travelBadge = w.travelBooked
+        ? `<span class="status-badge booked"><span class="badge-icon">&check;</span><span class="badge-label">Train booked${w.travelPrice ? ' ' + w.travelPrice : ''}</span></span>`
+        : '<span class="status-badge not-booked"><span class="badge-icon">!</span><span class="badge-label">No train booked</span></span>';
+      accomBadge = !w.needsAccommodation
+        ? '<span class="status-badge na"><span class="badge-icon">&mdash;</span><span class="badge-label">Stay N/A</span></span>'
+        : w.accommodationBooked
+          ? `<span class="status-badge booked"><span class="badge-icon">&check;</span><span class="badge-label">Stay booked${w.accommodationDetails ? ' ' + w.accommodationDetails : ''}</span></span>`
+          : '<span class="status-badge not-booked"><span class="badge-icon">!</span><span class="badge-label">No stay booked</span></span>';
+    }
 
     return `<div class="henry-card" onclick="planHenryWeekend(${i})">
       <div class="henry-dates">${formatDate(w.startDate)} &mdash; ${formatDate(w.endDate)}</div>
@@ -489,12 +756,32 @@ function renderSideGig(meetings) {
     const tags = (m.tags || []).map((t) =>
       `<span class="tag ${t.toLowerCase()}">${t}</span>`
     ).join('');
-    const time = m.start.includes('T') ? formatTime(m.start) : '';
+    const isTimedEvent = m.start.includes('T');
+    const time = isTimedEvent ? formatTime(m.start) : '';
 
-    return `<div class="meeting-item">
+    // Build detail rows for expanded view
+    let details = '';
+    if (isTimedEvent && m.end) {
+      const endTime = formatTime(m.end);
+      const durMs = new Date(m.end) - new Date(m.start);
+      const durMins = Math.round(durMs / 60000);
+      const durStr = durMins >= 60 ? `${Math.floor(durMins / 60)}h${durMins % 60 ? ' ' + (durMins % 60) + 'm' : ''}` : `${durMins}m`;
+      details += `<div class="cal-detail-row"><span class="cal-detail-label">Ends:</span>${endTime} (${durStr})</div>`;
+    }
+    if (m.location) details += `<div class="cal-detail-row"><span class="cal-detail-label">Where:</span>${m.location}</div>`;
+    if (m.description) {
+      const desc = m.description.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const truncDesc = desc.length > 200 ? desc.slice(0, 200) + '...' : desc;
+      details += `<div class="cal-description">${truncDesc}</div>`;
+    }
+
+    const detailsHtml = details ? `<div class="meeting-details">${details}</div>` : '';
+
+    return `<div class="meeting-item" onclick="this.classList.toggle('expanded')">
       <div class="meeting-date"><div class="day">${d.getDate()}</div>${days[d.getDay()]} ${months[d.getMonth()]}</div>
       <div class="meeting-title">${m.summary || 'Meeting'}${time ? '<br><small style="color:var(--text-dim)">' + time + '</small>' : ''}</div>
       <div class="meeting-tags">${tags}</div>
+      ${detailsHtml}
     </div>`;
   }).join('');
 }
@@ -507,12 +794,40 @@ function renderCalendar(events) {
   }
 
   let lastDate = '';
-  el.innerHTML = events.map((e) => {
+  el.innerHTML = events.map((e, i) => {
     const dateStr = (e.start || '').split('T')[0];
     const dateLabel = dateStr !== lastDate ? `<div style="font-size:12px;color:var(--accent);margin-top:12px;margin-bottom:4px;font-weight:600">${formatDate(dateStr)}</div>` : '';
     lastDate = dateStr;
-    const time = e.start.includes('T') ? formatTime(e.start) : 'All day';
-    return `${dateLabel}<div class="cal-event"><span class="cal-time">${time}</span>${e.summary || '(No title)'}${e.location ? ' <small style="color:var(--text-dim)">@ ' + e.location + '</small>' : ''}</div>`;
+    const isTimedEvent = e.start.includes('T');
+    const time = isTimedEvent ? formatTime(e.start) : 'All day';
+
+    // Build detail rows for expanded view
+    let details = '';
+    if (isTimedEvent && e.end) {
+      const endTime = formatTime(e.end);
+      const durMs = new Date(e.end) - new Date(e.start);
+      const durMins = Math.round(durMs / 60000);
+      const durStr = durMins >= 60 ? `${Math.floor(durMins / 60)}h${durMins % 60 ? ' ' + (durMins % 60) + 'm' : ''}` : `${durMins}m`;
+      details += `<div class="cal-detail-row"><span class="cal-detail-label">Ends:</span>${endTime} (${durStr})</div>`;
+    } else if (!isTimedEvent && e.end) {
+      const endDate = e.end.split('T')[0];
+      if (endDate !== dateStr) {
+        // Multi-day all-day event — correct exclusive end
+        const d = new Date(endDate + 'T12:00:00');
+        d.setDate(d.getDate() - 1);
+        const corrected = d.toISOString().split('T')[0];
+        if (corrected !== dateStr) details += `<div class="cal-detail-row"><span class="cal-detail-label">Until:</span>${formatDate(corrected)}</div>`;
+      }
+    }
+    if (e.location) details += `<div class="cal-detail-row"><span class="cal-detail-label">Where:</span>${e.location}</div>`;
+    if (e.description) {
+      const desc = e.description.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const truncDesc = desc.length > 200 ? desc.slice(0, 200) + '...' : desc;
+      details += `<div class="cal-description">${truncDesc}</div>`;
+    }
+
+    const detailsHtml = details ? `<div class="cal-details">${details}</div>` : '';
+    return `${dateLabel}<div class="cal-event" onclick="this.classList.toggle('expanded')"><span class="cal-time">${time}</span>${e.summary || '(No title)'}${detailsHtml}</div>`;
   }).join('');
 }
 
@@ -556,7 +871,8 @@ function renderEmail(email) {
   }
 
   el.innerHTML = email.recent.map((e) => {
-    const from = (e.from || '').replace(/<[^>]*>/g, '').replace(/"/g, '').trim();
+    const fromFull = (e.from || '').replace(/"/g, '').trim();
+    const fromShort = fromFull.replace(/<[^>]*>/g, '').trim();
     const classes = ['email-item'];
     if (e.unread) classes.push('email-unread');
     if (e.needsReply) classes.push('email-needs-reply');
@@ -565,15 +881,114 @@ function renderEmail(email) {
     if (e.needsReply) dot = '<div class="email-dot needs-reply" title="Needs reply"></div>';
     else if (e.unread) dot = '<div class="email-dot unread" title="Unread"></div>';
 
-    return `<div class="${classes.join(' ')}">
+    // Format full date for expanded view
+    let fullDate = '';
+    if (e.date) {
+      try {
+        const d = new Date(e.date);
+        fullDate = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      } catch (_) { fullDate = e.date; }
+    }
+
+    return `<div class="${classes.join(' ')}" onclick="this.classList.toggle('expanded')">
       <div class="email-indicators">${dot}</div>
       <div class="email-content">
-        <div class="email-row"><div class="email-from">${from}</div><div class="email-time">${timeAgo(e.date)}</div></div>
+        <div class="email-row"><div class="email-from">${fromShort}</div><div class="email-time">${timeAgo(e.date)}</div></div>
         <div class="email-subject">${e.subject || '(no subject)'}</div>
         <div class="email-snippet">${e.snippet || ''}</div>
+        <div class="email-expanded-meta">${fullDate}${fromFull !== fromShort ? ' &middot; ' + fromFull.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</div>
       </div>
     </div>`;
   }).join('');
+}
+
+// --- Todo functions ---
+let todoData = [];
+
+async function loadTodos() {
+  try {
+    const data = await apiFetch('/api/todos');
+    todoData = data.todos || [];
+    renderTodos(todoData);
+  } catch (err) {
+    console.error('Todo load error:', err);
+  }
+}
+
+function renderTodos(todos) {
+  const el = document.getElementById('todoList');
+  if (!todos || todos.length === 0) {
+    el.innerHTML = '<div class="empty">No todos. Tell Clawd to add one via WhatsApp.</div>';
+    return;
+  }
+
+  const active = todos.filter((t) => !t.done);
+  const done = todos.filter((t) => t.done).slice(-5).reverse(); // last 5 completed
+  const now = new Date();
+
+  let html = '';
+
+  if (active.length > 0) {
+    // Sort: high priority first, then due date
+    const priorityOrder = { high: 0, normal: 1, low: 2 };
+    active.sort((a, b) => {
+      const pa = priorityOrder[a.priority] ?? 1;
+      const pb = priorityOrder[b.priority] ?? 1;
+      if (pa !== pb) return pa - pb;
+      if (a.dueDate && b.dueDate) return a.dueDate.localeCompare(b.dueDate);
+      if (a.dueDate) return -1;
+      if (b.dueDate) return 1;
+      return 0;
+    });
+
+    html += active.map((t) => {
+      const pClass = t.priority === 'high' ? ' todo-priority-high' : t.priority === 'low' ? ' todo-priority-low' : '';
+      let meta = '';
+      if (t.dueDate) {
+        const due = new Date(t.dueDate + 'T23:59:59');
+        const overdue = due < now;
+        meta += `<span class="todo-due-badge${overdue ? ' overdue' : ''}">due ${t.dueDate}</span>`;
+      }
+      if (t.reminder && !t.reminded) {
+        meta += '<span class="todo-reminder-badge">reminder set</span>';
+      }
+      return `<div class="todo-item${pClass}" data-id="${t.id}">
+        <div class="todo-check" onclick="completeTodo('${t.id}')">&check;</div>
+        <div class="todo-content">
+          <div class="todo-text">${t.text}</div>
+          ${meta ? '<div class="todo-meta">' + meta + '</div>' : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  if (done.length > 0) {
+    html += '<div class="todo-section-title">Completed</div>';
+    html += done.map((t) => {
+      return `<div class="todo-item" data-id="${t.id}">
+        <div class="todo-check done">&check;</div>
+        <div class="todo-content"><div class="todo-text done">${t.text}</div></div>
+      </div>`;
+    }).join('');
+  }
+
+  el.innerHTML = html;
+}
+
+async function completeTodo(id) {
+  try {
+    const data = await apiFetch('/api/todos/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    if (data.todos) {
+      todoData = data.todos;
+      renderTodos(todoData);
+    }
+  } catch (err) {
+    console.error('Todo complete error:', err);
+  }
 }
 
 // --- Soul functions ---
@@ -657,6 +1072,16 @@ async function resetSoul() {
   }
 }
 
+// --- Weather ---
+function renderWeather(weather) {
+  const el = document.getElementById('weatherBar');
+  if (!weather || weather.length === 0) { el.innerHTML = ''; return; }
+  el.innerHTML = weather.map((w, i) => {
+    const sep = i > 0 ? '<span class="wx-sep">|</span>' : '';
+    return `${sep}<span class="wx-loc">${w.location}</span> <span class="wx-temp">${Math.round(w.temp)}&deg;C</span> <span class="wx-loc">${w.description || ''}</span>`;
+  }).join('');
+}
+
 // --- Load widgets ---
 async function loadWidgets() {
   try {
@@ -665,6 +1090,7 @@ async function loadWidgets() {
     renderSideGig(widgetData.sideGig);
     renderCalendar(widgetData.calendar);
     renderEmail(widgetData.email);
+    renderWeather(widgetData.weather);
   } catch (err) {
     console.error('Widget load error:', err);
   }
@@ -757,6 +1183,7 @@ function connectSSE() {
       renderSideGig(widgetData.sideGig);
       renderCalendar(widgetData.calendar);
       renderEmail(widgetData.email);
+      renderWeather(widgetData.weather);
     } catch (_) {}
   });
 
@@ -766,6 +1193,14 @@ function connectSSE() {
       renderSoulSections(data.soul);
       renderSoulPending(data.pending);
       renderSoulHistory(data.history);
+    } catch (_) {}
+  });
+
+  es.addEventListener('todos', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      todoData = data.todos || [];
+      renderTodos(todoData);
     } catch (_) {}
   });
 
@@ -790,7 +1225,27 @@ async function checkStatus() {
   try {
     const status = await apiFetch('/api/status');
     const dot = document.getElementById('statusDot');
-    if (status.connected) { dot.classList.add('online'); } else { dot.classList.remove('online'); }
+    dot.classList.remove('online', 'stale');
+    if (!status.connected) {
+      // Red — disconnected
+    } else {
+      const now = Date.now();
+      const lastAct = status.lastActivity || now;
+      const staleMs = 30 * 60 * 1000; // 30 min
+      const hour = new Date().getHours();
+      const isWaking = hour >= 7 && hour <= 23;
+      if (isWaking && (now - lastAct) > staleMs) {
+        dot.classList.add('stale'); // Amber — connected but no recent activity
+      } else {
+        dot.classList.add('online'); // Green
+      }
+    }
+    // Update status dot title with uptime and memory
+    if (status.uptime) {
+      const h = Math.floor(status.uptime / 3600);
+      const m = Math.floor((status.uptime % 3600) / 60);
+      dot.title = `Up ${h}h${m}m | ${status.memoryMB || '?'}MB`;
+    }
   } catch (_) {}
 }
 
@@ -808,6 +1263,12 @@ function renderCost(data) {
   const el = document.getElementById('costAmount');
   const display = document.getElementById('costDisplay');
   if (!data) return;
+
+  // Usage alert classes
+  const usageRatio = data.today.calls / (data.dailyLimit || 100);
+  display.classList.remove('usage-warn', 'usage-critical');
+  if (usageRatio >= 0.95) display.classList.add('usage-critical');
+  else if (usageRatio >= 0.80) display.classList.add('usage-warn');
 
   if (costDetailMode) {
     const cost = data.total.cost.toFixed(2);
@@ -1093,17 +1554,255 @@ document.addEventListener('pointerdown', (e) => {
   hideKeyboard();
 });
 
+// --- Admin panel: System Status ---
+async function loadMemoryStatus() {
+  try {
+    const data = await apiFetch('/api/memory/status');
+    const evoEl = document.getElementById('evoStatus');
+    const ollamaEl = document.getElementById('ollamaStatus');
+    const whisperEl = document.getElementById('whisperStatus');
+
+    if (data.evo) {
+      evoEl.textContent = data.evo.online ? 'Online' : 'Offline';
+      evoEl.className = 'status-value ' + (data.evo.online ? 'online' : 'offline');
+    }
+
+    if (data.health) {
+      ollamaEl.textContent = data.health.ollama?.status === 'online' ? 'Running' : 'Down';
+      ollamaEl.className = 'status-value ' + (data.health.ollama?.status === 'online' ? 'online' : 'offline');
+      whisperEl.textContent = data.health.whisper?.available ? 'Ready' : 'N/A';
+      whisperEl.className = 'status-value ' + (data.health.whisper?.available ? 'online' : 'warn');
+    } else {
+      ollamaEl.textContent = '--';
+      ollamaEl.className = 'status-value';
+      whisperEl.textContent = '--';
+      whisperEl.className = 'status-value';
+    }
+
+    // Stats
+    const stats = data.stats || {};
+    document.getElementById('statTotal').textContent = stats.total ?? '--';
+    document.getElementById('statQueue').textContent = data.evo?.queueDepth ?? '--';
+    document.getElementById('statCache').textContent = data.evo?.cacheSize ?? '--';
+
+    const cacheAge = data.evo?.cacheAge;
+    if (cacheAge != null) {
+      const hrs = Math.floor(cacheAge / 3600);
+      const mins = Math.floor((cacheAge % 3600) / 60);
+      document.getElementById('statCacheAge').textContent = hrs > 0 ? hrs + 'h' : mins + 'm';
+    } else {
+      document.getElementById('statCacheAge').textContent = '--';
+    }
+  } catch (err) {
+    console.error('Memory status error:', err);
+  }
+}
+
+// --- Admin panel: Quick Note ---
+async function saveNote() {
+  const input = document.getElementById('noteInput');
+  const btn = document.getElementById('noteSaveBtn');
+  const text = input.value.trim();
+  if (!text) return;
+
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    await apiFetch('/api/memory/note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    input.value = '';
+    btn.textContent = 'Saved!';
+    setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 1500);
+  } catch (err) {
+    console.error('Note save error:', err);
+    btn.textContent = 'Error';
+    setTimeout(() => { btn.textContent = 'Save'; btn.disabled = false; }, 2000);
+  }
+}
+
+document.getElementById('noteInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); saveNote(); }
+});
+
+// --- Admin panel: Memory Browser ---
+let allMemories = [];
+let memPage = 0;
+const MEM_PAGE_SIZE = 10;
+let memSearchResults = null;
+
+async function loadAllMemories() {
+  try {
+    const data = await apiFetch('/api/memory/list');
+    allMemories = data.memories || [];
+    memSearchResults = null;
+    memPage = 0;
+    renderMemoryList();
+  } catch (err) {
+    console.error('Memory list error:', err);
+    document.getElementById('memoryList').innerHTML = '<div class="empty">Failed to load memories.</div>';
+  }
+}
+
+async function searchMemories() {
+  const query = document.getElementById('memSearchInput').value.trim();
+  if (!query) { memSearchResults = null; memPage = 0; renderMemoryList(); return; }
+
+  try {
+    const data = await apiFetch('/api/memory/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, limit: 50 }),
+    });
+    memSearchResults = (data.results || []).map(r => r.memory || r);
+    memPage = 0;
+    renderMemoryList();
+  } catch (err) {
+    console.error('Memory search error:', err);
+  }
+}
+
+document.getElementById('memSearchInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); searchMemories(); }
+});
+
+function renderMemoryList() {
+  const el = document.getElementById('memoryList');
+  const pag = document.getElementById('memPagination');
+  const source = memSearchResults || allMemories;
+
+  if (source.length === 0) {
+    el.innerHTML = '<div class="empty">' + (memSearchResults ? 'No results.' : 'No memories stored yet.') + '</div>';
+    pag.style.display = 'none';
+    return;
+  }
+
+  const totalPages = Math.ceil(source.length / MEM_PAGE_SIZE);
+  const start = memPage * MEM_PAGE_SIZE;
+  const page = source.slice(start, start + MEM_PAGE_SIZE);
+
+  el.innerHTML = page.map(m => {
+    const cat = m.category || 'general';
+    const date = m.sourceDate || '?';
+    const conf = m.confidence != null ? (m.confidence * 100).toFixed(0) + '%' : '';
+    const tags = (m.tags || []).join(', ');
+    const fact = (m.fact || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<div class="mem-item" data-id="${m.id}">
+      <div class="mem-actions">
+        <button class="mem-action-btn" onclick="editMemory('${m.id}')" title="Edit">Edit</button>
+        <button class="mem-action-btn delete" onclick="confirmDeleteMemory('${m.id}')" title="Delete">X</button>
+      </div>
+      <div class="mem-fact">${fact}</div>
+      <div class="mem-meta">
+        <span class="cat">${cat}</span>
+        <span>${date}</span>
+        ${conf ? '<span>conf ' + conf + '</span>' : ''}
+        ${tags ? '<span>' + tags + '</span>' : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  if (totalPages > 1) {
+    pag.style.display = 'flex';
+    document.getElementById('memPageInfo').textContent = 'page ' + (memPage + 1) + ' of ' + totalPages;
+    document.getElementById('memPrevBtn').disabled = memPage === 0;
+    document.getElementById('memNextBtn').disabled = memPage >= totalPages - 1;
+  } else {
+    pag.style.display = 'none';
+  }
+}
+
+function memPagePrev() { if (memPage > 0) { memPage--; renderMemoryList(); } }
+function memPageNext() {
+  const source = memSearchResults || allMemories;
+  const totalPages = Math.ceil(source.length / MEM_PAGE_SIZE);
+  if (memPage < totalPages - 1) { memPage++; renderMemoryList(); }
+}
+
+// --- Memory edit/delete ---
+function editMemory(id) {
+  const source = memSearchResults || allMemories;
+  const mem = source.find(m => m.id === id);
+  if (!mem) return;
+
+  const categories = ['preference','person','legal','travel','accommodation','henry','health','finance','work','general'];
+  const catOptions = categories.map(c =>
+    `<option value="${c}"${c === mem.category ? ' selected' : ''}>${c}</option>`
+  ).join('');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'mem-edit-overlay';
+  overlay.innerHTML = `<div class="mem-edit-dialog">
+    <h3>Edit Memory</h3>
+    <textarea id="editFact">${(mem.fact || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+    <select id="editCategory">${catOptions}</select>
+    <div class="mem-edit-actions">
+      <button class="cancel" onclick="this.closest('.mem-edit-overlay').remove()">Cancel</button>
+      <button class="save" onclick="saveMemoryEdit('${id}')">Save</button>
+    </div>
+  </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+async function saveMemoryEdit(id) {
+  const fact = document.getElementById('editFact').value.trim();
+  const category = document.getElementById('editCategory').value;
+  if (!fact) return;
+
+  try {
+    await apiFetch('/api/memory/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fact, category }),
+    });
+    document.querySelector('.mem-edit-overlay').remove();
+    // Update local data
+    const updateIn = (arr) => { const m = arr.find(x => x.id === id); if (m) { m.fact = fact; m.category = category; } };
+    updateIn(allMemories);
+    if (memSearchResults) updateIn(memSearchResults);
+    renderMemoryList();
+  } catch (err) {
+    console.error('Memory update error:', err);
+    alert('Failed to update memory');
+  }
+}
+
+function confirmDeleteMemory(id) {
+  if (!confirm('Delete this memory?')) return;
+  deleteMemoryItem(id);
+}
+
+async function deleteMemoryItem(id) {
+  try {
+    await apiFetch('/api/memory/' + id, { method: 'DELETE' });
+    allMemories = allMemories.filter(m => m.id !== id);
+    if (memSearchResults) memSearchResults = memSearchResults.filter(m => m.id !== id);
+    renderMemoryList();
+  } catch (err) {
+    console.error('Memory delete error:', err);
+    alert('Failed to delete memory');
+  }
+}
+
 // --- Init ---
 loadWidgets();
+loadTodos();
 loadSoul();
+loadMemoryStatus();
+loadAllMemories();
 connectSSE();
 checkStatus();
 loadUsage();
 initVoice();
 setInterval(checkStatus, 60000);
 setInterval(loadWidgets, 5 * 60 * 1000);
+setInterval(loadTodos, 2 * 60 * 1000);
 setInterval(loadSoul, 5 * 60 * 1000);
 setInterval(loadUsage, 2 * 60 * 60 * 1000);
+setInterval(loadMemoryStatus, 60 * 1000);
 </script>
 </body>
 </html>

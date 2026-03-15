@@ -3,6 +3,11 @@
 
 import { google } from 'googleapis';
 import config from './config.js';
+import logger from './logger.js';
+import { fetchAllWeather } from './weather.js';
+import { CircuitBreaker } from './circuit-breaker.js';
+
+const googleBreaker = new CircuitBreaker('google', { threshold: 3, resetTimeout: 120000 });
 
 let authClient = null;
 
@@ -53,8 +58,15 @@ function parseHenryEvent(event) {
   }
 
   // Determine pattern from keywords (or infer from start/end days)
+  // Structured tags like [driving], [train], [4-trip] take priority
   let pattern = null;
-  if (text.includes('4-trip') || text.includes('4 trip') || text.includes('four trip')) {
+  if (text.includes('[driving]')) {
+    pattern = 'driving';
+  } else if (text.includes('[4-trip]') || text.includes('[4trip]')) {
+    pattern = '4-trip';
+  } else if (text.includes('[train]')) {
+    pattern = null; // let day-of-week inference decide fri-sun vs sat-sun
+  } else if (text.includes('4-trip') || text.includes('4 trip') || text.includes('four trip')) {
     pattern = '4-trip';
   } else if (text.includes('sat-sun') || text.includes('sat - sun')) {
     pattern = 'sat-sun';
@@ -134,7 +146,7 @@ async function checkBookingStatus(weekends) {
       });
     }
   } catch (err) {
-    console.error('[widgets] Travel email check error:', err.message);
+    logger.error({ err: err.message }, 'travel email check error');
   }
 
   try {
@@ -156,7 +168,7 @@ async function checkBookingStatus(weekends) {
       });
     }
   } catch (err) {
-    console.error('[widgets] Accommodation email check error:', err.message);
+    logger.error({ err: err.message }, 'accommodation email check error');
   }
 
   // Try to match emails to weekends by date references in subject/snippet
@@ -242,7 +254,7 @@ async function fetchHenryWeekends() {
     const weekends = events.map(parseHenryEvent);
     return checkBookingStatus(weekends);
   } catch (err) {
-    console.error('[widgets] Henry weekends fetch error:', err.message);
+    logger.error({ err: err.message }, 'Henry weekends fetch error');
     return [];
   }
 }
@@ -282,13 +294,14 @@ async function fetchSideGigMeetings() {
           start: e.start?.dateTime || e.start?.date,
           end: e.end?.dateTime || e.end?.date,
           location: e.location || null,
+          description: e.description || null,
           tags,
           eventId: e.id,
         };
       })
       .slice(0, 8);
   } catch (err) {
-    console.error('[widgets] Side gig fetch error:', err.message);
+    logger.error({ err: err.message }, 'side gig fetch error');
     return [];
   }
 }
@@ -364,7 +377,7 @@ async function fetchEmailSummary() {
       recent,
     };
   } catch (err) {
-    console.error('[widgets] Email summary error:', err.message);
+    logger.error({ err: err.message }, 'email summary error');
     return { unreadCount: 0, recent: [] };
   }
 }
@@ -391,9 +404,10 @@ async function fetchCalendarEvents() {
       start: e.start?.dateTime || e.start?.date,
       end: e.end?.dateTime || e.end?.date,
       location: e.location || null,
+      description: e.description || null,
     }));
   } catch (err) {
-    console.error('[widgets] Calendar events error:', err.message);
+    logger.error({ err: err.message }, 'calendar events error');
     return [];
   }
 }
@@ -401,26 +415,31 @@ async function fetchCalendarEvents() {
 // --- Main refresh ---
 
 async function refreshWidgets() {
-  console.log('[widgets] Refreshing...');
+  logger.info('widget refresh starting');
   const start = Date.now();
 
+  // Fallback values use previous cache or empty defaults
+  const prev = widgetCache || { henryWeekends: [], sideGig: [], email: { unreadCount: 0, recent: [] }, calendar: [], weather: [] };
+
   try {
-    const [henryWeekends, sideGig, email, calendar] = await Promise.all([
-      fetchHenryWeekends(),
-      fetchSideGigMeetings(),
-      fetchEmailSummary(),
-      fetchCalendarEvents(),
+    // Google API calls go through circuit breaker; weather has its own breaker
+    const [henryWeekends, sideGig, email, calendar, weather] = await Promise.all([
+      googleBreaker.call(() => fetchHenryWeekends(), () => prev.henryWeekends),
+      googleBreaker.call(() => fetchSideGigMeetings(), () => prev.sideGig),
+      googleBreaker.call(() => fetchEmailSummary(), () => prev.email),
+      googleBreaker.call(() => fetchCalendarEvents(), () => prev.calendar),
+      fetchAllWeather(),
     ]);
 
-    widgetCache = { henryWeekends, sideGig, email, calendar, lastRefresh: new Date().toISOString() };
+    widgetCache = { henryWeekends, sideGig, email, calendar, weather, lastRefresh: new Date().toISOString() };
     cacheTimestamp = Date.now();
 
-    console.log(`[widgets] Done in ${Date.now() - start}ms — ${henryWeekends.length} Henry, ${sideGig.length} gig, ${email.recent.length} emails`);
+    logger.info({ ms: Date.now() - start, henry: henryWeekends.length, gig: sideGig.length, emails: email.recent.length }, 'widget refresh done');
 
     // Notify dashboard clients
     broadcastSSE('widgets', widgetCache);
   } catch (err) {
-    console.error('[widgets] Refresh error:', err.message);
+    logger.error({ err: err.message }, 'widget refresh error');
   }
 }
 
@@ -432,7 +451,7 @@ export async function getWidgetData() {
   }
   return widgetCache || {
     henryWeekends: [], sideGig: [], email: { unreadCount: 0, recent: [] },
-    calendar: [], lastRefresh: null,
+    calendar: [], weather: [], lastRefresh: null,
   };
 }
 
@@ -444,12 +463,12 @@ let refreshInterval = null;
 
 export function startWidgetRefresh() {
   if (!config.googleClientId || !config.googleRefreshToken) {
-    console.log('[widgets] Google not configured — widget refresh disabled');
+    logger.warn('Google not configured - widget refresh disabled');
     return;
   }
   refreshWidgets();
   refreshInterval = setInterval(refreshWidgets, CACHE_TTL);
-  console.log('[widgets] Periodic refresh started (every 5 min)');
+  logger.info('widget periodic refresh started (5 min)');
 }
 
 export function stopWidgetRefresh() {

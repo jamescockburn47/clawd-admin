@@ -1,7 +1,9 @@
-// Soul system — self-recode with guardrails
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
+// Soul system — self-recode with guardrails (async I/O for mutations, sync for reads)
+import { readFile, writeFile, mkdir, unlink } from 'fs/promises';
+import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import logger from '../logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -24,53 +26,51 @@ const BLOCKED_PATTERNS = [
   /\b(always|never)\b.*\b(send email|skip confirmation|skip approval)\b/i,
 ];
 
-// --- Internal helpers ---
+const DEFAULT_SOUL = { personality: '', preferences: '', context: '', custom: '' };
 
-function ensureDataDir() {
-  mkdirSync(DATA_DIR, { recursive: true });
+// --- Helpers ---
+
+async function ensureDataDir() {
+  await mkdir(DATA_DIR, { recursive: true });
 }
 
-function loadSoul() {
-  ensureDataDir();
-  const defaultSoul = { personality: '', preferences: '', context: '', custom: '' };
-  if (!existsSync(SOUL_FILE)) {
-    writeFileSync(SOUL_FILE, JSON.stringify(defaultSoul, null, 2));
-    return defaultSoul;
-  }
+function safeParseSync(str, fallback) {
+  try { return JSON.parse(str); } catch { return fallback; }
+}
+
+async function loadJSON(path, fallback) {
+  if (!existsSync(path)) return fallback;
   try {
-    return JSON.parse(readFileSync(SOUL_FILE, 'utf-8'));
-  } catch {
-    writeFileSync(SOUL_FILE, JSON.stringify(defaultSoul, null, 2));
-    return defaultSoul;
-  }
+    const data = await readFile(path, 'utf-8');
+    return JSON.parse(data);
+  } catch { return fallback; }
 }
 
-function loadPending() {
-  if (!existsSync(PENDING_FILE)) return null;
-  try { return JSON.parse(readFileSync(PENDING_FILE, 'utf-8')); } catch { return null; }
+function loadJSONSync(path, fallback) {
+  if (!existsSync(path)) return fallback;
+  return safeParseSync(readFileSync(path, 'utf-8'), fallback);
 }
 
-function loadHistory() {
-  if (!existsSync(HISTORY_FILE)) return [];
-  try { return JSON.parse(readFileSync(HISTORY_FILE, 'utf-8')); } catch { return []; }
+async function loadSoul() {
+  await ensureDataDir();
+  const soul = await loadJSON(SOUL_FILE, null);
+  if (soul) return soul;
+  await writeFile(SOUL_FILE, JSON.stringify(DEFAULT_SOUL, null, 2));
+  return { ...DEFAULT_SOUL };
 }
 
 function totalLength(soul, overrideSection, overrideContent) {
   let total = 0;
   for (const section of VALID_SECTIONS) {
-    if (section === overrideSection) {
-      total += (overrideContent || '').length;
-    } else {
-      total += (soul[section] || '').length;
-    }
+    total += (section === overrideSection ? overrideContent : soul[section] || '').length;
   }
   return total;
 }
 
-// --- Exported functions ---
+// --- Tool handlers (async — called via Claude tool dispatch) ---
 
 export async function soulRead({ section }) {
-  const soul = loadSoul();
+  const soul = await loadSoul();
 
   if (section) {
     if (!VALID_SECTIONS.includes(section)) {
@@ -79,38 +79,30 @@ export async function soulRead({ section }) {
     return `**${section}:** ${soul[section] || '(empty)'}`;
   }
 
-  const lines = VALID_SECTIONS.map(
-    (s) => `**${s}:** ${soul[s] || '(empty)'}`,
-  );
-  return lines.join('\n');
+  return VALID_SECTIONS.map((s) => `**${s}:** ${soul[s] || '(empty)'}`).join('\n');
 }
 
 export async function soulPropose({ section, content, reason }) {
-  // Validate section
   if (!VALID_SECTIONS.includes(section)) {
     return `Invalid section: "${section}". Valid sections: ${VALID_SECTIONS.join(', ')}`;
   }
 
-  // Validate content length
   if (content.length > MAX_SECTION_LENGTH) {
     return `Content too long: ${content.length} chars (max ${MAX_SECTION_LENGTH}).`;
   }
 
-  // Check blocked patterns
   for (const pattern of BLOCKED_PATTERNS) {
     if (pattern.test(content)) {
       return 'Blocked: content matches a guardrail override pattern. Soul updates cannot modify safety rules.';
     }
   }
 
-  // Check total length
-  const soul = loadSoul();
+  const soul = await loadSoul();
   const projectedTotal = totalLength(soul, section, content);
   if (projectedTotal > MAX_TOTAL_LENGTH) {
     return `Total soul size would be ${projectedTotal} chars (max ${MAX_TOTAL_LENGTH}). Shorten content or clear other sections first.`;
   }
 
-  // Write pending
   const pending = {
     section,
     content,
@@ -118,40 +110,34 @@ export async function soulPropose({ section, content, reason }) {
     previous: soul[section] || '',
     timestamp: new Date().toISOString(),
   };
-  ensureDataDir();
-  writeFileSync(PENDING_FILE, JSON.stringify(pending, null, 2));
+  await ensureDataDir();
+  await writeFile(PENDING_FILE, JSON.stringify(pending, null, 2));
 
-  // Return diff
   const current = soul[section] || '(empty)';
   return [
     `Proposed change to **${section}**:`,
-    ``,
+    '',
     `**Current:** ${current}`,
     `**Proposed:** ${content}`,
     `**Reason:** ${pending.reason}`,
-    ``,
-    `Use soul_confirm to apply, or propose again to overwrite.`,
+    '',
+    'Use soul_confirm to apply, or propose again to overwrite.',
   ].join('\n');
 }
 
 export async function soulConfirm() {
-  const pending = loadPending();
-  if (!pending) {
-    return 'No pending soul change to confirm.';
-  }
+  const pending = await loadJSON(PENDING_FILE, null);
+  if (!pending) return 'No pending soul change to confirm.';
 
-  const soul = loadSoul();
+  const soul = await loadSoul();
 
-  // Backup current soul
-  ensureDataDir();
-  writeFileSync(BACKUP_FILE, JSON.stringify(soul, null, 2));
+  await ensureDataDir();
+  await writeFile(BACKUP_FILE, JSON.stringify(soul, null, 2));
 
-  // Apply change
   soul[pending.section] = pending.content;
-  writeFileSync(SOUL_FILE, JSON.stringify(soul, null, 2));
+  await writeFile(SOUL_FILE, JSON.stringify(soul, null, 2));
 
-  // Append to history (keep last 50)
-  const history = loadHistory();
+  const history = await loadJSON(HISTORY_FILE, []);
   history.push({
     section: pending.section,
     content: pending.content,
@@ -160,26 +146,25 @@ export async function soulConfirm() {
     timestamp: pending.timestamp,
     confirmedAt: new Date().toISOString(),
   });
-  while (history.length > 50) {
-    history.shift();
-  }
-  writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+  while (history.length > 50) history.shift();
+  await writeFile(HISTORY_FILE, JSON.stringify(history, null, 2));
 
-  // Delete pending
-  unlinkSync(PENDING_FILE);
+  try { await unlink(PENDING_FILE); } catch {}
 
   return `Soul updated: **${pending.section}** set to "${pending.content}".`;
 }
 
+// --- Sync API for prompt-building and HTTP endpoints (files are tiny <2KB) ---
+
 export function getSoulData() {
-  const soul = loadSoul();
-  const pending = loadPending();
-  const history = loadHistory();
+  const soul = loadJSONSync(SOUL_FILE, { ...DEFAULT_SOUL });
+  const pending = loadJSONSync(PENDING_FILE, null);
+  const history = loadJSONSync(HISTORY_FILE, []);
   return { soul, pending, history };
 }
 
 export function getSoulPromptFragment() {
-  const soul = loadSoul();
+  const soul = loadJSONSync(SOUL_FILE, { ...DEFAULT_SOUL });
   const lines = [];
 
   for (const section of VALID_SECTIONS) {
@@ -189,18 +174,12 @@ export function getSoulPromptFragment() {
   }
 
   if (lines.length === 0) return '';
-
   return '\n\n## Learned preferences and context (self-updated)\n' + lines.join('\n');
 }
 
-export function resetSoul() {
-  ensureDataDir();
-  const defaultSoul = { personality: '', preferences: '', context: '', custom: '' };
-  writeFileSync(SOUL_FILE, JSON.stringify(defaultSoul, null, 2));
-
-  if (existsSync(PENDING_FILE)) {
-    unlinkSync(PENDING_FILE);
-  }
-
+export async function resetSoul() {
+  await ensureDataDir();
+  await writeFile(SOUL_FILE, JSON.stringify({ ...DEFAULT_SOUL }, null, 2));
+  try { await unlink(PENDING_FILE); } catch {}
   return 'Soul reset to defaults.';
 }

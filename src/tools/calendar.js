@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import config from '../config.js';
+import { forceRefresh } from '../widgets.js';
 
 let calendarClient = null;
 
@@ -28,7 +29,7 @@ export async function calendarListEvents({ days_ahead = 7, query }) {
     calendarId: 'primary',
     timeMin: now.toISOString(),
     timeMax: future.toISOString(),
-    maxResults: 20,
+    maxResults: 50,
     singleEvents: true,
     orderBy: 'startTime',
   };
@@ -39,10 +40,40 @@ export async function calendarListEvents({ days_ahead = 7, query }) {
 
   if (events.length === 0) return 'No upcoming events found.';
 
-  return events.map((e) => {
+  // Deduplicate multi-day all-day events — Google expands them into one instance per day
+  // Group by recurring event ID or by (summary + all-day), keep first/last date
+  const seen = new Map();
+  const output = [];
+
+  for (const e of events) {
+    const isAllDay = !!e.start?.date && !e.start?.dateTime;
+    const recurKey = e.recurringEventId || (isAllDay ? `allday:${e.summary}` : null);
+
+    if (recurKey && seen.has(recurKey)) {
+      // Extend the end date of the already-seen event
+      const existing = seen.get(recurKey);
+      const thisEnd = e.end?.date || e.end?.dateTime;
+      existing.endRaw = thisEnd;
+      continue;
+    }
+
     const start = e.start?.dateTime || e.start?.date;
-    const end = e.end?.dateTime || e.end?.date;
-    return `• ${e.summary || '(No title)'}\n  ${start} → ${end}${e.location ? '\n  📍 ' + e.location : ''}\n  id: ${e.id}`;
+    let end = e.end?.dateTime || e.end?.date;
+
+    const entry = { summary: e.summary, start, endRaw: end, isAllDay, location: e.location, id: e.id };
+    if (recurKey) seen.set(recurKey, entry);
+    output.push(entry);
+  }
+
+  return output.map((e) => {
+    let end = e.endRaw;
+    // Google Calendar all-day events use exclusive end dates — subtract 1 day
+    if (e.isAllDay && end) {
+      const d = new Date(end + 'T12:00:00');
+      d.setDate(d.getDate() - 1);
+      end = d.toISOString().split('T')[0];
+    }
+    return `• ${e.summary || '(No title)'}\n  ${e.start} → ${end}${e.location ? '\n  📍 ' + e.location : ''}\n  id: ${e.id}`;
   }).join('\n\n');
 }
 
@@ -61,6 +92,8 @@ export async function calendarCreateEvent({ summary, start, end, description, lo
   if (location) event.location = location;
 
   const res = await cal.events.insert({ calendarId: 'primary', resource: event });
+  // Refresh dashboard widgets so calendar changes appear immediately
+  forceRefresh().catch(() => {});
   return `Event created: "${res.data.summary}" on ${res.data.start.dateTime || res.data.start.date}\nLink: ${res.data.htmlLink}`;
 }
 
@@ -98,7 +131,16 @@ export async function calendarUpdateEvent({ event_id, summary, start, end, descr
     eventId: event_id,
     resource: patch,
   });
-  return `Event updated: "${res.data.summary}" — ${res.data.start.dateTime || res.data.start.date} → ${res.data.end.dateTime || res.data.end.date}\nLink: ${res.data.htmlLink}`;
+  // Refresh dashboard widgets so calendar changes appear immediately
+  forceRefresh().catch(() => {});
+  let updatedEnd = res.data.end.dateTime || res.data.end.date;
+  // Correct exclusive end date for all-day events
+  if (res.data.end.date && !res.data.end.dateTime) {
+    const d = new Date(updatedEnd + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    updatedEnd = d.toISOString().split('T')[0];
+  }
+  return `Event updated: "${res.data.summary}" — ${res.data.start.dateTime || res.data.start.date} → ${updatedEnd}\nLink: ${res.data.htmlLink}`;
 }
 
 export async function calendarFindFreeTime({ date, days = 1 }) {

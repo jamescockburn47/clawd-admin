@@ -1,9 +1,16 @@
 {
-  "version": "1.5.0",
+  "version": "2.0.0",
   "notes": [
-    "Permissions: sender-aware tool access — MG and other group members restricted from email, soul, and calendar write tools",
-    "Restricted mode: non-owner senders get friendly responses but cannot access private tools",
-    "Message splitting: long responses auto-split at paragraph boundaries to fix mobile WhatsApp rendering",
-    "System prompt: restricted sender instructions injected when non-owner detected"
+    "Local model: Ollama integration routes simple chat to Qwen 3.5 4B locally (saves API costs)",
+    "Image understanding: photos sent via WhatsApp are now seen and described by Claude",
+    "Weather: live conditions in dashboard header (OpenWeatherMap)",
+    "Morning briefing: daily WhatsApp summary at 07:00 -- weather, calendar, todos, Henry weekends",
+    "Structured logging: Pino replaces all console.log across the codebase",
+    "Audit log: every tool execution logged with sender, input, success/failure",
+    "Circuit breakers: Google, Claude, and weather APIs protected against cascading failures",
+    "Buffer persistence: owner conversation context survives service restarts",
+    "Graceful shutdown: flushes usage, todos, audit, buffers on SIGTERM/SIGINT",
+    "Daily backup: todos, soul, soul_history backed up at 3 AM (7-day retention)",
+    "Dashboard: usage alerts (amber/red), 3-state status dot, weather display"
   ]
 }

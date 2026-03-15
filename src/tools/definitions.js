@@ -351,6 +351,71 @@ export const TOOL_DEFINITIONS = [
     },
   },
 
+  // === TODOS & REMINDERS ===
+  {
+    name: 'todo_add',
+    description: 'Add a new todo item. Can optionally set a due date and a reminder time (sends WhatsApp notification).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The todo item text.' },
+        due_date: { type: 'string', description: 'Optional due date YYYY-MM-DD.' },
+        reminder: { type: 'string', description: 'Optional ISO datetime for WhatsApp reminder (e.g., "2026-03-15T09:00:00"). Will send a WhatsApp message at this time.' },
+        priority: { type: 'string', description: 'Priority: "low", "normal", or "high". Default "normal".' },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'todo_list',
+    description: 'List todo items. By default shows only active (not done) items.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        show_done: { type: 'boolean', description: 'Include completed items. Default false.' },
+        priority: { type: 'string', description: 'Filter by priority: "low", "normal", "high".' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'todo_complete',
+    description: 'Mark a todo item as completed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The todo item ID.' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'todo_remove',
+    description: 'Delete a todo item entirely.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The todo item ID.' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'todo_update',
+    description: 'Update an existing todo item (text, due date, reminder, or priority).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The todo item ID.' },
+        text: { type: 'string', description: 'New text for the item.' },
+        due_date: { type: 'string', description: 'New due date YYYY-MM-DD (or empty string to clear).' },
+        reminder: { type: 'string', description: 'New reminder datetime ISO (or empty string to clear).' },
+        priority: { type: 'string', description: 'New priority: "low", "normal", "high".' },
+      },
+      required: ['id'],
+    },
+  },
+
   // === SOUL SYSTEM (Self-Recode) ===
   {
     name: 'soul_read',
@@ -395,6 +460,67 @@ export const TOOL_DEFINITIONS = [
       type: 'object',
       properties: {},
       required: [],
+    },
+  },
+
+  // === MEMORY ===
+  {
+    name: 'memory_search',
+    description: 'Search your long-term memory for relevant facts. Use when James asks about something you might have stored previously, or when you need context for a travel, legal, accommodation, or personal task.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Natural language search query.',
+        },
+        category: {
+          type: 'string',
+          description: 'Optional category filter: preference, person, legal, travel, accommodation, henry, ai_consultancy, schedule, general.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'memory_update',
+    description: 'Correct an incorrect memory. Use when James says something like "that\'s wrong" about a stored fact. Search first to find the memory ID, then update it.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        memory_id: {
+          type: 'string',
+          description: 'The memory ID to update.',
+        },
+        fact: {
+          type: 'string',
+          description: 'Corrected fact text.',
+        },
+        category: {
+          type: 'string',
+          description: 'Updated category if needed.',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Updated tags if needed.',
+        },
+      },
+      required: ['memory_id'],
+    },
+  },
+  {
+    name: 'memory_delete',
+    description: 'Delete a memory that is wrong or no longer relevant.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        memory_id: {
+          type: 'string',
+          description: 'The memory ID to delete.',
+        },
+      },
+      required: ['memory_id'],
     },
   },
 ];
