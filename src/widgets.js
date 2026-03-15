@@ -92,7 +92,7 @@ function parseHenryEvent(event) {
     location = 'london';
   }
 
-  const needsAccommodation = location === 'up-north' && pattern !== 'driving';
+  const needsAccommodation = location === 'up-north'; // driving still needs a place to stay
   const needsTravel = pattern !== 'driving';
 
   return {
@@ -106,17 +106,91 @@ function parseHenryEvent(event) {
     travelBooked: false,
     travelPrice: null,
     accommodationBooked: false,
-    accommodationDetails: null,
+    accommodationName: null,
     accommodationLocation: null,
+    accommodationPrice: null,
     description: event.description || '',
     eventId: event.id,
+    bookingLinks: null, // populated later for unarranged items
   };
 }
 
 // --- Booking status from Gmail ---
 
-function formatGmailDate(d) {
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+// Decode Gmail base64url body to plain text
+function decodeBody(payload) {
+  // Try plain text part first, then HTML
+  const parts = payload.parts || [];
+  let body = payload.body?.data || '';
+
+  for (const part of parts) {
+    if (part.mimeType === 'text/plain' && part.body?.data) {
+      body = part.body.data;
+      break;
+    }
+    if (part.mimeType === 'text/html' && part.body?.data && !body) {
+      body = part.body.data;
+    }
+    // Nested multipart
+    if (part.parts) {
+      const nested = decodeBody(part);
+      if (nested) return nested;
+    }
+  }
+
+  if (!body) return '';
+  // base64url decode
+  try {
+    return Buffer.from(body, 'base64url').toString('utf-8');
+  } catch {
+    return '';
+  }
+}
+
+// Build date patterns for matching emails to specific weekends
+function buildDatePatterns(startDate, endDate) {
+  const patterns = [];
+  const startD = new Date(startDate + 'T12:00:00');
+  const endD = new Date(endDate + 'T12:00:00');
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const monthFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
+    const day = d.getDate();
+    const m = d.getMonth();
+    const dd = String(day).padStart(2, '0');
+    const mm = String(m + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    patterns.push(
+      `${day} ${monthNames[m]}`, `${day} ${monthFull[m]}`,
+      `${dd}/${mm}`, `${dd}-${mm}`, `${yyyy}-${mm}-${dd}`,
+    );
+  }
+  return patterns;
+}
+
+// Generate booking links for unarranged items
+function generateBookingLinks(weekend) {
+  const links = {};
+  const startD = new Date(weekend.startDate + 'T12:00:00');
+  const endD = new Date(weekend.endDate + 'T12:00:00');
+
+  // LNER booking link (London Kings Cross → York)
+  if (weekend.needsTravel && !weekend.travelBooked) {
+    const outDate = weekend.startDate.replace(/-/g, '');
+    links.lner = `https://www.lner.co.uk/travel-information/travelling-with-us/book-tickets/?origin=KGX&destination=YRK&outwardDate=${outDate}`;
+    links.trainline = `https://www.thetrainline.com/book/results?origin=London+Kings+Cross&destination=York&outwardDate=${weekend.startDate}`;
+  }
+
+  // Accommodation search links
+  if (weekend.needsAccommodation && !weekend.accommodationBooked) {
+    const checkin = weekend.startDate;
+    const checkout = weekend.endDate;
+    links.airbnb = `https://www.airbnb.co.uk/s/North-Yorkshire--United-Kingdom/homes?checkin=${checkin}&checkout=${checkout}&adults=1&children=1`;
+    links.booking = `https://www.booking.com/searchresults.en-gb.html?ss=North+Yorkshire&checkin=${checkin}&checkout=${checkout}&group_adults=1&group_children=1`;
+  }
+
+  return Object.keys(links).length > 0 ? links : null;
 }
 
 async function checkBookingStatus(weekends) {
@@ -125,87 +199,77 @@ async function checkBookingStatus(weekends) {
 
   const gmail = google.gmail({ version: 'v1', auth });
 
-  // Fetch recent travel and accommodation emails in one batch each
+  // Only check bookings for weekends that need something
+  const needsChecking = weekends.some((w) => w.needsTravel || w.needsAccommodation);
+  if (!needsChecking) {
+    // Still generate booking links for completeness
+    for (const weekend of weekends) {
+      weekend.bookingLinks = generateBookingLinks(weekend);
+    }
+    return weekends;
+  }
+
+  // Fetch travel emails (metadata only — subject/snippet is enough for train bookings)
   let travelEmails = [];
+  const anyNeedsTravel = weekends.some((w) => w.needsTravel);
+  if (anyNeedsTravel) {
+    try {
+      const travelRes = await gmail.users.messages.list({
+        userId: 'me',
+        q: '(from:lner.co.uk OR from:trainline.com OR from:nationalrail.co.uk OR subject:"e-ticket" subject:train) newer_than:90d',
+        maxResults: 20,
+      });
+      for (const msg of (travelRes.data.messages || []).slice(0, 10)) {
+        const detail = await gmail.users.messages.get({
+          userId: 'me', id: msg.id, format: 'metadata',
+          metadataHeaders: ['Subject', 'Date'],
+        });
+        travelEmails.push({
+          subject: (detail.data.payload?.headers || []).find((h) => h.name === 'Subject')?.value || '',
+          snippet: detail.data.snippet || '',
+        });
+      }
+    } catch (err) {
+      logger.error({ err: err.message }, 'travel email check error');
+    }
+  }
+
+  // Fetch accommodation emails (full body — need address for location extraction)
   let accomEmails = [];
+  const anyNeedsAccom = weekends.some((w) => w.needsAccommodation);
+  if (anyNeedsAccom) {
+    try {
+      const accomRes = await gmail.users.messages.list({
+        userId: 'me',
+        q: '(from:booking.com OR from:airbnb.com OR from:airbnb.co.uk OR from:cottages.com OR from:pitchup.com OR from:canopyandstars.co.uk) newer_than:90d',
+        maxResults: 20,
+      });
+      for (const msg of (accomRes.data.messages || []).slice(0, 10)) {
+        const detail = await gmail.users.messages.get({
+          userId: 'me', id: msg.id, format: 'full',
+        });
+        const headers = detail.data.payload?.headers || [];
+        const subject = headers.find((h) => h.name === 'Subject')?.value || '';
+        const snippet = detail.data.snippet || '';
+        const bodyText = decodeBody(detail.data.payload || {});
 
-  try {
-    const travelRes = await gmail.users.messages.list({
-      userId: 'me',
-      q: '(from:lner.co.uk OR from:trainline.com OR from:nationalrail.co.uk OR subject:"e-ticket" subject:train) newer_than:90d',
-      maxResults: 20,
-    });
-    const travelMsgs = travelRes.data.messages || [];
-    for (const msg of travelMsgs.slice(0, 10)) {
-      const detail = await gmail.users.messages.get({
-        userId: 'me', id: msg.id, format: 'metadata',
-        metadataHeaders: ['Subject', 'Date'],
-      });
-      travelEmails.push({
-        subject: (detail.data.payload?.headers || []).find((h) => h.name === 'Subject')?.value || '',
-        snippet: detail.data.snippet || '',
-        date: (detail.data.payload?.headers || []).find((h) => h.name === 'Date')?.value || '',
-      });
+        accomEmails.push({ subject, snippet, bodyText });
+      }
+    } catch (err) {
+      logger.error({ err: err.message }, 'accommodation email check error');
     }
-  } catch (err) {
-    logger.error({ err: err.message }, 'travel email check error');
   }
 
-  try {
-    const accomRes = await gmail.users.messages.list({
-      userId: 'me',
-      q: '(from:booking.com OR from:airbnb.com OR from:airbnb.co.uk OR from:cottages.com OR from:pitchup.com OR from:canopyandstars.co.uk) newer_than:90d',
-      maxResults: 20,
-    });
-    const accomMsgs = accomRes.data.messages || [];
-    for (const msg of accomMsgs.slice(0, 10)) {
-      const detail = await gmail.users.messages.get({
-        userId: 'me', id: msg.id, format: 'metadata',
-        metadataHeaders: ['Subject', 'Date'],
-      });
-      accomEmails.push({
-        subject: (detail.data.payload?.headers || []).find((h) => h.name === 'Subject')?.value || '',
-        snippet: detail.data.snippet || '',
-        date: (detail.data.payload?.headers || []).find((h) => h.name === 'Date')?.value || '',
-      });
-    }
-  } catch (err) {
-    logger.error({ err: err.message }, 'accommodation email check error');
-  }
-
-  // Try to match emails to weekends by date references in subject/snippet
+  // Match emails to specific weekends by date
   for (const weekend of weekends) {
-    if (!weekend.needsTravel && !weekend.needsAccommodation) continue;
+    const datePatterns = buildDatePatterns(weekend.startDate, weekend.endDate);
 
-    const startD = new Date(weekend.startDate + 'T12:00:00');
-    const endD = new Date(weekend.endDate + 'T12:00:00');
-
-    // Build date patterns to search for in email text
-    const datePatterns = [];
-    for (let d = new Date(startD); d <= endD; d.setDate(d.getDate() + 1)) {
-      const day = d.getDate();
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const monthFull = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-      const m = d.getMonth();
-      const dd = String(day).padStart(2, '0');
-      const mm = String(m + 1).padStart(2, '0');
-      const yyyy = d.getFullYear();
-
-      datePatterns.push(
-        `${day} ${monthNames[m]}`, `${day} ${monthFull[m]}`,
-        `${dd}/${mm}`, `${dd}-${mm}`,
-        `${yyyy}-${mm}-${dd}`,
-      );
-    }
-
-    // Check travel emails
+    // Check travel bookings
     if (weekend.needsTravel) {
       for (const email of travelEmails) {
         const text = (email.subject + ' ' + email.snippet).toLowerCase();
-        const matched = datePatterns.some((p) => text.includes(p.toLowerCase()));
-        if (matched) {
+        if (datePatterns.some((p) => text.includes(p.toLowerCase()))) {
           weekend.travelBooked = true;
-          // Try to extract price
           const priceMatch = text.match(/£(\d+(?:\.\d{2})?)/);
           if (priceMatch) weekend.travelPrice = '£' + priceMatch[1];
           break;
@@ -213,35 +277,49 @@ async function checkBookingStatus(weekends) {
       }
     }
 
-    // Check accommodation emails
+    // Check accommodation bookings — search subject, snippet, AND full body
     if (weekend.needsAccommodation) {
       for (const email of accomEmails) {
-        const text = (email.subject + ' ' + email.snippet).toLowerCase();
-        const matched = datePatterns.some((p) => text.includes(p.toLowerCase()));
-        if (matched) {
+        const searchText = (email.subject + ' ' + email.snippet + ' ' + email.bodyText).toLowerCase();
+        if (datePatterns.some((p) => searchText.includes(p.toLowerCase()))) {
           weekend.accommodationBooked = true;
-          const priceMatch = text.match(/£(\d+(?:\.\d{2})?)/);
-          weekend.accommodationDetails = priceMatch ? '£' + priceMatch[1] : 'Confirmed';
-          // Extract location from booking email for weather forecast
-          weekend.accommodationLocation = extractLocation(text);
-          weekend.accommodationText = email.subject; // for debugging
+
+          // Extract property name: prefer event description (e.g. "Airbnb: Lapwing Landpod")
+          const descNameMatch = (weekend.description || '').match(/(?:airbnb|booking|cottage)[:\s]+([^,(]+)/i);
+          if (descNameMatch) {
+            weekend.accommodationName = descNameMatch[1].trim();
+          } else {
+            // Fallback: try email subject, stripping date/reminder prefix
+            const subjCleaned = email.subject.replace(/^(reservation\s+reminder|booking\s+confirmation|your\s+booking)\s*[–—-]\s*/i, '').trim();
+            if (subjCleaned && !/^\d/.test(subjCleaned)) weekend.accommodationName = subjCleaned;
+          }
+
+          // Extract price
+          const priceMatch = searchText.match(/£(\d+(?:\.\d{2})?)/);
+          if (priceMatch) weekend.accommodationPrice = '£' + priceMatch[1];
+
+          // Extract location from full body text (has address with town name)
+          weekend.accommodationLocation = extractLocation(searchText);
+
+          logger.info({
+            weekend: weekend.startDate,
+            name: weekend.accommodationName,
+            location: weekend.accommodationLocation,
+            price: weekend.accommodationPrice,
+          }, 'accommodation matched');
           break;
         }
       }
     }
 
-    // Also try to extract location from any accom email even if not date-matched
-    // (some booking confirmations don't include dates in subject/snippet)
+    // Also check event description for location (calendar event may have it)
     if (!weekend.accommodationLocation && weekend.location === 'up-north') {
-      for (const email of accomEmails) {
-        const text = (email.subject + ' ' + email.snippet).toLowerCase();
-        const loc = extractLocation(text);
-        if (loc !== 'york') { // only if we find a specific place, not the default
-          weekend.accommodationLocation = loc;
-          break;
-        }
-      }
+      const descLoc = extractLocation(weekend.description);
+      if (descLoc !== 'york') weekend.accommodationLocation = descLoc;
     }
+
+    // Generate booking links for any unarranged items
+    weekend.bookingLinks = generateBookingLinks(weekend);
   }
 
   return weekends;
