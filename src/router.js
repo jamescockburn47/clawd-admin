@@ -94,7 +94,7 @@ const KEYWORD_RULES = [
   {
     category: CATEGORY.TRAVEL,
     test: (lower) =>
-      /\b(train|flight|hotel|travel|fare|depart|lner|airbnb|accommodation|booking|glamping|cottage)\b/.test(lower),
+      /\b(trains?|flights?|hotels?|travel|fares?|depart\w*|lner|airbnb|accommodation|booking|glamping|cottages?)\b/.test(lower),
   },
   {
     category: CATEGORY.GENERAL_KNOWLEDGE,
