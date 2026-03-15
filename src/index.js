@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { createServer } from 'http';
@@ -7,28 +7,36 @@ import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import config from './config.js';
+import logger from './logger.js';
 import { shouldRespond, recordRandomCooldown } from './trigger.js';
-import { pushMessage, buildContext, getRecentMessages } from './buffer.js';
-import { getClawdResponse, getUsageStats } from './claude.js';
-import { getWidgetData, startWidgetRefresh, addSSEClient, broadcastSSE, forceRefresh } from './widgets.js';
+import { pushMessage, buildContext, getRecentMessages, loadBuffers, saveBuffers, flushBufferTimer } from './buffer.js';
+import { getClawdResponse, getUsageStats, flushUsage } from './claude.js';
+import { getWidgetData, startWidgetRefresh, stopWidgetRefresh, addSSEClient, broadcastSSE, forceRefresh } from './widgets.js';
 import { getSoulData, resetSoul } from './tools/soul.js';
+import { getAllTodos, getActiveTodos, flushTodos } from './tools/todo.js';
+import { todoComplete } from './tools/todo.js';
+import { initScheduler } from './scheduler.js';
+import { getAuditLog, flushAudit } from './audit.js';
+import { checkEvoOllamaHealth } from './ollama.js';
+import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, updateMemory, deleteMemory, logConversation, checkEvoHealth, getLastHealthData } from './memory.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const logger = pino({ level: 'warn' });
+const baileysLogger = pino({ level: 'warn' });
+
+// Track last activity for health status
+let lastActivityTimestamp = Date.now();
 
 function printBanner() {
-  console.log(`
-  ╔══════════════════════════════════════╗
-  ║     CLAWD — Admin Assistant          ║
-  ╚══════════════════════════════════════╝
-
+  const banner = `
+  CLAWD — Admin Assistant
   Model:    ${config.claudeModel}
   Prefix:   ${config.triggerPrefix}
   Limit:    ${config.dailyCallLimit} calls/day
   Group:    ${config.whatsappGroupJid || '(all groups)'}
   HTTP:     port ${config.httpPort}
-`);
+  EVO X2:   ${config.evoToolEnabled ? config.evoToolModel : 'disabled'}`;
+  logger.info(banner);
 }
 
 function extractText(message) {
@@ -60,17 +68,13 @@ function splitMessage(text) {
   let remaining = text;
 
   while (remaining.length > MAX_MESSAGE_LENGTH) {
-    // Try to split at a paragraph break (double newline)
     let splitIdx = remaining.lastIndexOf('\n\n', MAX_MESSAGE_LENGTH);
-    // Fall back to single newline
     if (splitIdx < MAX_MESSAGE_LENGTH * 0.3) {
       splitIdx = remaining.lastIndexOf('\n', MAX_MESSAGE_LENGTH);
     }
-    // Fall back to space
     if (splitIdx < MAX_MESSAGE_LENGTH * 0.3) {
       splitIdx = remaining.lastIndexOf(' ', MAX_MESSAGE_LENGTH);
     }
-    // Hard cut if nothing works
     if (splitIdx < MAX_MESSAGE_LENGTH * 0.3) {
       splitIdx = MAX_MESSAGE_LENGTH;
     }
@@ -94,14 +98,12 @@ async function simulateTyping(sock, chatJid, responseLength) {
 }
 
 // --- Owner JID resolution ---
-// WhatsApp uses both phone format (xxx@s.whatsapp.net) and LID format (xxx@lid).
-// We check against both OWNER_JID and OWNER_LID for reliable owner detection.
 const ownerJids = new Set();
 if (config.ownerJid) ownerJids.add(config.ownerJid);
 if (config.ownerLid) ownerJids.add(config.ownerLid);
 
 function isOwnerJid(jid) {
-  if (!jid || ownerJids.size === 0) return true; // no owner configured = everyone is owner
+  if (!jid || ownerJids.size === 0) return true;
   return ownerJids.has(jid);
 }
 
@@ -118,7 +120,8 @@ async function handleMessage(sock, message, botJid) {
     const text = extractText(message);
     const msgHasImage = hasImageMsg(message);
 
-    console.log(`[msg] ${senderJid} | ${senderName}: ${text || (msgHasImage ? '[photo]' : '[empty]')}`);
+    logger.info({ sender: senderName, text: text || (msgHasImage ? '[photo]' : '[empty]') }, 'message received');
+    lastActivityTimestamp = Date.now();
 
     if (!text && !msgHasImage) return;
 
@@ -129,7 +132,6 @@ async function handleMessage(sock, message, botJid) {
       isBot: false,
     });
 
-    // Broadcast incoming messages from owner to dashboard
     if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
       if (text) broadcastSSE('message', { sender: senderName, text, timestamp: Date.now() });
     }
@@ -155,20 +157,39 @@ async function handleMessage(sock, message, botJid) {
 
     if (!trigger.respond) return;
 
-    console.log(`[trigger] ${trigger.mode} in ${chatJid}`);
+    logger.info({ mode: trigger.mode, chat: chatJid }, 'triggered');
 
     let messageText = text;
     if (messageText.toLowerCase().startsWith(config.triggerPrefix.toLowerCase())) {
       messageText = messageText.slice(config.triggerPrefix.length).trim();
     }
 
+    // Download image if present and bot should respond
+    let imageData = null;
+    if (msgHasImage) {
+      try {
+        const buffer = await downloadMediaMessage(message, 'buffer', {});
+        const mimeType = message.message.imageMessage.mimetype || 'image/jpeg';
+        imageData = {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mimeType,
+            data: buffer.toString('base64'),
+          },
+        };
+        logger.info({ mime: mimeType, bytes: buffer.length }, 'image downloaded');
+      } catch (err) {
+        logger.warn({ err: err.message }, 'image download failed');
+      }
+    }
+
     const context = buildContext(chatJid, messageText);
-    const response = await getClawdResponse(context, trigger.mode, senderJid);
+    const response = await getClawdResponse(context, trigger.mode, senderJid, imageData);
     if (!response) return;
 
     await simulateTyping(sock, chatJid, response.length);
 
-    // Split long messages to avoid mobile WhatsApp "waiting for this message" issue
     const chunks = splitMessage(response);
     for (const chunk of chunks) {
       await sock.sendMessage(chatJid, { text: chunk });
@@ -182,18 +203,27 @@ async function handleMessage(sock, message, botJid) {
       isBot: true,
     });
 
-    // Broadcast Clawd's response to dashboard (full response, not chunks)
     if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
       broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
+    }
+
+    // Log conversation for overnight memory extraction
+    if (config.evoMemoryEnabled) {
+      try {
+        logConversation(chatJid, [
+          { senderName: senderName, text: messageText, isBot: false },
+          { senderName: 'Clawd', text: response, isBot: true },
+        ]);
+      } catch {}
     }
 
     if (trigger.mode === 'random') {
       recordRandomCooldown();
     }
 
-    console.log(`[sent] ${trigger.mode} (${response.length} chars)`);
+    logger.info({ mode: trigger.mode, chars: response.length }, 'response sent');
   } catch (err) {
-    console.error('[handler] Error:', err.message);
+    logger.error({ err: err.message }, 'message handler error');
   }
 }
 
@@ -205,11 +235,14 @@ async function sendProactiveMessage(jid, text) {
   await simulateTyping(activeSock, jid, text.length);
   await activeSock.sendMessage(jid, { text });
   pushMessage(jid, { senderName: 'Clawd', text, hasImage: false, isBot: true });
-  console.log(`[proactive] Sent to ${jid} (${text.length} chars)`);
+  logger.info({ jid, chars: text.length }, 'proactive message sent');
 }
 
 async function startBot() {
   printBanner();
+
+  // Load persisted message buffers before connecting
+  await loadBuffers();
 
   const { state, saveCreds } = await useMultiFileAuthState(config.authStatePath);
   const { version } = await fetchLatestBaileysVersion();
@@ -217,7 +250,7 @@ async function startBot() {
   const sock = makeWASocket({
     version,
     auth: state,
-    logger,
+    logger: baileysLogger,
     browser: ['Clawd', 'Chrome', '122.0.0'],
     markOnlineOnConnect: false,
     syncFullHistory: false,
@@ -226,6 +259,7 @@ async function startBot() {
 
   let pairingRequested = false;
   let startupNotified = false;
+  let schedulerStarted = false;
 
   sock.ev.on('connection.update', async (update) => {
     const { qr, connection, lastDisconnect } = update;
@@ -233,23 +267,22 @@ async function startBot() {
     if (qr && config.pairingPhoneNumber) {
       if (!pairingRequested) {
         pairingRequested = true;
-        console.log('\n  Requesting pairing code...\n');
+        logger.info('requesting pairing code...');
         const code = await sock.requestPairingCode(config.pairingPhoneNumber);
-        console.log(`  PAIRING CODE: ${code}\n`);
+        logger.info({ code }, 'pairing code');
       }
     } else if (qr) {
       qrcode.generate(qr, { small: true });
       try {
         writeFileSync('/tmp/qr.txt', qr);
         execSync('qrencode -o /tmp/qr.png -s 10 -m 2 < /tmp/qr.txt');
-        console.log('\n  QR also at http://187.77.176.22:8080\n');
       } catch (_) {}
     }
 
     if (connection === 'open') {
       const botJid = sock.user?.id;
       activeSock = sock;
-      console.log(`\n  Connected as ${sock.user?.name || 'unknown'} (${botJid})\n`);
+      logger.info({ name: sock.user?.name, jid: botJid }, 'WhatsApp connected');
 
       sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (type !== 'notify') return;
@@ -258,7 +291,11 @@ async function startBot() {
         }
       });
 
-      // One-time startup notification to owner — announces changes if version is new
+      if (config.ownerJid && !schedulerStarted) {
+        schedulerStarted = true;
+        initScheduler(async (text) => sendProactiveMessage(config.ownerJid, text));
+      }
+
       if (!startupNotified && config.ownerJid) {
         startupNotified = true;
         setTimeout(async () => {
@@ -273,14 +310,14 @@ async function startBot() {
               const lastVersion = existsSync(lastVersionPath) ? readFileSync(lastVersionPath, 'utf-8').trim() : null;
 
               if (version !== lastVersion && notes?.length > 0) {
-                message = `Back online — *v${version}*\n\n` + notes.map((n) => `• ${n}`).join('\n');
+                message = `Back online — *v${version}*\n\n` + notes.map((n) => `- ${n}`).join('\n');
                 writeFileSync(lastVersionPath, version);
               }
             }
 
             await sendProactiveMessage(config.ownerJid, message);
           } catch (err) {
-            console.error('[startup-notify] Failed:', err.message);
+            logger.error({ err: err.message }, 'startup notification failed');
           }
         }, 3000);
       }
@@ -290,10 +327,10 @@ async function startBot() {
       activeSock = null;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       if (statusCode === DisconnectReason.loggedOut) {
-        console.error('  LOGGED OUT. Delete auth_state and restart.');
+        logger.fatal('logged out - delete auth_state and restart');
         process.exit(1);
       }
-      console.log('  Disconnected. Reconnecting in 5s...');
+      logger.warn({ statusCode }, 'disconnected, reconnecting in 5s...');
       setTimeout(startBot, 5000);
     }
   });
@@ -301,13 +338,31 @@ async function startBot() {
   sock.ev.on('creds.update', saveCreds);
 }
 
-process.on('SIGINT', () => { console.log('\n  Shutting down.'); process.exit(0); });
-process.on('SIGTERM', () => { console.log('\n  Shutting down.'); process.exit(0); });
-process.on('unhandledRejection', (err) => console.error('[error]', err?.message || err));
+// --- Graceful shutdown ---
+let shuttingDown = false;
+
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info({ signal }, 'shutting down...');
+
+  try { flushUsage(); } catch {}
+  try { await flushTodos(); } catch {}
+  try { await flushAudit(); } catch {}
+  try { flushBufferTimer(); await saveBuffers(); } catch {}
+  try { stopWidgetRefresh(); } catch {}
+
+  logger.info('shutdown complete');
+  process.exit(0);
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('unhandledRejection', (err) => logger.error({ err: err?.message || err }, 'unhandled rejection'));
 
 // --- Dashboard auth ---
 function checkDashboardAuth(req) {
-  if (!config.dashboardToken) return true; // no token = no auth required
+  if (!config.dashboardToken) return true;
   const url = new URL(req.url, 'http://localhost');
   const tokenParam = url.searchParams.get('token');
   const authHeader = req.headers.authorization;
@@ -337,7 +392,6 @@ createServer(async (req, res) => {
 
   // --- Public endpoints ---
 
-  // POST /api/send — send a proactive message
   if (req.method === 'POST' && path === '/api/send') {
     try {
       const { jid, message } = JSON.parse(await readBody(req));
@@ -350,16 +404,17 @@ createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/status — bot health check
   if (path === '/api/status') {
     return jsonResponse(res, 200, {
       connected: !!activeSock,
       name: activeSock?.user?.name || null,
       jid: activeSock?.user?.id || null,
+      lastActivity: lastActivityTimestamp,
+      uptime: Math.round(process.uptime()),
+      memoryMB: Math.round(process.memoryUsage().heapUsed / 1048576),
     });
   }
 
-  // GET /api/usage — token usage and cost
   if (path === '/api/usage') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     return jsonResponse(res, 200, getUsageStats());
@@ -367,7 +422,6 @@ createServer(async (req, res) => {
 
   // --- Dashboard endpoints (auth required) ---
 
-  // GET /dashboard — serve the dashboard HTML
   if (path === '/dashboard') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     const htmlPath = join(__dirname, '..', 'public', 'dashboard.html');
@@ -379,7 +433,6 @@ createServer(async (req, res) => {
     return res.end('Dashboard not found');
   }
 
-  // GET /api/widgets — cached widget data
   if (path === '/api/widgets') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     try {
@@ -391,7 +444,6 @@ createServer(async (req, res) => {
     return;
   }
 
-  // POST /api/widgets/refresh — force widget refresh
   if (req.method === 'POST' && path === '/api/widgets/refresh') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     try {
@@ -404,41 +456,134 @@ createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/soul — current soul state for dashboard
   if (path === '/api/soul') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     return jsonResponse(res, 200, getSoulData());
   }
 
-  // POST /api/soul/reset — emergency reset soul to empty defaults
   if (req.method === 'POST' && path === '/api/soul/reset') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    resetSoul();
+    await resetSoul();
     return jsonResponse(res, 200, { ok: true, message: 'Soul reset to defaults' });
   }
 
-  // GET /api/messages — recent messages from owner DM
+  if (path === '/api/todos') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    return jsonResponse(res, 200, { todos: getAllTodos() });
+  }
+
+  if (req.method === 'POST' && path === '/api/todos/complete') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const { id } = JSON.parse(await readBody(req));
+      if (!id) return jsonResponse(res, 400, { error: 'id required' });
+      const result = await todoComplete({ id });
+      broadcastSSE('todos', { todos: getAllTodos() });
+      return jsonResponse(res, 200, { ok: true, message: result, todos: getAllTodos() });
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
   if (path === '/api/messages') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     const messages = config.ownerJid ? getRecentMessages(config.ownerJid) : [];
     return jsonResponse(res, 200, { messages });
   }
 
-  // POST /api/chat — send message to Clawd from dashboard
+  // GET /api/audit — recent tool execution audit log
+  if (path === '/api/audit') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    const log = await getAuditLog(50);
+    return jsonResponse(res, 200, { audit: log });
+  }
+
+  // GET /api/ollama — EVO X2 model health check
+  if (path === '/api/ollama') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    const available = await checkEvoOllamaHealth();
+    return jsonResponse(res, 200, { available, model: config.evoToolModel });
+  }
+
+  // --- Memory endpoints ---
+
+  // GET /api/memory/status — EVO X2 + memory stats
+  if (path === '/api/memory/status') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    const evo = getEvoStatus();
+    const stats = await getMemoryStats();
+    const health = getLastHealthData();
+    return jsonResponse(res, 200, { evo, stats, health });
+  }
+
+  // GET /api/memory/list — all memories
+  if (path === '/api/memory/list') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    const memories = await listMemories();
+    return jsonResponse(res, 200, { memories, count: memories.length });
+  }
+
+  // POST /api/memory/search — search memories
+  if (req.method === 'POST' && path === '/api/memory/search') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const body = JSON.parse(await readBody(req));
+      if (!body.query) return jsonResponse(res, 400, { error: 'query required' });
+      const results = await searchMemory(body.query, body.category, body.limit || 10);
+      return jsonResponse(res, 200, { results });
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
+  // POST /api/memory/note — store a quick note
+  if (req.method === 'POST' && path === '/api/memory/note') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const { text } = JSON.parse(await readBody(req));
+      if (!text) return jsonResponse(res, 400, { error: 'text required' });
+      const result = await storeNote(text, 'dashboard_note');
+      return jsonResponse(res, 200, result);
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
+  // PUT /api/memory/:id — update a memory
+  if (req.method === 'PUT' && path.startsWith('/api/memory/mem_')) {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const memoryId = path.split('/').pop();
+      const updates = JSON.parse(await readBody(req));
+      const result = await updateMemory(memoryId, updates);
+      return jsonResponse(res, 200, result);
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
+  // DELETE /api/memory/:id — delete a memory
+  if (req.method === 'DELETE' && path.startsWith('/api/memory/mem_')) {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const memoryId = path.split('/').pop();
+      const result = await deleteMemory(memoryId);
+      return jsonResponse(res, 200, result);
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
   if (req.method === 'POST' && path === '/api/chat') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     try {
       const { message } = JSON.parse(await readBody(req));
       if (!message) return jsonResponse(res, 400, { error: 'message required' });
 
-      // Push as user message in owner's buffer
       const jid = config.ownerJid || 'dashboard';
       pushMessage(jid, { senderName: 'James', text: message, hasImage: false, isBot: false });
-
-      // Broadcast to SSE clients
       broadcastSSE('message', { sender: 'James', text: message, timestamp: Date.now() });
 
-      // Get Clawd response
       const context = buildContext(jid, message);
       const response = await getClawdResponse(context, 'direct');
 
@@ -446,12 +591,11 @@ createServer(async (req, res) => {
         pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
         broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
 
-        // Also send on WhatsApp so the conversation stays synced
         if (config.ownerJid && activeSock) {
           try {
             await sendProactiveMessage(config.ownerJid, response);
           } catch (err) {
-            console.error('[dashboard] WhatsApp relay failed:', err.message);
+            logger.error({ err: err.message }, 'dashboard WhatsApp relay failed');
           }
         }
 
@@ -465,7 +609,6 @@ createServer(async (req, res) => {
     return;
   }
 
-  // GET /api/events — SSE stream
   if (path === '/api/events') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     res.writeHead(200, {
@@ -479,10 +622,10 @@ createServer(async (req, res) => {
     return;
   }
 
-  // Default: QR code page (auto-refreshes every 5s so QR stays fresh)
+  // Default: QR code page
   if (activeSock?.user?.id) {
     res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(`<html><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>✅ Connected as ${activeSock.user.name || 'Clawd'}</h2><p>Dashboard: <a href="/dashboard?token=${config.dashboardToken}">/dashboard</a></p></body></html>`);
+    res.end(`<html><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Connected as ${activeSock.user.name || 'Clawd'}</h2><p>Dashboard: <a href="/dashboard?token=${config.dashboardToken}">/dashboard</a></p></body></html>`);
   } else if (existsSync('/tmp/qr.png')) {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     const img = readFileSync('/tmp/qr.png').toString('base64');
@@ -491,9 +634,8 @@ createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end('<html><head><meta http-equiv="refresh" content="3"></head><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Waiting for QR...</h2><p style="color:#888">Auto-refreshing</p></body></html>');
   }
-}).listen(config.httpPort, () => console.log(`  HTTP server on port ${config.httpPort}`));
+}).listen(config.httpPort, () => logger.info({ port: config.httpPort }, 'HTTP server started'));
 
-// Start widget cache refresh
 startWidgetRefresh();
 
 startBot();

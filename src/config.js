@@ -23,7 +23,7 @@ const config = {
 
   // Owner (James) — for proactive outbound messages
   ownerJid: process.env.OWNER_JID || '',
-  ownerLid: process.env.OWNER_LID || '',   // WhatsApp Linked ID format (xxx@lid)
+  ownerLid: process.env.OWNER_LID || '',
 
   // Travel APIs
   darwinToken: process.env.DARWIN_TOKEN || '',
@@ -41,6 +41,23 @@ const config = {
   // Dashboard
   httpPort: parseInt(process.env.HTTP_PORT) || 8080,
   dashboardToken: process.env.DASHBOARD_TOKEN || '',
+
+  // EVO X2 local model (qwen3.5:35b via Ollama)
+  evoToolModel: process.env.EVO_TOOL_MODEL || 'qwen3.5:35b',
+  evoToolEnabled: process.env.EVO_TOOL_ENABLED !== 'false',
+
+  // Weather
+  weatherApiKey: process.env.WEATHER_API_KEY || '',
+  weatherEnabled: process.env.WEATHER_ENABLED !== 'false',
+  weatherLocations: (process.env.WEATHER_LOCATIONS || 'London,York').split(',').map(s => s.trim()),
+
+  // Morning briefing
+  briefingEnabled: process.env.BRIEFING_ENABLED !== 'false',
+  briefingTime: process.env.BRIEFING_TIME || '07:00',
+
+  // EVO X2 Memory Service
+  evoMemoryUrl: process.env.EVO_MEMORY_URL || 'http://192.168.1.230:5100',
+  evoMemoryEnabled: process.env.EVO_MEMORY_ENABLED !== 'false',
 };
 
 export default config;
