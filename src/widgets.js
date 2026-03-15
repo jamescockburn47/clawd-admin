@@ -4,7 +4,7 @@
 import { google } from 'googleapis';
 import config from './config.js';
 import logger from './logger.js';
-import { fetchAllWeather } from './weather.js';
+import { fetchAllWeather, fetchDailyForecast, extractLocation } from './weather.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 
 const googleBreaker = new CircuitBreaker('google', { threshold: 3, resetTimeout: 120000 });
@@ -107,6 +107,8 @@ function parseHenryEvent(event) {
     travelPrice: null,
     accommodationBooked: false,
     accommodationDetails: null,
+    accommodationLocation: null,
+    description: event.description || '',
     eventId: event.id,
   };
 }
@@ -220,6 +222,22 @@ async function checkBookingStatus(weekends) {
           weekend.accommodationBooked = true;
           const priceMatch = text.match(/£(\d+(?:\.\d{2})?)/);
           weekend.accommodationDetails = priceMatch ? '£' + priceMatch[1] : 'Confirmed';
+          // Extract location from booking email for weather forecast
+          weekend.accommodationLocation = extractLocation(text);
+          weekend.accommodationText = email.subject; // for debugging
+          break;
+        }
+      }
+    }
+
+    // Also try to extract location from any accom email even if not date-matched
+    // (some booking confirmations don't include dates in subject/snippet)
+    if (!weekend.accommodationLocation && weekend.location === 'up-north') {
+      for (const email of accomEmails) {
+        const text = (email.subject + ' ' + email.snippet).toLowerCase();
+        const loc = extractLocation(text);
+        if (loc !== 'york') { // only if we find a specific place, not the default
+          weekend.accommodationLocation = loc;
           break;
         }
       }
@@ -430,6 +448,30 @@ async function refreshWidgets() {
       googleBreaker.call(() => fetchCalendarEvents(), () => prev.calendar),
       fetchAllWeather(),
     ]);
+
+    // Attach weather forecasts to upcoming Henry weekends (up-north only, within 16-day forecast window)
+    const now = new Date();
+    const forecastLimit = new Date(now.getTime() + 16 * 24 * 60 * 60 * 1000);
+    for (const weekend of henryWeekends) {
+      if (weekend.location !== 'up-north' || !weekend.startDate) continue;
+      const startD = new Date(weekend.startDate + 'T12:00:00');
+      if (startD > forecastLimit) continue;
+
+      // Determine location: accommodation booking > event description > event summary > default York
+      const locKey = weekend.accommodationLocation
+        || extractLocation((weekend.description || '') + ' ' + (weekend.summary || ''));
+
+      // Clamp end date to forecast limit
+      const endD = new Date(weekend.endDate + 'T12:00:00');
+      const clampedEnd = endD > forecastLimit ? forecastLimit.toISOString().split('T')[0] : weekend.endDate;
+
+      try {
+        const forecast = await fetchDailyForecast(locKey, weekend.startDate, clampedEnd);
+        if (forecast) weekend.forecast = forecast;
+      } catch (err) {
+        logger.warn({ err: err.message, weekend: weekend.startDate }, 'henry forecast fetch failed');
+      }
+    }
 
     widgetCache = { henryWeekends, sideGig, email, calendar, weather, lastRefresh: new Date().toISOString() };
     cacheTimestamp = Date.now();
