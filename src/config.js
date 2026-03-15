@@ -46,8 +46,7 @@ const config = {
   evoToolModel: process.env.EVO_TOOL_MODEL || 'qwen3.5:35b',
   evoToolEnabled: process.env.EVO_TOOL_ENABLED !== 'false',
 
-  // Weather
-  weatherApiKey: process.env.WEATHER_API_KEY || '',
+  // Weather (Open-Meteo — free, no API key)
   weatherEnabled: process.env.WEATHER_ENABLED !== 'false',
   weatherLocations: (process.env.WEATHER_LOCATIONS || 'London,York').split(',').map(s => s.trim()),
 

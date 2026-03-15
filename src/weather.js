@@ -1,4 +1,4 @@
-// Weather integration via OpenWeatherMap free tier
+// Weather integration via Open-Meteo (free, no API key required)
 import config from './config.js';
 import logger from './logger.js';
 import { CircuitBreaker } from './circuit-breaker.js';
@@ -13,9 +13,36 @@ const LOCATIONS = {
   pickering: { lat: 54.2483, lon: -0.7764, label: 'Pickering' },
 };
 
-export async function fetchWeather(locationKey) {
-  if (!config.weatherApiKey) return null;
+// Open-Meteo WMO weather codes → description
+const WMO_CODES = {
+  0: 'Clear sky',
+  1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+  45: 'Foggy', 48: 'Rime fog',
+  51: 'Light drizzle', 53: 'Drizzle', 55: 'Heavy drizzle',
+  56: 'Freezing drizzle', 57: 'Heavy freezing drizzle',
+  61: 'Light rain', 63: 'Rain', 65: 'Heavy rain',
+  66: 'Freezing rain', 67: 'Heavy freezing rain',
+  71: 'Light snow', 73: 'Snow', 75: 'Heavy snow',
+  77: 'Snow grains',
+  80: 'Light showers', 81: 'Showers', 82: 'Heavy showers',
+  85: 'Light snow showers', 86: 'Heavy snow showers',
+  95: 'Thunderstorm', 96: 'Thunderstorm with hail', 99: 'Thunderstorm with heavy hail',
+};
 
+// Map WMO codes to simple condition groups (for dashboard icons/styling)
+function wmoToCondition(code) {
+  if (code === 0) return 'Clear';
+  if (code <= 3) return 'Clouds';
+  if (code <= 48) return 'Fog';
+  if (code <= 57) return 'Drizzle';
+  if (code <= 67) return 'Rain';
+  if (code <= 77) return 'Snow';
+  if (code <= 82) return 'Rain';
+  if (code <= 86) return 'Snow';
+  return 'Thunderstorm';
+}
+
+export async function fetchWeather(locationKey) {
   const loc = LOCATIONS[locationKey.toLowerCase()];
   if (!loc) {
     logger.warn({ location: locationKey }, 'unknown weather location');
@@ -26,24 +53,26 @@ export async function fetchWeather(locationKey) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${loc.lat}&lon=${loc.lon}&appid=${config.weatherApiKey}&units=metric`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&wind_speed_unit=mph&timezone=Europe%2FLondon`;
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
 
     if (!res.ok) {
-      throw new Error(`Weather API ${res.status}`);
+      throw new Error(`Open-Meteo API ${res.status}`);
     }
 
     const data = await res.json();
+    const current = data.current;
+    const code = current.weather_code;
 
     return {
       location: loc.label,
-      temp: Math.round(data.main.temp),
-      feels_like: Math.round(data.main.feels_like),
-      description: data.weather[0]?.description || '',
-      condition: data.weather[0]?.main || '', // Clear, Clouds, Rain, Snow, etc.
-      humidity: data.main.humidity,
-      wind_mph: Math.round(data.wind.speed * 2.237),
+      temp: Math.round(current.temperature_2m),
+      feels_like: Math.round(current.apparent_temperature),
+      description: WMO_CODES[code] || `Code ${code}`,
+      condition: wmoToCondition(code),
+      humidity: current.relative_humidity_2m,
+      wind_mph: Math.round(current.wind_speed_10m),
     };
   } catch (err) {
     logger.error({ location: locationKey, err: err.message }, 'weather fetch error');
@@ -55,7 +84,7 @@ export async function fetchWeather(locationKey) {
 let lastWeather = [];
 
 export async function fetchAllWeather() {
-  if (!config.weatherApiKey || !config.weatherEnabled) return [];
+  if (!config.weatherEnabled) return [];
 
   return weatherBreaker.call(async () => {
     const results = await Promise.all(
