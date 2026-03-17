@@ -13,7 +13,7 @@
 | **Local project path** | `C:\Users\James\Downloads\clawdbot-claude-code` |
 | **Pi service** | `sudo systemctl restart clawdbot` |
 | **Dashboard URL** | `http://localhost:3000/dashboard?token=VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM` |
-| **Kiosk browser** | Chromium on Wayland, launched via `~/.config/labwc/autostart` |
+| **Dashboard** | Rust native app `clawd-dashboard` (NOT Chromium) |
 | **Pi display** | 10.1" touchscreen, 1024x600 |
 | **Model** | `claude-sonnet-4-6` |
 | **Node** | v20+, ESM modules, `node --env-file=.env src/index.js` |
@@ -25,16 +25,11 @@
 3. **SSH command pattern**: `ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "command"`.
 4. **SCP deploy pattern**: `scp -i C:/Users/James/.ssh/id_ed25519 <local_file> pi@192.168.1.211:~/clawdbot/<remote_path>`.
 5. **After deploying**, restart the service: `sudo systemctl restart clawdbot`.
-6. **To reload the kiosk browser**: kill and relaunch Chromium:
+6. **To reload the dashboard**: kill Chromium if present, then launch the Rust clawd-dashboard:
    ```bash
-   pkill chromium; sleep 2; \
+   pkill chromium 2>/dev/null; sleep 2; \
    export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; \
-   nohup chromium-browser --kiosk --noerrdialogs --disable-infobars \
-     --disable-session-crashed-bubble --disable-restore-session-state \
-     --disable-features=TranslateUI --check-for-update-interval=31536000 \
-     --disable-gpu --password-store=basic --ozone-platform=wayland \
-     'http://localhost:3000/dashboard?token=VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM' \
-     > /dev/null 2>&1 &
+   nohup /home/pi/clawd-dashboard/target/release/clawd-dashboard > /tmp/clawd-dashboard.log 2>&1 &
    ```
 7. **Never use `-uall` flag** with `git status` (can OOM on large repos).
 

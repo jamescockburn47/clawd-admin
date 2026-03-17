@@ -1,0 +1,24 @@
+[Unit]
+Description=Clawd Wake Word Listener
+After=clawdbot.service
+Wants=clawdbot.service
+
+[Service]
+Type=simple
+User=pi
+Group=audio
+WorkingDirectory=/home/pi/clawdbot-voice
+ExecStart=/home/pi/clawdbot-voice/venv/bin/python wake_listener.py
+Restart=always
+RestartSec=5
+Environment=DASHBOARD_TOKEN=VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM
+Environment=EVO_TRANSCRIBE_URL=http://192.168.1.230:5100/transcribe
+Environment=EVO_ROUTE_URL=http://192.168.1.230:5100/transcribe-and-route
+Environment=CLAWDBOT_URL=http://localhost:3000
+Environment=MIC_GAIN=8.0
+Environment=SPEECH_THRESHOLD=2500
+Environment=SILENCE_THRESHOLD=1800
+Environment=LOG_LEVEL=INFO
+
+[Install]
+WantedBy=multi-user.target

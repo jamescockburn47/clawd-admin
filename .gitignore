@@ -21,3 +21,6 @@ Thumbs.db
 # Temp
 /tmp/
 *.log
+
+# Rust build artifacts
+clawd-dashboard/target/

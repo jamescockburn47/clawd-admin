@@ -2,7 +2,7 @@ import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaile
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { createServer } from 'http';
-import { execSync } from 'child_process';
+import { execSync, exec } from 'child_process';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -14,7 +14,7 @@ import { getClawdResponse, getUsageStats, flushUsage } from './claude.js';
 import { getWidgetData, startWidgetRefresh, stopWidgetRefresh, addSSEClient, broadcastSSE, forceRefresh } from './widgets.js';
 import { getSoulData, resetSoul } from './tools/soul.js';
 import { getAllTodos, getActiveTodos, flushTodos } from './tools/todo.js';
-import { todoComplete } from './tools/todo.js';
+import { todoComplete, todoAdd } from './tools/todo.js';
 import { initScheduler } from './scheduler.js';
 import { getAuditLog, flushAudit } from './audit.js';
 import { checkEvoOllamaHealth } from './ollama.js';
@@ -572,6 +572,237 @@ createServer(async (req, res) => {
     } catch (err) {
       return jsonResponse(res, 500, { error: err.message });
     }
+  }
+
+  // POST /api/voice-local — fast locally-routed voice commands (no Claude call)
+  if (req.method === 'POST' && path === '/api/voice-local') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const { action, params = {}, text, tier } = JSON.parse(await readBody(req));
+      if (!action) return jsonResponse(res, 400, { error: 'action required' });
+
+      logger.info({ action, params, text, tier }, 'voice-local command');
+
+      let message = '';
+      let data = null;
+
+      switch (action) {
+        case 'navigate': {
+          const panel = params.panel || 'todos';
+          broadcastSSE('voice', { event: 'navigate', panel });
+          broadcastSSE('voice', { event: 'toast', message: `Showing ${panel}` });
+          message = `Navigated to ${panel}`;
+          break;
+        }
+
+        case 'todo_add': {
+          const todoText = params.text || text;
+          if (!todoText) return jsonResponse(res, 400, { error: 'text required for todo_add' });
+          const result = await todoAdd({ text: todoText, priority: params.priority || 'normal', due_date: params.due_date, reminder: params.reminder });
+          broadcastSSE('voice', { event: 'toast', message: `Added: ${todoText}` });
+          broadcastSSE('todos', { todos: getAllTodos() });
+          message = result;
+          break;
+        }
+
+        case 'todo_complete': {
+          const searchText = (params.text || text || '').toLowerCase();
+          if (!searchText) return jsonResponse(res, 400, { error: 'text required for todo_complete' });
+          const activeTodos = getActiveTodos();
+          // Fuzzy match: case-insensitive substring, prefer shorter todos (more specific match)
+          let bestMatch = null;
+          let bestScore = -1;
+          for (const todo of activeTodos) {
+            const todoLower = todo.text.toLowerCase();
+            if (todoLower.includes(searchText) || searchText.includes(todoLower)) {
+              // Score: exact match > substring in todo > substring in search
+              const score = todoLower === searchText ? 3 : todoLower.includes(searchText) ? 2 : 1;
+              if (score > bestScore) {
+                bestScore = score;
+                bestMatch = todo;
+              }
+            }
+          }
+          if (!bestMatch) {
+            // Fallback: token overlap
+            const searchTokens = searchText.split(/\s+/);
+            for (const todo of activeTodos) {
+              const todoLower = todo.text.toLowerCase();
+              const overlap = searchTokens.filter(t => todoLower.includes(t)).length;
+              if (overlap > bestScore) {
+                bestScore = overlap;
+                bestMatch = todo;
+              }
+            }
+          }
+          if (!bestMatch) {
+            message = `No matching todo found for: "${params.text || text}"`;
+            broadcastSSE('voice', { event: 'toast', message: 'No matching todo found' });
+          } else {
+            const result = await todoComplete({ id: bestMatch.id });
+            broadcastSSE('voice', { event: 'toast', message: `Done: ${bestMatch.text}` });
+            broadcastSSE('todos', { todos: getAllTodos() });
+            message = result;
+          }
+          break;
+        }
+
+        case 'calendar_list': {
+          const widgets = await getWidgetData();
+          data = widgets.calendar || [];
+          broadcastSSE('voice', { event: 'info', data });
+          message = `${data.length} upcoming event(s)`;
+          break;
+        }
+
+        case 'remember': {
+          const noteText = params.text || text;
+          if (!noteText) return jsonResponse(res, 400, { error: 'text required for remember' });
+          const result = await storeNote(noteText, 'voice_note');
+          broadcastSSE('voice', { event: 'toast', message: 'Noted' });
+          message = result.stored === false ? 'Queued for memory' : 'Stored in memory';
+          data = result;
+          break;
+        }
+
+        case 'refresh': {
+          await forceRefresh();
+          const freshData = await getWidgetData();
+          broadcastSSE('voice', { event: 'toast', message: 'Refreshed' });
+          message = 'Dashboard refreshed';
+          data = { lastRefresh: freshData.lastRefresh };
+          break;
+        }
+
+        case 'claude': {
+          // Forward to the full Claude pipeline by making an internal-style call
+          // We replicate what /api/voice-command does
+          const jid = config.ownerJid || 'dashboard';
+          const cmdText = params.text || text;
+          if (!cmdText) return jsonResponse(res, 400, { error: 'text required for claude action' });
+
+          pushMessage(jid, { senderName: 'James (voice)', text: cmdText, hasImage: false, isBot: false });
+          broadcastSSE('message', { sender: 'James (voice)', text: cmdText, timestamp: Date.now() });
+          broadcastSSE('voice', { event: 'command', text: cmdText });
+
+          const context = buildContext(jid, cmdText);
+          const response = await getClawdResponse(context, 'direct');
+
+          if (response) {
+            pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
+            broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
+
+            const lc = (cmdText + ' ' + response).toLowerCase();
+            const panels = [];
+            if (/\b(calendar|schedule|meeting|event|appointment|diary|tomorrow|today)\b/.test(lc)) panels.push('calendar');
+            if (/\b(todo|task|reminder|to.do|shopping)\b/.test(lc)) panels.push('todos');
+            if (/\b(email|inbox|gmail|message|draft|send)\b/.test(lc)) panels.push('email');
+            if (/\b(weather|rain|temperature|forecast|sun)\b/.test(lc)) panels.push('weather');
+            if (/\b(henry|weekend|custody)\b/.test(lc)) panels.push('henry');
+            if (/\b(train|travel|hotel|fare|depart)\b/.test(lc)) panels.push('travel');
+
+            broadcastSSE('voice', { event: 'response', text: response, panels, command: cmdText });
+
+            if (config.ownerJid && activeSock) {
+              try { await sendProactiveMessage(config.ownerJid, response); } catch {}
+            }
+
+            return jsonResponse(res, 200, { ok: true, action: 'claude', message: response, data: { panels } });
+          } else {
+            broadcastSSE('voice', { event: 'no_result' });
+            return jsonResponse(res, 200, { ok: true, action: 'claude', message: 'No response', data: null });
+          }
+        }
+
+        default:
+          return jsonResponse(res, 400, { error: `Unknown action: ${action}` });
+      }
+
+      return jsonResponse(res, 200, { ok: true, action, message, data });
+    } catch (err) {
+      logger.error({ err: err.message }, 'voice-local error');
+      broadcastSSE('voice', { event: 'toast', message: 'Voice command failed' });
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
+  // POST /api/voice-command — receive transcribed voice command from wake listener
+  if (req.method === 'POST' && path === '/api/voice-command') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const { text, source } = JSON.parse(await readBody(req));
+      if (!text) return jsonResponse(res, 400, { error: 'text required' });
+
+      logger.info({ text, source }, 'voice command received');
+      const jid = config.ownerJid || 'dashboard';
+      pushMessage(jid, { senderName: 'James (voice)', text, hasImage: false, isBot: false });
+      broadcastSSE('message', { sender: 'James (voice)', text, timestamp: Date.now() });
+      broadcastSSE('voice', { event: 'command', text });
+
+      const context = buildContext(jid, text);
+      const response = await getClawdResponse(context, 'direct');
+
+      if (response) {
+        pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
+        broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
+
+        // Detect context for dashboard panel highlighting
+        const lc = (text + ' ' + response).toLowerCase();
+        const panels = [];
+        if (/\b(calendar|schedule|meeting|event|appointment|diary|tomorrow|today)\b/.test(lc)) panels.push('calendar');
+        if (/\b(todo|task|reminder|to.do|shopping)\b/.test(lc)) panels.push('todos');
+        if (/\b(email|inbox|gmail|message|draft|send)\b/.test(lc)) panels.push('email');
+        if (/\b(weather|rain|temperature|forecast|sun)\b/.test(lc)) panels.push('weather');
+        if (/\b(henry|weekend|custody)\b/.test(lc)) panels.push('henry');
+        if (/\b(train|travel|hotel|fare|depart)\b/.test(lc)) panels.push('travel');
+
+        broadcastSSE('voice', { event: 'response', text: response, panels, command: text });
+
+        if (config.ownerJid && activeSock) {
+          try {
+            await sendProactiveMessage(config.ownerJid, response);
+          } catch (err) {
+            logger.error({ err: err.message }, 'voice command WhatsApp relay failed');
+          }
+        }
+
+        jsonResponse(res, 200, { response, panels });
+      } else {
+        broadcastSSE('voice', { event: 'no_result' });
+        jsonResponse(res, 200, { response: null });
+      }
+    } catch (err) {
+      broadcastSSE('voice', { event: 'error', message: err.message });
+      jsonResponse(res, 500, { error: err.message });
+    }
+    return;
+  }
+
+  // POST /api/voice-status — voice listener status updates for dashboard SSE
+  if (req.method === 'POST' && path === '/api/voice-status') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const body = JSON.parse(await readBody(req));
+      broadcastSSE('voice', body);
+      return jsonResponse(res, 200, { ok: true });
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
+  // POST /api/desktop-mode — kill kiosk Chromium to expose Pi desktop
+  if (req.method === 'POST' && path === '/api/desktop-mode') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      logger.info('desktop mode requested — killing kiosk Chromium');
+      exec('touch /tmp/clawd-desktop-mode && pkill chromium', (err) => {
+        if (err) logger.warn({ err: err.message }, 'chromium kill returned non-zero (may already be dead)');
+      });
+      jsonResponse(res, 200, { ok: true, message: 'Kiosk hidden. Use Clawd Desktop shortcut to return.' });
+    } catch (err) {
+      jsonResponse(res, 500, { error: err.message });
+    }
+    return;
   }
 
   if (req.method === 'POST' && path === '/api/chat') {

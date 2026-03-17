@@ -23,6 +23,13 @@
   }
   .header-left { font-size: 20px; font-weight: 700; letter-spacing: 2px; color: var(--accent); }
   .header-right { font-size: 15px; color: var(--text-dim); display: flex; align-items: center; gap: 16px; }
+  .desktop-mode-btn {
+    background: none; border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim);
+    cursor: pointer; padding: 3px 8px; font-size: 13px; line-height: 1; transition: border-color 0.3s, color 0.3s;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .desktop-mode-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .desktop-mode-btn svg { width: 14px; height: 14px; fill: currentColor; }
   .cost-display { font-size: 12px; color: var(--text-dim); cursor: pointer; padding: 3px 10px; border: 1px solid var(--border); border-radius: 10px; transition: border-color 0.3s, color 0.3s; }
   .cost-display .amount { color: var(--accent2); font-weight: 600; }
   .cost-display.usage-warn { border-color: var(--orange); color: var(--orange); }
@@ -462,6 +469,136 @@
   .mem-edit-actions .save { background: var(--accent); color: #fff; font-weight: 600; }
   .mem-edit-actions .cancel { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
 
+  /* Voice toast — lightweight confirmation pill */
+  .voice-toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(40px);
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 20px;
+    padding: 10px 24px; font-size: 13px; color: var(--text); font-weight: 500;
+    z-index: 600; opacity: 0; pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    max-width: 80%; text-align: center;
+  }
+  .voice-toast.visible {
+    opacity: 1; pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* Voice info card — compact overlay for data display */
+  .voice-info-card {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.96);
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px 24px; max-width: 85%; max-height: 60vh; overflow-y: auto;
+    z-index: 550; opacity: 0; pointer-events: none;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    font-size: 13px; color: var(--text);
+  }
+  .voice-info-card.visible {
+    opacity: 1; pointer-events: auto;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  .voice-info-card .info-title {
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-dim); margin-bottom: 10px;
+  }
+  .voice-info-card .info-event {
+    padding: 6px 0; border-bottom: 1px solid var(--border);
+  }
+  .voice-info-card .info-event:last-child { border-bottom: none; }
+  .voice-info-card .info-event-time { color: var(--accent2); font-weight: 600; margin-right: 6px; }
+
+  /* Voice interaction overlay */
+  .voice-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(10, 10, 15, 0.85);
+    z-index: 500; display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+  .voice-overlay.active { opacity: 1; pointer-events: auto; }
+  .voice-overlay-card {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 16px;
+    padding: 40px 36px; max-width: 80%; min-width: 320px; text-align: center;
+    transform: translateY(20px) scale(0.96);
+    transition: transform 0.35s ease;
+    position: relative;
+  }
+  .voice-overlay.active .voice-overlay-card { transform: translateY(0) scale(1); }
+
+  /* Listening state: pulsing rings */
+  .voice-mic-icon {
+    width: 72px; height: 72px; border-radius: 50%; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px; color: #fff; margin: 0 auto 20px; position: relative;
+    font-weight: 700;
+  }
+  .voice-mic-svg {
+    display: block; width: 18px; height: 28px;
+    border: 3px solid #fff; border-radius: 10px;
+    position: relative;
+  }
+  .voice-mic-svg::after {
+    content: ''; position: absolute; bottom: -8px; left: 50%; transform: translateX(-50%);
+    width: 26px; height: 14px;
+    border: 3px solid #fff; border-top: none; border-radius: 0 0 13px 13px;
+  }
+  .voice-mic-svg::before {
+    content: ''; position: absolute; bottom: -14px; left: 50%; transform: translateX(-50%);
+    width: 3px; height: 8px; background: #fff;
+  }
+  .voice-pulse-ring {
+    position: absolute; top: 50%; left: 50%; width: 72px; height: 72px;
+    border-radius: 50%; border: 2px solid var(--accent);
+    transform: translate(-50%, -50%); opacity: 0;
+    animation: voice-ring-expand 2s ease-out infinite;
+  }
+  .voice-pulse-ring:nth-child(2) { animation-delay: 0.5s; }
+  .voice-pulse-ring:nth-child(3) { animation-delay: 1s; }
+  @keyframes voice-ring-expand {
+    0% { width: 72px; height: 72px; opacity: 0.6; }
+    100% { width: 160px; height: 160px; opacity: 0; }
+  }
+  .voice-label { font-size: 22px; color: var(--text); font-weight: 600; margin-bottom: 8px; }
+  .voice-sublabel { font-size: 15px; color: var(--text-dim); }
+  .voice-transcript {
+    font-size: 22px; color: var(--accent2); font-weight: 600;
+    margin-bottom: 16px; line-height: 1.4;
+  }
+  .voice-response {
+    font-size: 18px; color: var(--text); line-height: 1.5;
+    text-align: left; max-height: 320px; overflow-y: auto;
+    padding: 16px; background: var(--surface); border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .voice-response::-webkit-scrollbar { width: 4px; }
+  .voice-response::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Thinking dots animation */
+  .voice-thinking { display: inline-flex; gap: 6px; align-items: center; justify-content: center; padding: 12px 0; }
+  .voice-thinking-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--accent);
+    animation: voice-dot-bounce 1.4s ease-in-out infinite;
+  }
+  .voice-thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+  .voice-thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes voice-dot-bounce {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+  }
+
+  /* No speech message */
+  .voice-nospeech { font-size: 18px; color: var(--text-dim); font-style: italic; }
+
+  /* Panel highlight glow */
+  .panel-highlight {
+    animation: panel-glow-pulse 0.6s ease-in-out 3;
+  }
+  @keyframes panel-glow-pulse {
+    0%, 100% { box-shadow: none; }
+    50% { box-shadow: 0 0 20px 4px rgba(108, 92, 231, 0.5), inset 0 0 12px rgba(108, 92, 231, 0.15); }
+  }
+
   /* Tab layout for narrow widths (under 800px) */
   @media (max-width: 800px) {
     .panels { flex-direction: column; }
@@ -478,6 +615,9 @@
 <div class="header">
   <div class="header-left"><span class="status-dot" id="statusDot"></span>CLAWD</div>
   <div class="header-right">
+    <button class="desktop-mode-btn" onclick="enterDesktopMode()" title="Desktop Mode">
+      <svg viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
+    </button>
     <div class="weather-bar" id="weatherBar"></div>
     <div class="cost-display" id="costDisplay" onclick="toggleCostDetail()" title="Click for details">Today: <span class="amount" id="costAmount">--</span></div>
     <div id="clockDisplay"></div>
@@ -1209,7 +1349,18 @@ function connectSSE() {
       const msg = JSON.parse(e.data);
       if (msg.sender === 'Clawd') {
         updateLastMessage('Clawd', msg.text);
+        // If voice overlay is active, show response there
+        if (typeof voiceActive !== 'undefined' && voiceActive) {
+          showVoiceOverlay('response', { text: msg.text });
+        }
       }
+    } catch (_) {}
+  });
+
+  es.addEventListener('voice', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (typeof handleVoiceEvent === 'function') handleVoiceEvent(data);
     } catch (_) {}
   });
 
@@ -1284,6 +1435,12 @@ function renderCost(data) {
 function toggleCostDetail() {
   costDetailMode = !costDetailMode;
   loadUsage();
+}
+
+function enterDesktopMode() {
+  if (!confirm('Switch to Pi desktop? The kiosk will close.\nUse the Clawd Desktop shortcut to return.')) return;
+  fetch('/api/desktop-mode?token=' + TOKEN, { method: 'POST' })
+    .catch(err => console.error('desktop-mode error', err));
 }
 
 // --- Voice activation ---
@@ -1803,6 +1960,345 @@ setInterval(loadTodos, 2 * 60 * 1000);
 setInterval(loadSoul, 5 * 60 * 1000);
 setInterval(loadUsage, 2 * 60 * 60 * 1000);
 setInterval(loadMemoryStatus, 60 * 1000);
+</script>
+
+<!-- Voice interaction overlay -->
+<div id="voiceOverlay" class="voice-overlay" onclick="dismissVoiceOverlay()">
+  <div class="voice-overlay-card">
+    <div id="voiceContent"></div>
+  </div>
+</div>
+
+<!-- Voice toast (lightweight confirmation pill) -->
+<div id="voiceToast" class="voice-toast"></div>
+
+<!-- Voice info card (compact data overlay) -->
+<div id="voiceInfoCard" class="voice-info-card" onclick="dismissVoiceInfoCard()"></div>
+
+<script>
+// --- Voice Toast & Info Card ---
+
+let voiceToastTimer = null;
+function showVoiceToast(message) {
+  const el = document.getElementById('voiceToast');
+  el.textContent = message;
+  el.classList.add('visible');
+  if (voiceToastTimer) clearTimeout(voiceToastTimer);
+  voiceToastTimer = setTimeout(() => {
+    el.classList.remove('visible');
+    voiceToastTimer = null;
+  }, 3000);
+}
+
+let voiceInfoTimer = null;
+function showVoiceInfoCard(data) {
+  const el = document.getElementById('voiceInfoCard');
+  let html = '<div class="info-title">Upcoming Events</div>';
+  if (Array.isArray(data) && data.length > 0) {
+    data.forEach(evt => {
+      const time = evt.start && evt.start.includes('T')
+        ? new Date(evt.start).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
+        : (evt.start || '');
+      html += `<div class="info-event"><span class="info-event-time">${time}</span>${evt.summary || '(No title)'}</div>`;
+    });
+  } else {
+    html += '<div class="info-event" style="color:var(--text-dim)">No upcoming events</div>';
+  }
+  el.innerHTML = html;
+  el.classList.add('visible');
+  if (voiceInfoTimer) clearTimeout(voiceInfoTimer);
+  voiceInfoTimer = setTimeout(dismissVoiceInfoCard, 8000);
+}
+
+function dismissVoiceInfoCard() {
+  const el = document.getElementById('voiceInfoCard');
+  el.classList.remove('visible');
+  if (voiceInfoTimer) { clearTimeout(voiceInfoTimer); voiceInfoTimer = null; }
+}
+</script>
+
+<script>
+// --- Voice Overlay & Tones ---
+
+// Audio context (lazy init on first user gesture)
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function playAckTone() {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    // Ascending two-note chime
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(587.33, now); // D5
+    gain1.gain.setValueAtTime(0.3, now);
+    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+    osc1.connect(gain1).connect(ctx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.25);
+
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(880, now + 0.12); // A5
+    gain2.gain.setValueAtTime(0, now);
+    gain2.gain.setValueAtTime(0.3, now + 0.12);
+    gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+    osc2.connect(gain2).connect(ctx.destination);
+    osc2.start(now + 0.12);
+    osc2.stop(now + 0.45);
+  } catch (_) {}
+}
+
+function playDoneTone() {
+  try {
+    const ctx = getAudioCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, now); // A4
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.4);
+  } catch (_) {}
+}
+
+// Voice overlay state
+let voiceActive = false;
+let voiceOverlayState = null;  // 'listening' | 'processing' | 'response' | 'nospeech'
+let voiceOverlayTimer = null;
+let voiceTranscript = '';
+let lastActivatedAt = 0;  // ms, for grace period so wake-only ack stays visible
+
+function showVoiceOverlay(state, data) {
+  const overlay = document.getElementById('voiceOverlay');
+  const content = document.getElementById('voiceContent');
+  voiceActive = true;
+  voiceOverlayState = state;
+  clearTimeout(voiceOverlayTimer);
+
+  // Hide keyboard if showing
+  if (kbVisible) hideKeyboard();
+
+  if (state === 'listening') {
+    content.innerHTML =
+      '<div class="voice-mic-icon">' +
+        '<div class="voice-pulse-ring"></div>' +
+        '<div class="voice-pulse-ring"></div>' +
+        '<div class="voice-pulse-ring"></div>' +
+        '<span class="voice-mic-svg"></span>' +
+      '</div>' +
+      '<div class="voice-label">Listening...</div>' +
+      '<div class="voice-sublabel">Speak your command</div>';
+    voiceOverlayTimer = setTimeout(dismissVoiceOverlay, 30000);
+  } else if (state === 'processing') {
+    content.innerHTML =
+      '<div class="voice-transcript">&ldquo;' + escHtml(voiceTranscript) + '&rdquo;</div>' +
+      '<div class="voice-thinking">' +
+        '<div class="voice-thinking-dot"></div>' +
+        '<div class="voice-thinking-dot"></div>' +
+        '<div class="voice-thinking-dot"></div>' +
+      '</div>' +
+      '<div class="voice-sublabel">Thinking...</div>';
+    voiceOverlayTimer = setTimeout(dismissVoiceOverlay, 60000);
+  } else if (state === 'response') {
+    const text = (data && data.text) || '';
+    content.innerHTML =
+      '<div class="voice-transcript" style="font-size:15px;margin-bottom:12px">&ldquo;' + escHtml(voiceTranscript) + '&rdquo;</div>' +
+      '<div class="voice-response">' + escHtml(text) + '</div>';
+    playDoneTone();
+    highlightRelevantPanels(text);
+    // Auto-dismiss after 8 seconds
+    voiceOverlayTimer = setTimeout(dismissVoiceOverlay, 8000);
+  } else if (state === 'nospeech') {
+    content.innerHTML =
+      '<div class="voice-nospeech">Didn\'t catch that.</div>';
+    voiceOverlayTimer = setTimeout(dismissVoiceOverlay, 2000);
+  }
+
+  overlay.classList.add('active');
+}
+
+function dismissVoiceOverlay() {
+  const overlay = document.getElementById('voiceOverlay');
+  overlay.classList.remove('active');
+  clearTimeout(voiceOverlayTimer);
+  voiceActive = false;
+  voiceOverlayState = null;
+  voiceTranscript = '';
+  lastActivatedAt = 0;
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Smart panel highlighting
+function highlightRelevantPanels(responseText) {
+  if (!responseText) return;
+  const lower = responseText.toLowerCase();
+  const calendarKeywords = ['calendar', 'schedule', 'meeting', 'event', 'appointment', 'diary'];
+  const todoKeywords = ['todo', 'task', 'reminder', 'to-do', 'to do'];
+  const emailKeywords = ['email', 'message', 'inbox', 'mail', 'draft', 'sent'];
+
+  if (calendarKeywords.some(k => lower.includes(k))) {
+    flashPanel('calendarPanel');
+    flashPanel('henryPanel');
+  }
+  if (todoKeywords.some(k => lower.includes(k))) {
+    flashPanel('todoPanel');
+  }
+  if (emailKeywords.some(k => lower.includes(k))) {
+    flashPanel('emailPanel');
+  }
+}
+
+function flashPanel(panelId) {
+  const el = document.getElementById(panelId);
+  if (!el) return;
+  el.classList.remove('panel-highlight');
+  // Force reflow to restart animation
+  void el.offsetWidth;
+  el.classList.add('panel-highlight');
+  el.addEventListener('animationend', () => {
+    el.classList.remove('panel-highlight');
+  }, { once: true });
+}
+
+// Handle voice SSE events
+function handleVoiceEvent(data) {
+  if (!data || !data.event) return;
+
+  switch (data.event) {
+    case 'activated':
+      playAckTone();
+      voiceTranscript = '';
+      lastActivatedAt = Date.now();
+      showVoiceOverlay('listening');
+      break;
+    case 'processing':
+      // Recording done, sending to Whisper — stay in listening or move to processing
+      if (voiceActive && !voiceTranscript) {
+        // Still waiting for transcript, keep listening visual
+      }
+      break;
+    case 'command':
+      voiceTranscript = data.text || '';
+      showVoiceOverlay('processing');
+      break;
+    case 'response':
+      // Rich response from voice-command endpoint with panel hints
+      voiceTranscript = data.command || voiceTranscript;
+      showVoiceOverlay('response', { text: data.text });
+      // Use server-provided panel hints for highlighting
+      if (data.panels && data.panels.length > 0) {
+        const panelMap = {
+          calendar: ['calendarPanel'],
+          henry: ['henryPanel'],
+          todos: ['todoPanel'],
+          email: ['emailPanel'],
+          weather: [],
+          travel: [],
+        };
+        data.panels.forEach(p => {
+          (panelMap[p] || []).forEach(id => flashPanel(id));
+        });
+      }
+      break;
+    case 'result':
+      // Reserved for future use
+      break;
+    case 'no_speech':
+      showVoiceOverlay('nospeech');
+      break;
+    case 'listening':
+      // Don't override response/processing — let user see result or wait for it
+      // Don't dismiss within 2.5s of "activated" — wake-only sends both back-to-back; user needs to see ack
+      const graceOk = !lastActivatedAt || (Date.now() - lastActivatedAt) > 2500;
+      if (voiceActive && voiceOverlayState !== 'response' && voiceOverlayState !== 'processing' && graceOk) {
+        dismissVoiceOverlay();
+      }
+      break;
+    case 'no_result':
+      showVoiceOverlay('nospeech');
+      break;
+    case 'error':
+      if (voiceActive) {
+        const content = document.getElementById('voiceContent');
+        content.innerHTML = '<div class="voice-nospeech">Something went wrong. Try again.</div>';
+        voiceOverlayTimer = setTimeout(dismissVoiceOverlay, 3000);
+      }
+      break;
+    case 'stopped':
+      if (voiceActive) dismissVoiceOverlay();
+      break;
+
+    case 'speak':
+      // Play TTS audio from EVO (base64 WAV)
+      if (data.audio) {
+        try {
+          const audioData = atob(data.audio);
+          const audioArray = new Uint8Array(audioData.length);
+          for (let i = 0; i < audioData.length; i++) audioArray[i] = audioData.charCodeAt(i);
+          const blob = new Blob([audioArray], { type: 'audio/wav' });
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audio.onended = () => URL.revokeObjectURL(url);
+          audio.play().catch(e => console.warn('TTS playback failed:', e));
+        } catch(e) { console.warn('TTS decode error:', e); }
+      }
+      break;
+
+    // --- Voice-local events (lightweight, no full overlay) ---
+    case 'navigate': {
+      // Map panel names to swipe positions
+      const navMap = {
+        henry:    { side: 'left',  index: 0 },
+        calendar: { side: 'left',  index: 1 },
+        todos:    null, // center panel, no swipe needed
+        gig:      { side: 'right', index: 0 },
+        email:    { side: 'right', index: 1 },
+        soul:     { side: 'right', index: 2 },
+        admin:    { side: 'right', index: 3 },
+      };
+      const target = navMap[data.panel];
+      if (target) {
+        swipePanel(target.side, target.index);
+      }
+      // Flash the target panel
+      const panelIds = {
+        henry: 'henryPanel', calendar: 'calendarPanel', todos: 'todoPanel',
+        gig: 'gigPanel', email: 'emailPanel', soul: 'soulPanel', admin: 'adminPanel',
+      };
+      const pid = panelIds[data.panel];
+      if (pid) flashPanel(pid);
+      // Dismiss voice overlay if it was showing
+      if (voiceActive) dismissVoiceOverlay();
+      break;
+    }
+    case 'toast':
+      if (typeof showVoiceToast === 'function') showVoiceToast(data.message);
+      // Dismiss voice overlay if it was showing (toast replaces it for local commands)
+      if (voiceActive) dismissVoiceOverlay();
+      break;
+    case 'info':
+      if (typeof showVoiceInfoCard === 'function') showVoiceInfoCard(data.data);
+      if (voiceActive) dismissVoiceOverlay();
+      break;
+  }
+}
+
+// Voice overlay functions are available globally for SSE handlers in the main script block
 </script>
 </body>
 </html>

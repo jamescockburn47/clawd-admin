@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Clawd Dashboard
+Comment=Relaunch Clawd kiosk dashboard
+Exec=bash -c 'rm -f /tmp/clawd-desktop-mode; export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; chromium-browser --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --disable-features=TranslateUI --check-for-update-interval=31536000 --disable-gpu --password-store=basic --ozone-platform=wayland --autoplay-policy=no-user-gesture-required "http://localhost:3000/dashboard?token=VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM"'
+Type=Application
+Icon=web-browser
+Terminal=false
+Categories=Utility;

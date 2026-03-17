@@ -1,0 +1,24 @@
+[Unit]
+Description=Clawd Voice Listener (EVO X2)
+After=clawdbot-memory.service
+Wants=clawdbot-memory.service
+
+[Service]
+Type=simple
+User=james
+Group=audio
+WorkingDirectory=/home/james/clawdbot-memory
+ExecStart=/home/james/clawdbot-memory/venv/bin/python /home/james/clawdbot-memory/voice_listener.py
+Restart=always
+RestartSec=5
+Environment=CLAWDBOT_URL=http://192.168.1.211:3000
+Environment=DASHBOARD_TOKEN=VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM
+Environment=ROUTE_URL=http://localhost:5100/route-command
+Environment=MIC_GAIN=4.0
+Environment=SPEECH_THRESHOLD=2000
+Environment=SILENCE_THRESHOLD=1200
+Environment=WHISPER_MODEL=small
+Environment=LOG_LEVEL=INFO
+
+[Install]
+WantedBy=multi-user.target
