@@ -32,6 +32,10 @@ export function addSSEClient(res) {
   res.on('close', () => sseClients.delete(res));
 }
 
+export function getSSEClientCount() {
+  return sseClients.size;
+}
+
 export function broadcastSSE(event, data) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of sseClients) {

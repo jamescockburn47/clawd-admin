@@ -1,0 +1,17 @@
+[Unit]
+Description=Clawdbot overnight evolution session (Claude Code)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=james
+Environment=ANTHROPIC_API_KEY=%h/.config/claude-code/api-key
+WorkingDirectory=/home/james/clawdbot-evolution
+ExecStart=/home/james/clawdbot-evolution/run-evolution.sh
+TimeoutStartSec=4200
+# Don't restart — one-shot per night
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

@@ -243,20 +243,23 @@ fn process_sse_event(state: &SharedState, event: &str, data: &str) {
         }
         "voice" => {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
-                let evt = v.get("event").and_then(|e| e.as_str()).unwrap_or("");
-                s.voice_event = Some(evt.to_string());
-                // For "response": transcript=command, response=text. For "command": transcript=text
-                if evt == "response" {
-                    s.voice_text = v.get("command").and_then(|c| c.as_str()).map(String::from);
-                    s.voice_response = v.get("text").or_else(|| v.get("message")).and_then(|m| m.as_str()).map(String::from);
+                let evt = v.get("event").and_then(|e| e.as_str()).unwrap_or("").to_string();
+                let (text, response) = if evt == "response" {
+                    (
+                        v.get("command").and_then(|c| c.as_str()).map(String::from),
+                        v.get("text").or_else(|| v.get("message")).and_then(|m| m.as_str()).map(String::from),
+                    )
                 } else {
-                    s.voice_text = v.get("text").or_else(|| v.get("command")).and_then(|t| t.as_str()).map(String::from);
-                    s.voice_response = v.get("message").and_then(|m| m.as_str()).map(String::from);
-                }
-                s.voice_audio = v.get("audio").and_then(|a| a.as_str()).map(String::from);
-                s.voice_panel = v.get("panel").and_then(|p| p.as_str()).map(String::from);
-                s.voice_message = v.get("message").and_then(|m| m.as_str()).map(String::from);
+                    (
+                        v.get("text").or_else(|| v.get("command")).and_then(|t| t.as_str()).map(String::from),
+                        v.get("message").and_then(|m| m.as_str()).map(String::from),
+                    )
+                };
+                let audio = v.get("audio").and_then(|a| a.as_str()).map(String::from);
+                let panel = v.get("panel").and_then(|p| p.as_str()).map(String::from);
+                let message = v.get("message").and_then(|m| m.as_str()).map(String::from);
                 log::debug!("SSE: voice event {:?}", evt);
+                s.voice_queue.push((evt, text, response, audio, panel, message));
             }
         }
         _ => {

@@ -21,9 +21,12 @@ const BG: Color32 = Color32::from_rgb(10, 10, 15);
 const SURFACE: Color32 = Color32::from_rgb(20, 20, 31);
 const SURFACE2: Color32 = Color32::from_rgb(28, 28, 46);
 const BORDER: Color32 = Color32::from_rgb(42, 42, 64);
+const BORDER_LIGHT: Color32 = Color32::from_rgb(65, 65, 90);  // brighter border for disabled elements
 const TEXT: Color32 = Color32::from_rgb(232, 232, 240);
 const TEXT_DIM: Color32 = Color32::from_rgb(136, 136, 160);
+const TEXT_BTN: Color32 = Color32::from_rgb(190, 190, 210);  // legible on dark button backgrounds
 const ACCENT: Color32 = Color32::from_rgb(108, 92, 231);
+const ACCENT_LIGHT: Color32 = Color32::from_rgb(140, 126, 245);  // brighter accent for button text
 const ACCENT2: Color32 = Color32::from_rgb(0, 206, 201);
 const RED: Color32 = Color32::from_rgb(255, 107, 107);
 const GREEN: Color32 = Color32::from_rgb(81, 207, 102);
@@ -44,7 +47,7 @@ const CHAT_BAR_H: f32 = 48.0;
 
 // ── Panel labels ───────────────────────────────────────────────────
 const LEFT_PANELS: &[&str] = &["Henry", "Calendar"];
-const RIGHT_PANELS: &[&str] = &["Side Gig", "Email", "Soul", "Admin"];
+const RIGHT_PANELS: &[&str] = &["Side Gig", "Email", "Soul", "Admin", "Help"];
 
 // ───────────────────────────────────────────────────────────────────
 
@@ -108,7 +111,6 @@ struct ClawdApp {
     start_time: Instant,
     left_panel: usize,
     right_panel: usize,
-    last_voice_event: Option<String>,
     last_activated_at: Option<f64>,
     pending_complete: Option<String>,
     left_swipe: SwipeTracker,
@@ -146,7 +148,6 @@ impl ClawdApp {
             start_time: Instant::now(),
             left_panel: 0,
             right_panel: 0,
-            last_voice_event: None,
             last_activated_at: None,
             pending_complete: None,
             left_swipe: SwipeTracker::default(),
@@ -165,22 +166,22 @@ impl ClawdApp {
         visuals.extreme_bg_color = SURFACE2;
         visuals.faint_bg_color = SURFACE2;
 
-        // Widget styles
+        // Widget styles — button text must be clearly legible on dark backgrounds
         visuals.widgets.noninteractive.bg_fill = SURFACE2;
         visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
         visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, BORDER);
         visuals.widgets.noninteractive.rounding = egui::Rounding::same(4.0);
 
-        visuals.widgets.inactive.bg_fill = SURFACE2;
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT_DIM);
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER);
+        visuals.widgets.inactive.bg_fill = Color32::from_rgb(32, 32, 52);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT_BTN);
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, BORDER_LIGHT);
 
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(35, 35, 55);
+        visuals.widgets.hovered.bg_fill = Color32::from_rgb(45, 42, 72);
         visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT);
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT_LIGHT);
 
         visuals.widgets.active.bg_fill = ACCENT;
-        visuals.widgets.active.fg_stroke = Stroke::new(1.0, TEXT);
+        visuals.widgets.active.fg_stroke = Stroke::new(1.0, Color32::WHITE);
 
         visuals.selection.bg_fill = Color32::from_rgba_premultiplied(108, 92, 231, 60);
         visuals.selection.stroke = Stroke::new(1.0, ACCENT);
@@ -202,32 +203,19 @@ impl ClawdApp {
     fn process_voice_events(&mut self) {
         let time = self.time();
 
-        let (event, text, response, audio_data, panel, message) = {
+        let events = {
             let mut s = match self.state.write() {
                 Ok(s) => s,
                 Err(_) => return,
             };
-            (
-                s.voice_event.take(),
-                s.voice_text.take(),
-                s.voice_response.take(),
-                s.voice_audio.take(),
-                s.voice_panel.take(),
-                s.voice_message.take(),
-            )
+            std::mem::take(&mut s.voice_queue)
         };
 
-        let event = match event {
-            Some(e) => e,
-            None => return,
-        };
-
-        if self.last_voice_event.as_deref() == Some(&event)
-            && !matches!(event.as_str(), "speak")
-        {
-            // Skip duplicate non-speak events
+        if events.is_empty() {
+            return;
         }
-        self.last_voice_event = Some(event.clone());
+
+        for (event, text, response, audio_data, panel, message) in events {
 
         match event.as_str() {
             "activated" => {
@@ -274,6 +262,7 @@ impl ClawdApp {
                         "email" => self.right_panel = 1,
                         "soul" => self.right_panel = 2,
                         "admin" => self.right_panel = 3,
+                        "help" | "commands" => self.right_panel = 4,
                         _ => log::debug!("Unknown navigate panel: {}", panel_name),
                     }
                 }
@@ -282,13 +271,19 @@ impl ClawdApp {
                 let msg = message.unwrap_or_else(|| text.unwrap_or_default());
                 self.voice.set_toast(msg, time);
             }
+            "heartbeat" => {
+                self.voice.record_heartbeat(time);
+            }
             "stopped" => {
                 self.voice.dismiss();
+                // Clear heartbeat so status goes offline
+                self.voice.last_heartbeat = None;
             }
             _ => {
                 log::debug!("Unknown voice event: {}", event);
             }
         }
+        } // end for each event
     }
 
     /// Detect horizontal swipe gestures within a panel rect.
@@ -495,12 +490,12 @@ impl ClawdApp {
                     // Prev arrow
                     if self.left_panel > 0 {
                         if ui.add(egui::Button::new(
-                            RichText::new("<").size(FONT_SM).color(ACCENT),
+                            RichText::new("◀").size(FONT_SM).color(ACCENT_LIGHT),
                         ).frame(false)).clicked() {
                             self.left_panel -= 1;
                         }
                     } else {
-                        ui.label(RichText::new("<").size(FONT_SM).color(BORDER));
+                        ui.label(RichText::new("◀").size(FONT_SM).color(BORDER_LIGHT));
                     }
 
                     ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::TopDown), |ui| {
@@ -525,12 +520,12 @@ impl ClawdApp {
                     // Next arrow
                     if self.left_panel < LEFT_PANELS.len() - 1 {
                         if ui.add(egui::Button::new(
-                            RichText::new(">").size(FONT_SM).color(ACCENT),
+                            RichText::new("▶").size(FONT_SM).color(ACCENT_LIGHT),
                         ).frame(false)).clicked() {
                             self.left_panel += 1;
                         }
                     } else {
-                        ui.label(RichText::new(">").size(FONT_SM).color(BORDER));
+                        ui.label(RichText::new("▶").size(FONT_SM).color(BORDER_LIGHT));
                     }
                 });
             });
@@ -548,12 +543,12 @@ impl ClawdApp {
                 // Next arrow (drawn first because RTL)
                 if self.right_panel < RIGHT_PANELS.len() - 1 {
                     if ui.add(egui::Button::new(
-                        RichText::new(">").size(FONT_SM).color(ACCENT),
+                        RichText::new("▶").size(FONT_SM).color(ACCENT_LIGHT),
                     ).frame(false)).clicked() {
                         self.right_panel += 1;
                     }
                 } else {
-                    ui.label(RichText::new(">").size(FONT_SM).color(BORDER));
+                    ui.label(RichText::new("▶").size(FONT_SM).color(BORDER_LIGHT));
                 }
 
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
@@ -577,12 +572,12 @@ impl ClawdApp {
                 // Prev arrow
                 if self.right_panel > 0 {
                     if ui.add(egui::Button::new(
-                        RichText::new("<").size(FONT_SM).color(ACCENT),
+                        RichText::new("◀").size(FONT_SM).color(ACCENT_LIGHT),
                     ).frame(false)).clicked() {
                         self.right_panel -= 1;
                     }
                 } else {
-                    ui.label(RichText::new("<").size(FONT_SM).color(BORDER));
+                    ui.label(RichText::new("◀").size(FONT_SM).color(BORDER_LIGHT));
                 }
             });
         });
@@ -755,7 +750,8 @@ impl ClawdApp {
                 // Checkbox button — 44px touch target for Pi touchscreen
                 let cb_response = ui.add(
                     egui::Button::new(RichText::new("  ").size(FONT_BODY))
-                        .stroke(Stroke::new(2.0, BORDER))
+                        .fill(Color32::from_rgb(32, 32, 52))
+                        .stroke(Stroke::new(1.0, BORDER_LIGHT))
                         .rounding(egui::Rounding::same(6.0))
                         .min_size(Vec2::new(44.0, 44.0)),
                 );
@@ -1049,6 +1045,9 @@ impl ClawdApp {
         ui.label(RichText::new("STATUS").size(FONT_SM).color(ACCENT));
         ui.add_space(2.0);
 
+        // Determine EVO / Voice status — heartbeat within 90s means EVO is online
+        let evo_online = self.voice.evo_online(self.time());
+
         let statuses = [
             ("Pi", true, "Online"),
             (
@@ -1056,11 +1055,26 @@ impl ClawdApp {
                 state.connected,
                 if state.connected { "Connected" } else { "Disconnected" },
             ),
+            (
+                "EVO X2",
+                evo_online,
+                if evo_online { "Reachable" } else { "No Signal" },
+            ),
+            (
+                "Voice",
+                evo_online,
+                if evo_online { "Active" } else { "Inactive" },
+            ),
         ];
 
         for (name, online, status_text) in &statuses {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(*name).size(FONT_BODY).color(TEXT_DIM));
+                // Status dot
+                let dot_color = if *online { GREEN } else { RED };
+                let (dot_rect, _) = ui.allocate_exact_size(Vec2::new(8.0, 8.0), egui::Sense::hover());
+                ui.painter().circle_filled(dot_rect.center(), 4.0, dot_color);
+                ui.add_space(4.0);
+                ui.label(RichText::new(*name).size(FONT_BODY).color(TEXT_BTN));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let val_color = if *online { GREEN } else { RED };
                     ui.label(RichText::new(*status_text).size(FONT_BODY).color(val_color));
@@ -1130,134 +1144,157 @@ impl ClawdApp {
         });
     }
 
+    // ── Help / commands panel ─────────────────────────────────────
+
+    fn draw_help_panel(ui: &mut egui::Ui) {
+        section_title(ui, "COMMANDS");
+
+        let sections: &[(&str, &[&str])] = &[
+            ("VOICE (say \"Claude, ...\")", &[
+                "Show me my emails / calendar / todos",
+                "Add a todo [text]",
+                "Complete [todo text]",
+                "What's on my calendar",
+                "Book a meeting [details]",
+                "Am I free [day/time]",
+                "Email [person] about [topic]",
+                "Trains from [A] to [B]",
+                "Hotels near [place]",
+                "Search for [query]",
+                "Remember [note]",
+                "Refresh",
+                "How are you running? (status)",
+                "Thank you (acknowledged)",
+            ]),
+            ("VOICE CONVERSATION", &[
+                "After Claude responds, speak",
+                "  your reply without wake word",
+                "  (10s follow-up window)",
+                "Say just \"Claude\" to start,",
+                "  then give your command",
+            ]),
+            ("WHATSAPP", &[
+                "All voice commands + images",
+                "Send photos for vision analysis",
+                "Draft/send emails (with confirm)",
+                "Soul/personality changes",
+                "Morning briefing (auto 07:00)",
+                "Todo reminders (auto)",
+            ]),
+            ("DASHBOARD", &[
+                "Swipe left/right: switch panels",
+                "Tap todo: mark complete",
+                "Left: Henry | Calendar",
+                "Centre: Todos | Weather",
+                "Right: Side Gig | Email | Soul",
+                "       | Admin | Help",
+            ]),
+        ];
+
+        for (title, commands) in sections {
+            ui.add_space(4.0);
+            ui.label(RichText::new(*title).size(FONT_SM).color(ACCENT).strong());
+            ui.add_space(2.0);
+            for cmd in *commands {
+                ui.label(RichText::new(*cmd).size(FONT_SM).color(TEXT_DIM));
+            }
+        }
+    }
+
     // ── Voice overlay ──────────────────────────────────────────────
 
     fn draw_voice_overlay(&self, ctx: &egui::Context) {
         let time = self.time();
-        let screen = ctx.screen_rect();
 
         match &self.voice.state {
             VoiceState::Hidden => {}
 
             VoiceState::Listening { start } => {
-                // Full-screen dark overlay
-                let painter = ctx.layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("voice_overlay"),
-                ));
-                painter.rect_filled(screen, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 150));
-
-                let cx = screen.center().x;
-                let cy = screen.height() * 0.4;
-
-                // Pulsing rings
                 let elapsed = time - start;
-                for i in 0..3 {
-                    let phase = elapsed * 2.0 - i as f64 * 0.4;
-                    let scale = ((phase % 2.0) / 2.0).max(0.0) as f32;
-                    let alpha = ((1.0 - scale) * 100.0) as u8;
-                    let r = 30.0 + scale * 60.0;
-                    painter.circle_stroke(
-                        egui::pos2(cx, cy),
-                        r,
-                        Stroke::new(2.0, Color32::from_rgba_premultiplied(108, 92, 231, alpha)),
-                    );
-                }
-
-                // Center circle
-                painter.circle_filled(egui::pos2(cx, cy), 20.0, ACCENT);
-
-                // Label
-                painter.text(
-                    egui::pos2(cx, cy + 50.0),
-                    egui::Align2::CENTER_CENTER,
-                    "Listening...",
-                    egui::FontId::proportional(FONT_BODY),
-                    TEXT,
-                );
+                let pulse = (elapsed * 3.0).sin().abs() as f32;
+                egui::Window::new("voice_listening")
+                    .title_bar(false)
+                    .resizable(false)
+                    .collapsible(false)
+                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -90.0))
+                    .fixed_size(Vec2::new(180.0, 32.0))
+                    .frame(egui::Frame::none()
+                        .fill(SURFACE)
+                        .stroke(Stroke::new(1.0, ACCENT))
+                        .rounding(egui::Rounding::same(16.0))
+                        .inner_margin(egui::Margin::symmetric(12.0, 6.0)))
+                    .show(ctx, |ui| {
+                        ui.horizontal(|ui| {
+                            // Pulsing dot
+                            let dot_r = 4.0 + pulse * 2.0;
+                            let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(14.0), egui::Sense::hover());
+                            ui.painter().circle_filled(
+                                dot_rect.center(),
+                                dot_r,
+                                Color32::from_rgba_premultiplied(108, 92, 231, (180.0 + pulse * 75.0) as u8),
+                            );
+                            ui.label(RichText::new("How can I help?").size(FONT_BODY).color(ACCENT_LIGHT));
+                        });
+                    });
             }
 
             VoiceState::Processing { transcript, start } => {
-                let painter = ctx.layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("voice_overlay"),
-                ));
-                painter.rect_filled(screen, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 150));
-
-                let cx = screen.center().x;
-                let card_w = screen.width() * 0.6;
-                let card_x = cx - card_w * 0.5;
-                let card_y = screen.height() * 0.35;
-                let card_rect = egui::Rect::from_min_size(
-                    egui::pos2(card_x, card_y),
-                    Vec2::new(card_w, 100.0),
-                );
-                painter.rect_filled(card_rect, 8.0, SURFACE);
-
-                // Transcript
-                painter.text(
-                    egui::pos2(card_x + 16.0, card_y + 20.0),
-                    egui::Align2::LEFT_CENTER,
-                    &format!("\"{}\"", transcript),
-                    egui::FontId::proportional(FONT_BODY),
-                    TEXT,
-                );
-
-                // Bouncing dots
                 let elapsed = time - start;
-                for i in 0..3 {
-                    let bounce = ((elapsed * 3.0 + i as f64 * 0.3).sin() * 4.0).max(0.0) as f32;
-                    painter.circle_filled(
-                        egui::pos2(cx - 12.0 + i as f32 * 12.0, card_y + 60.0 - bounce),
-                        3.0,
-                        ACCENT,
-                    );
-                }
-
-                painter.text(
-                    egui::pos2(cx, card_y + 80.0),
-                    egui::Align2::CENTER_CENTER,
-                    "Thinking...",
-                    egui::FontId::proportional(FONT_SM),
-                    TEXT_DIM,
-                );
+                let display_text: String = if transcript.len() > 55 {
+                    format!("\"{}...\"", &transcript[..52])
+                } else {
+                    format!("\"{}\"", transcript)
+                };
+                egui::Window::new("voice_processing")
+                    .title_bar(false)
+                    .resizable(false)
+                    .collapsible(false)
+                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -90.0))
+                    .fixed_size(Vec2::new(420.0, 44.0))
+                    .frame(egui::Frame::none()
+                        .fill(SURFACE)
+                        .stroke(Stroke::new(1.0, ACCENT))
+                        .rounding(egui::Rounding::same(8.0))
+                        .inner_margin(egui::Margin::symmetric(12.0, 6.0)))
+                    .show(ctx, |ui| {
+                        ui.label(RichText::new(&display_text).size(FONT_SM).color(TEXT_DIM));
+                        ui.horizontal(|ui| {
+                            for i in 0..3 {
+                                let bounce = ((elapsed * 3.0 + i as f64 * 0.3).sin() * 3.0).max(0.0) as f32;
+                                let (r, _) = ui.allocate_exact_size(Vec2::new(8.0, 10.0), egui::Sense::hover());
+                                ui.painter().circle_filled(
+                                    egui::pos2(r.center().x, r.max.y - bounce),
+                                    2.5, ACCENT,
+                                );
+                            }
+                            ui.label(RichText::new("Working on it...").size(FONT_XS).color(TEXT_DIM));
+                        });
+                    });
             }
 
             VoiceState::Response { transcript, response, .. } => {
-                let painter = ctx.layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("voice_overlay"),
-                ));
-                painter.rect_filled(screen, 0.0, Color32::from_rgba_premultiplied(0, 0, 0, 150));
-
-                let cx = screen.center().x;
-                let card_w = screen.width() * 0.7;
-                let card_x = cx - card_w * 0.5;
-                let card_y = screen.height() * 0.15;
-                let card_h = screen.height() * 0.6;
-                let card_rect = egui::Rect::from_min_size(
-                    egui::pos2(card_x, card_y),
-                    Vec2::new(card_w, card_h),
-                );
-                painter.rect_filled(card_rect, 12.0, SURFACE);
-                painter.rect_stroke(card_rect, 12.0, Stroke::new(1.0, BORDER));
-
-                // Transcript and response via Area for proper text wrapping
                 let tx = transcript.clone();
                 let rx = response.clone();
-                egui::Area::new(egui::Id::new("voice_response_area"))
-                    .order(egui::Order::Foreground)
-                    .fixed_pos(egui::pos2(card_x + 20.0, card_y + 16.0))
-                    .constrain(true)
+                egui::Window::new("voice_response")
+                    .title_bar(false)
+                    .resizable(false)
+                    .collapsible(false)
+                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -90.0))
+                    .min_width(340.0)
+                    .max_width(500.0)
+                    .max_height(200.0)
+                    .frame(egui::Frame::none()
+                        .fill(SURFACE)
+                        .stroke(Stroke::new(1.5, ACCENT))
+                        .rounding(egui::Rounding::same(8.0))
+                        .inner_margin(egui::Margin::symmetric(14.0, 10.0)))
                     .show(ctx, |ui| {
-                        ui.set_max_width(card_w - 40.0);
                         if !tx.is_empty() {
-                            ui.label(RichText::new(format!("\"{}\"", tx)).size(FONT_SM).color(TEXT_DIM));
+                            ui.label(RichText::new(format!("\"{}\"", tx)).size(FONT_XS).color(ACCENT2));
                             ui.add_space(4.0);
                         }
-                        ui.add_space(4.0);
                         egui::ScrollArea::vertical()
-                            .max_height(card_h - 60.0)
+                            .max_height(150.0)
                             .show(ui, |ui| {
                                 ui.label(RichText::new(rx).size(FONT_BODY).color(TEXT));
                             });
@@ -1265,24 +1302,21 @@ impl ClawdApp {
             }
 
             VoiceState::Toast { message, .. } => {
-                let painter = ctx.layer_painter(egui::LayerId::new(
-                    egui::Order::Foreground,
-                    egui::Id::new("voice_toast"),
-                ));
-
-                let pill_w = (message.len() as f32 * 8.0 + 32.0).min(screen.width() * 0.8);
-                let pill_rect = egui::Rect::from_min_size(
-                    egui::pos2(screen.center().x - pill_w * 0.5, screen.height() - 80.0),
-                    Vec2::new(pill_w, 36.0),
-                );
-                painter.rect_filled(pill_rect, 18.0, SURFACE2);
-                painter.text(
-                    pill_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    message,
-                    egui::FontId::proportional(FONT_BODY),
-                    TEXT,
-                );
+                let msg = message.clone();
+                egui::Window::new("voice_toast")
+                    .title_bar(false)
+                    .resizable(false)
+                    .collapsible(false)
+                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -90.0))
+                    .auto_sized()
+                    .frame(egui::Frame::none()
+                        .fill(SURFACE2)
+                        .stroke(Stroke::new(1.0, BORDER))
+                        .rounding(egui::Rounding::same(16.0))
+                        .inner_margin(egui::Margin::symmetric(16.0, 6.0)))
+                    .show(ctx, |ui| {
+                        ui.label(RichText::new(msg).size(FONT_SM).color(TEXT));
+                    });
             }
         }
     }
@@ -1334,8 +1368,8 @@ impl eframe::App for ClawdApp {
 
         // ── Body: 3 columns ────────────────────────────────────
         let available = ctx.available_rect();
-        let left_w = (available.width() * 0.5).floor();
-        let right_w = (available.width() * 0.25).floor();
+        let left_w = (available.width() * 0.42).floor();
+        let right_w = (available.width() * 0.28).floor();
 
         // Left column (50%) — with swipe gesture detection
         let left_resp = egui::SidePanel::left("left_col")
@@ -1382,6 +1416,7 @@ impl eframe::App for ClawdApp {
                             1 => self.draw_email_panel(ui, &state),
                             2 => self.draw_soul_panel(ui, &state),
                             3 => self.draw_admin_panel(ui, &state),
+                            4 => Self::draw_help_panel(ui),
                             _ => {}
                         }
                     });
@@ -1414,15 +1449,19 @@ impl eframe::App for ClawdApp {
         // ── Voice overlay (on top of everything) ───────────────
         if self.voice.is_visible() {
             self.draw_voice_overlay(ctx);
-            // Tap anywhere to dismiss (escape hatch when stuck)
-            let screen = ctx.screen_rect();
-            let resp = egui::Area::new(egui::Id::new("voice_overlay_dismiss"))
-                .order(egui::Order::Foreground)
-                .fixed_pos(screen.min)
-                .constrain(true)
-                .show(ctx, |ui| ui.allocate_rect(screen, egui::Sense::click()));
-            if resp.inner.clicked() {
-                self.voice.dismiss();
+
+            // Tap overlay area to dismiss (Response and Toast only — Listening/Processing
+            // should persist until the voice pipeline finishes)
+            if matches!(self.voice.state, VoiceState::Response { .. } | VoiceState::Toast { .. }) {
+                let screen = ctx.screen_rect();
+                let resp = egui::Area::new(egui::Id::new("voice_overlay_dismiss"))
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(screen.min)
+                    .interactable(true)
+                    .show(ctx, |ui| ui.allocate_rect(screen, egui::Sense::click()));
+                if resp.inner.clicked() {
+                    self.voice.dismiss();
+                }
             }
         }
     }
@@ -1436,73 +1475,28 @@ fn section_title(ui: &mut egui::Ui, title: &str) {
 }
 
 fn draw_status_badge(ui: &mut egui::Ui, label: &str, booked: bool) {
-    let (bg, text_color, icon) = if booked {
-        (
-            Color32::from_rgba_premultiplied(81, 207, 102, 50),
-            GREEN,
-            "Y",
-        )
+    let (bg, prefix) = if booked {
+        (Color32::from_rgb(81, 207, 102), "Y ")
     } else {
-        (
-            Color32::from_rgba_premultiplied(255, 107, 107, 50),
-            RED,
-            "!",
-        )
+        (Color32::from_rgb(255, 107, 107), "! ")
     };
 
     egui::Frame::none()
         .fill(bg)
-        .rounding(egui::Rounding::same(11.0))
-        .inner_margin(egui::Margin::symmetric(4.0, 3.0))
+        .rounding(egui::Rounding::same(8.0))
+        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                // Icon circle
-                let (icon_rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 16.0), egui::Sense::hover());
-                let icon_bg = if booked {
-                    Color32::from_rgba_premultiplied(81, 207, 102, 200)
-                } else {
-                    Color32::from_rgba_premultiplied(255, 107, 107, 200)
-                };
-                ui.painter().circle_filled(icon_rect.center(), 8.0, icon_bg);
-                let icon_text_color = if booked { Color32::BLACK } else { Color32::WHITE };
-                ui.painter().text(
-                    icon_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    icon,
-                    egui::FontId::proportional(FONT_SM),
-                    icon_text_color,
-                );
-
-                ui.label(RichText::new(label).size(FONT_SM).color(text_color));
-            });
+            ui.label(RichText::new(format!("{}{}", prefix, label)).size(FONT_SM).color(Color32::BLACK).strong());
         });
 }
 
 fn draw_na_badge(ui: &mut egui::Ui, label: &str) {
     egui::Frame::none()
-        .fill(Color32::from_rgba_premultiplied(136, 136, 160, 25))
-        .rounding(egui::Rounding::same(11.0))
-        .inner_margin(egui::Margin::symmetric(4.0, 3.0))
+        .fill(Color32::from_rgb(80, 80, 100))
+        .rounding(egui::Rounding::same(8.0))
+        .inner_margin(egui::Margin::symmetric(6.0, 2.0))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                let (icon_rect, _) = ui.allocate_exact_size(Vec2::new(16.0, 16.0), egui::Sense::hover());
-                ui.painter().circle_filled(
-                    icon_rect.center(),
-                    8.0,
-                    Color32::from_rgba_premultiplied(136, 136, 160, 50),
-                );
-                ui.painter().text(
-                    icon_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "-",
-                    egui::FontId::proportional(FONT_SM),
-                    TEXT_DIM,
-                );
-
-                ui.label(RichText::new(label).size(FONT_SM).color(TEXT_DIM));
-            });
+            ui.label(RichText::new(format!("- {}", label)).size(FONT_SM).color(Color32::from_rgb(200, 200, 210)));
         });
 }
 

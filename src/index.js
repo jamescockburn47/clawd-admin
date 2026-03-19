@@ -17,8 +17,10 @@ import { getAllTodos, getActiveTodos, flushTodos } from './tools/todo.js';
 import { todoComplete, todoAdd } from './tools/todo.js';
 import { initScheduler } from './scheduler.js';
 import { getAuditLog, flushAudit } from './audit.js';
-import { checkEvoOllamaHealth } from './ollama.js';
+import { checkEvoHealth as checkEvoLlmHealth } from './evo-llm.js';
 import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, updateMemory, deleteMemory, logConversation, checkEvoHealth, getLastHealthData } from './memory.js';
+import { seedSystemKnowledge } from './system-knowledge.js';
+import { logInteraction, handleReaction, isCorrection, logFeedback, getQualitySummary, getRecentFeedback } from './interaction-log.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -35,7 +37,7 @@ function printBanner() {
   Limit:    ${config.dailyCallLimit} calls/day
   Group:    ${config.whatsappGroupJid || '(all groups)'}
   HTTP:     port ${config.httpPort}
-  EVO X2:   ${config.evoToolEnabled ? config.evoToolModel : 'disabled'}`;
+  EVO X2:   ${config.evoToolEnabled ? config.evoLlmUrl : 'disabled'}`;
   logger.info(banner);
 }
 
@@ -184,15 +186,30 @@ async function handleMessage(sock, message, botJid) {
       }
     }
 
+    // Detect correction of previous response (implicit negative feedback)
+    if (isCorrection(messageText)) {
+      logFeedback({
+        interactionId: null, // can't easily correlate without more state
+        type: 'correction',
+        signal: 'negative',
+        detail: messageText.slice(0, 200),
+        sender: { name: senderName, jid: senderJid },
+      });
+    }
+
     const context = buildContext(chatJid, messageText);
+    const responseStart = Date.now();
     const response = await getClawdResponse(context, trigger.mode, senderJid, imageData);
+    const responseLatency = Date.now() - responseStart;
     if (!response) return;
 
     await simulateTyping(sock, chatJid, response.length);
 
     const chunks = splitMessage(response);
+    const sentMsgIds = [];
     for (const chunk of chunks) {
-      await sock.sendMessage(chatJid, { text: chunk });
+      const sent = await sock.sendMessage(chatJid, { text: chunk });
+      if (sent?.key?.id) sentMsgIds.push(sent.key.id);
       if (chunks.length > 1) await new Promise((r) => setTimeout(r, 300));
     }
 
@@ -206,6 +223,18 @@ async function handleMessage(sock, message, botJid) {
     if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
       broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
     }
+
+    // Log full interaction for evolution pipeline
+    logInteraction({
+      sender: { name: senderName, jid: senderJid },
+      source: 'whatsapp',
+      input: { text: messageText, hadImage: !!imageData },
+      routing: { mode: trigger.mode },
+      toolsCalled: [],
+      response: { text: response, chars: response.length },
+      latencyMs: responseLatency,
+      messageIds: sentMsgIds,
+    });
 
     // Log conversation for overnight memory extraction
     if (config.evoMemoryEnabled) {
@@ -221,7 +250,7 @@ async function handleMessage(sock, message, botJid) {
       recordRandomCooldown();
     }
 
-    logger.info({ mode: trigger.mode, chars: response.length }, 'response sent');
+    logger.info({ mode: trigger.mode, chars: response.length, latencyMs: responseLatency }, 'response sent');
   } catch (err) {
     logger.error({ err: err.message }, 'message handler error');
   }
@@ -282,12 +311,23 @@ async function startBot() {
     if (connection === 'open') {
       const botJid = sock.user?.id;
       activeSock = sock;
+      globalThis._clawdWhatsAppConnected = true;
       logger.info({ name: sock.user?.name, jid: botJid }, 'WhatsApp connected');
 
       sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (type !== 'notify') return;
         for (const msg of messages) {
           handleMessage(sock, msg, botJid);
+        }
+      });
+
+      // Capture message reactions (thumbs up/down) as quality feedback
+      sock.ev.on('messages.reaction', (reactions) => {
+        for (const { key, reaction } of reactions) {
+          if (!reaction?.text || !key?.id) continue;
+          const senderJid = key.participant || key.remoteJid;
+          logger.info({ emoji: reaction.text, msgId: key.id, sender: senderJid }, 'reaction received');
+          handleReaction(key.id, reaction.text, senderJid, '');
         }
       });
 
@@ -316,6 +356,13 @@ async function startBot() {
             }
 
             await sendProactiveMessage(config.ownerJid, message);
+
+            // Seed system knowledge into EVO memory (fire-and-forget)
+            if (config.evoMemoryEnabled) {
+              seedSystemKnowledge().catch(err =>
+                logger.warn({ err: err.message }, 'system knowledge seed failed'),
+              );
+            }
           } catch (err) {
             logger.error({ err: err.message }, 'startup notification failed');
           }
@@ -325,6 +372,7 @@ async function startBot() {
 
     if (connection === 'close') {
       activeSock = null;
+      globalThis._clawdWhatsAppConnected = false;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
       if (statusCode === DisconnectReason.loggedOut) {
         logger.fatal('logged out - delete auth_state and restart');
@@ -498,11 +546,20 @@ createServer(async (req, res) => {
     return jsonResponse(res, 200, { audit: log });
   }
 
-  // GET /api/ollama — EVO X2 model health check
-  if (path === '/api/ollama') {
+  // GET /api/quality — interaction quality summary for evolution pipeline
+  if (path === '/api/quality') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    const available = await checkEvoOllamaHealth();
-    return jsonResponse(res, 200, { available, model: config.evoToolModel });
+    const days = parseInt(new URL(req.url, 'http://localhost').searchParams.get('days') || '7');
+    const summary = getQualitySummary(days);
+    const recentFeedback = getRecentFeedback(20);
+    return jsonResponse(res, 200, { summary, recentFeedback });
+  }
+
+  // GET /api/evo — EVO X2 llama-server health check
+  if (path === '/api/evo' || path === '/api/ollama') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    const available = await checkEvoLlmHealth();
+    return jsonResponse(res, 200, { available, url: config.evoLlmUrl });
   }
 
   // --- Memory endpoints ---
@@ -674,6 +731,18 @@ createServer(async (req, res) => {
           break;
         }
 
+        case 'status': {
+          const uptime = process.uptime();
+          const mem = process.memoryUsage();
+          const hours = Math.floor(uptime / 3600);
+          const mins = Math.floor((uptime % 3600) / 60);
+          const mbRss = (mem.rss / 1048576).toFixed(0);
+          const statusMsg = `Running for ${hours}h ${mins}m. Memory: ${mbRss}MB. WhatsApp: ${activeSock ? 'connected' : 'disconnected'}.`;
+          broadcastSSE('voice', { event: 'response', text: statusMsg, command: text });
+          message = statusMsg;
+          break;
+        }
+
         case 'claude': {
           // Forward to the full Claude pipeline by making an internal-style call
           // We replicate what /api/voice-command does
@@ -734,6 +803,7 @@ createServer(async (req, res) => {
       if (!text) return jsonResponse(res, 400, { error: 'text required' });
 
       logger.info({ text, source }, 'voice command received');
+      const voiceStart = Date.now();
       const jid = config.ownerJid || 'dashboard';
       pushMessage(jid, { senderName: 'James (voice)', text, hasImage: false, isBot: false });
       broadcastSSE('message', { sender: 'James (voice)', text, timestamp: Date.now() });
@@ -757,6 +827,18 @@ createServer(async (req, res) => {
         if (/\b(train|travel|hotel|fare|depart)\b/.test(lc)) panels.push('travel');
 
         broadcastSSE('voice', { event: 'response', text: response, panels, command: text });
+
+        // Log voice interaction
+        logInteraction({
+          sender: { name: 'James', jid },
+          source: 'voice',
+          input: { text, hadImage: false },
+          routing: { mode: 'direct', source: source || 'wake_word' },
+          toolsCalled: [],
+          response: { text: response, chars: response.length },
+          latencyMs: Date.now() - voiceStart,
+          messageIds: [],
+        });
 
         if (config.ownerJid && activeSock) {
           try {
@@ -783,6 +865,11 @@ createServer(async (req, res) => {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     try {
       const body = JSON.parse(await readBody(req));
+      // Record heartbeats for system_status self-awareness
+      if (body.event === 'heartbeat') {
+        const { recordVoiceHeartbeat } = await import('./tools/handler.js');
+        recordVoiceHeartbeat(body);
+      }
       broadcastSSE('voice', body);
       return jsonResponse(res, 200, { ok: true });
     } catch (err) {

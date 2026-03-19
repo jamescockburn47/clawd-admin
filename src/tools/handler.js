@@ -8,9 +8,16 @@ import { webSearch } from './search.js';
 import { soulRead, soulPropose, soulConfirm } from './soul.js';
 import { todoAdd, todoList, todoComplete, todoRemove, todoUpdate, getAllTodos } from './todo.js';
 import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
-import { broadcastSSE } from '../widgets.js';
+import { broadcastSSE, getSSEClientCount } from '../widgets.js';
 import { logAudit } from '../audit.js';
+import { getRoutingStats } from '../router-telemetry.js';
 import logger from '../logger.js';
+
+// Voice listener heartbeat tracking
+let _lastVoiceHeartbeat = null;
+export function recordVoiceHeartbeat(data) {
+  _lastVoiceHeartbeat = { ...data, receivedAt: Date.now() };
+}
 
 const TODO_MUTATION_TOOLS = new Set(['todo_add', 'todo_complete', 'todo_remove', 'todo_update']);
 
@@ -60,6 +67,58 @@ const TOOL_MAP = {
     if (result.deleted) return 'Memory deleted.';
     if (result.offline) return 'Memory service is offline — will delete when back online.';
     return `Failed to delete memory: ${result.error || 'not found'}`;
+  },
+  system_status: async () => {
+    const uptime = process.uptime();
+    const mem = process.memoryUsage();
+    const hours = Math.floor(uptime / 3600);
+    const mins = Math.floor((uptime % 3600) / 60);
+    const mbRss = (mem.rss / 1048576).toFixed(0);
+
+    // Check EVO health
+    let evoStatus = 'unknown';
+    try {
+      const { checkEvoHealth } = await import('../evo-llm.js');
+      evoStatus = await checkEvoHealth() ? 'online (llama-server responding)' : 'offline';
+    } catch { evoStatus = 'check failed'; }
+
+    // WhatsApp connection
+    const waConnected = globalThis._clawdWhatsAppConnected || false;
+
+    // Voice listener status (heartbeat within last 90s = online)
+    let voiceStatus = 'no heartbeat received';
+    if (_lastVoiceHeartbeat) {
+      const ageSec = Math.round((Date.now() - _lastVoiceHeartbeat.receivedAt) / 1000);
+      if (ageSec < 90) {
+        const vUptime = _lastVoiceHeartbeat.uptime || 0;
+        const vH = Math.floor(vUptime / 3600);
+        const vM = Math.floor((vUptime % 3600) / 60);
+        const ns = _lastVoiceHeartbeat.noise_suppression ? 'on' : 'off';
+        const model = _lastVoiceHeartbeat.whisper_model || 'unknown';
+        voiceStatus = `online (${vH}h ${vM}m), Whisper ${model}, noise suppression ${ns}`;
+      } else {
+        voiceStatus = `last heartbeat ${ageSec}s ago — possibly offline`;
+      }
+    }
+
+    // Dashboard SSE clients
+    const sseClients = getSSEClientCount();
+
+    // Router stats
+    const routerStats = getRoutingStats();
+    const routerLine = routerStats.total > 0
+      ? `${routerStats.local} local, ${routerStats.claude} Claude, ${routerStats.fallback} fallbacks (${routerStats.total} total today)`
+      : 'no messages routed today';
+
+    return [
+      `**Pi (clawdbot)**: Running ${hours}h ${mins}m, ${mbRss}MB RSS`,
+      `**WhatsApp**: ${waConnected ? 'Connected' : 'Disconnected'}`,
+      `**EVO X2**: ${evoStatus}`,
+      `**Voice listener**: ${voiceStatus}`,
+      `**Dashboard**: ${sseClients} SSE client(s) connected`,
+      `**Models**: Claude Sonnet 4.6 (API), qwen3.5:35b (EVO tools), qwen3:0.6b (classifier)`,
+      `**Routing today**: ${routerLine}`,
+    ].join('\n');
   },
 };
 

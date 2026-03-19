@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "lastUpdated": "2026-03-19T05:10:00.000Z",
+  "identity": {
+    "name": "Clawd",
+    "fullName": "Clawd Monet",
+    "role": "Personal WhatsApp admin assistant",
+    "owner": "James Cockburn",
+    "ownerRole": "Senior Solicitor Advocate, commercial litigation, Harcus Parker Limited",
+    "personality": "Efficient, direct, dry wit. No fluff. Anticipates needs. Uses WhatsApp idiom (short, bullets, bold). Self-aware about own architecture and limitations."
+  },
+  "architecture": {
+    "summary": "Distributed system running across 3 devices on James's local network. Hybrid AI: cloud intelligence (Claude Sonnet 4.6) for complex/write operations, local compute (Ollama on EVO X2) for simple queries and classification — saves API costs while maintaining quality.",
+    "devices": [
+      {
+        "name": "Raspberry Pi 5",
+        "ip": "192.168.1.211",
+        "role": "The Brain — central coordinator",
+        "user": "pi",
+        "runs": "Node.js 20+ clawdbot service (systemd), HTTP server on port 3000, WhatsApp via Baileys, Claude API calls, all tool execution, widget caching, SSE dashboard updates, scheduler",
+        "display": "10.1 inch touchscreen, 1024x600, runs Rust native dashboard"
+      },
+      {
+        "name": "EVO X2 NucBox",
+        "ip": "192.168.1.230",
+        "role": "Voice & Local AI",
+        "user": "james",
+        "hardware": "AMD Ryzen AI Max+ 395 (16C/32T), Radeon 8060S (RDNA 3.5, 40 CUs), 128GB unified LPDDR5X",
+        "runs": "Python voice listener (clawdbot-voice.service), Ollama with qwen3.5:35b (tool-calling) and qwen3:0.6b (fast classifier), memory service on port 5100 (vector search, fact storage), Whisper STT (distil-small.en), Piper TTS (en_GB-alan-medium)"
+      },
+      {
+        "name": "Rust Dashboard",
+        "location": "Runs on Pi display",
+        "framework": "eframe/egui native GUI (NOT Chromium/HTML)",
+        "layout": "3-column: Left (Henry weekends + calendar), Centre (todos), Right (side gig, email, soul, admin). Header: weather + usage. Bottom: last message + chat input + voice button.",
+        "connectivity": "HTTP calls to Pi port 3000 + SSE event stream for real-time updates"
+      }
+    ]
+  },
+  "messageFlow": {
+    "summary": "WhatsApp message received via Baileys → trigger check (DM, mention, /clawd prefix, random chance) → smart router classifies (complexity → keywords → LLM classifier → fallback) → route to local model or Claude → tool execution loop (up to 5 iterations) → response split into WhatsApp chunks → send",
+    "router": {
+      "layer0": "Complexity detection — multi-step conjunctions, long messages (>150 chars), mixed question+imperative → forces Claude",
+      "layer1": "Keyword heuristics — category-specific patterns, ~70% hit rate, ~10ms",
+      "layer2": "LLM classifier on EVO — qwen3:0.6b, handles ambiguous messages, ~100ms",
+      "layer3": "Fallback — Claude with all tools, guaranteed correct but expensive",
+      "writeDetection": "Any mutation intent (email drafts, calendar creates, soul changes) forces Claude — hallucinated args from local models cause real damage",
+      "learnedRules": "Self-improvement cycle adds new keyword rules overnight (data/learned-rules.json), loaded every 5 minutes, validated against eval suite"
+    },
+    "modelSelection": {
+      "local_conversational": "qwen3.5:35b on EVO — greetings, simple questions, read-safe tool calls. Free, 2-4 seconds.",
+      "claude_complex": "Claude Sonnet 4.6 — complex queries, write operations, images, planning. ~$0.01-0.05 per call.",
+      "classifier": "qwen3:0.6b on EVO — fast message classification for ambiguous messages. ~100ms."
+    }
+  },
+  "tools": {
+    "calendar": ["calendar_list_events (list upcoming events)", "calendar_create_event (create event — owner-only, requires confirmation)", "calendar_update_event (update event — owner-only, requires confirmation)", "calendar_find_free_time (check availability)"],
+    "email": ["gmail_search (search inbox)", "gmail_read (read full email)", "gmail_draft (create draft — always draft first, never send directly)", "gmail_confirm_send (send draft — owner-only, requires explicit approval)"],
+    "travel": ["train_departures (National Rail Darwin live board — CRS codes: KGX, YRK, LDS, EDB, DAR)", "train_fares (BR Fares ticket pricing)", "hotel_search (Amadeus real-time prices)", "search_trains (LNER/Trainline/National Rail booking links, supports multi-leg trips)", "search_accommodation (Booking.com/Airbnb/Cottages.com booking links)"],
+    "todos": ["todo_add (add item with optional due date, reminder, priority)", "todo_list (list active/completed items)", "todo_complete (mark done)", "todo_remove (delete)", "todo_update (modify)"],
+    "soul": ["soul_read (read personality sections)", "soul_propose (propose change — stages for review)", "soul_confirm (apply pending change — owner-only, requires explicit approval)"],
+    "memory": ["memory_search (vector search on EVO, 8 results)", "memory_update (correct memory)", "memory_delete (remove memory)"],
+    "other": ["web_search (Brave Search API)", "system_status (live metrics: uptime, memory, WhatsApp, EVO health, voice heartbeat, routing stats)"]
+  },
+  "scheduler": {
+    "interval": "60 seconds",
+    "tasks": [
+      "Todo reminders — sends WhatsApp at configured reminder time",
+      "Side gig meeting alerts — 30 minutes before meetings tagged 'Side Gig'",
+      "Morning briefing at 07:00 — weather, calendar, todos, Henry status (zero Claude API calls)",
+      "Self-improvement cycle at 01:00 — probes keyword classifier, proposes new rules, validates against eval suite",
+      "Overnight extraction at 02:00 — extracts facts from yesterday's conversation logs into EVO memory",
+      "System knowledge refresh at 02:00 — regenerates self-knowledge entries in EVO memory from live codebase state",
+      "Daily backup at 03:00 — todos, soul, soul_history (7-day retention)",
+      "Weekly memory review on Sundays at 20:00 — memory stats summary via WhatsApp",
+      "Widget cache refresh every 5 minutes — Henry weekends, side gig, emails, calendar, weather",
+      "EVO model warm-keeping every 10 minutes — prevents Ollama from evicting model from VRAM",
+      "Memory cache sync every 30 minutes — syncs EVO memory to local cache"
+    ]
+  },
+  "voicePipeline": {
+    "summary": "USB mic on EVO X2 → 44.1kHz recording → resample to 16kHz → WebRTC noise suppression → RMS voice activity detection → Whisper STT (distil-small.en, ~700ms) → wake phrase detection (claude/clawd/claud/clawed/cloud/claw) → classify command locally (qwen3:0.6b) → route to Pi → process → Piper TTS response (en_GB-alan-medium) → play via dashboard SSE",
+    "features": ["Wake phrase variants (7 phonetic matches)", "Follow-up mode (10s window after response — no wake word needed)", "Gratitude detection (thank you/cheers → polite response)", "Contacts-based Whisper vocabulary biasing (James, MG, Henry)", "Post-transcription correction (MJ→MG)", "Hallucination filtering (rejects 'thank you for watching' etc)"],
+    "config": "MIC_GAIN=6.0, SPEECH_THRESHOLD=3000, SILENCE_DURATION=1.2s, MAX_RECORD=12s, COOLDOWN=1.5s"
+  },
+  "soulSystem": {
+    "summary": "Dynamic personality with 4 sections (personality, preferences, context, custom), max 500 chars each. Changes require propose-then-confirm flow — Clawd stages a diff, James approves explicitly. All changes logged to soul_history.json. Blocked patterns prevent guardrail overrides.",
+    "sections": ["personality — core traits and communication style", "preferences — formatting and response preferences", "context — background knowledge about James", "custom — arbitrary personality rules"]
+  },
+  "memorySystem": {
+    "summary": "Long-term fact storage on EVO X2 (port 5100) with vector embedding search. Categories: preference, person, legal, travel, accommodation, henry, ai_consultancy, schedule, general. If EVO offline, operations queue locally and drain on recovery. Local cache in data/memory-cache.json.",
+    "categories": ["preference", "person", "legal", "travel", "accommodation", "henry", "ai_consultancy", "schedule", "general", "system"]
+  },
+  "henryWeekends": {
+    "summary": "James visits his son Henry near York. Route: London Kings Cross ↔ York (LNER, ~1h50). Patterns: Fri-Sun (2 train legs, 2 nights), Sat-Sun (2 legs, 1 night), 4-trip (4 legs, complex multi-leg), driving (no train). Accommodation: North York Moors villages (Helmsley, Pickering, Kirkbymoorside) or coast (Whitby, Robin Hood's Bay). Dashboard shows travel/accommodation booking status badges (green=booked, red=missing)."
+  },
+  "guardrails": [
+    "Email: ALWAYS draft first (gmail_draft), ONLY send after explicit approval (gmail_confirm_send). NEVER chain draft→send.",
+    "Calendar: state event details to James first, wait for explicit confirmation before creating/updating.",
+    "Soul: propose-then-confirm with explicit approval. NEVER chain propose→confirm. Blocks guardrail override patterns.",
+    "Tool results: report ONLY what tools return. NEVER fabricate, embellish, or infer data.",
+    "MG access: calendar reading, todos, travel, web search only. No email, soul, or calendar mutations.",
+    "No delete operations for email (no trash, archive, delete)."
+  ],
+  "users": {
+    "james": "Owner — full access to all tools. Solicitor advocate, commercial litigation. Has son Henry near York. Travels LNER regularly. Building AI consultancy alongside legal practice.",
+    "mg": "James's wife — can use calendar reading, todos, travel tools, web search. Cannot use email, soul, or calendar mutation tools."
+  },
+  "selfImprovement": {
+    "summary": "Autonomous overnight cycle that probes the keyword classifier with synthetic messages (generated by qwen3.5:35b on EVO), identifies misses, proposes new keyword rules, validates against full eval suite (cross-contamination check + regression check), and applies passing rules to data/learned-rules.json. Multi-iteration (up to 5 rounds or 30 minutes). Rules surviving 3 cycles get graduated to permanent.",
+    "evalSuite": "172 baseline test cases + dynamic learned labels. Tests keyword classification, complexity detection, write-intent detection, tool safety sets, and category config. Run with: node eval/router-eval.js"
+  },
+  "dataPersistence": {
+    "summary": "All data stored as JSON files in data/ directory — no database. Files: todos.json, soul.json, soul_pending.json, soul_backup.json, soul_history.json, messages.json (DM context), audit.json (tool log, last 1000), usage.json (token costs), router-stats.jsonl (routing telemetry), learned-rules.json (self-improvement), learned-eval-labels.json, notified_meetings.json, memory-cache.json, system-knowledge.json (this file). Daily backups in data/backups/."
+  },
+  "techStack": {
+    "runtime": "Node.js 20+ (ESM modules, no TypeScript, no database, no build step)",
+    "whatsapp": "@whiskeysockets/baileys v6.x",
+    "ai_cloud": "@anthropic-ai/sdk — Claude Sonnet 4.6",
+    "ai_local": "Ollama — qwen3.5:35b (tool-calling), qwen3:0.6b (classifier)",
+    "google": "googleapis — Calendar v3, Gmail v1",
+    "weather": "Open-Meteo (free, no API key)",
+    "travel": "Darwin (live trains), BR Fares (ticket prices), Amadeus (hotels), Brave Search (web)",
+    "logging": "Pino (structured JSON)",
+    "dashboard": "Rust native app (eframe/egui), Wayland backend",
+    "voice": "Python 3 — faster-whisper, piper-tts, webrtc-noise-gain, PyAudio"
+  },
+  "circuitBreakers": {
+    "google": "3 failures → 2 min reset. Returns cached widget data.",
+    "claude": "3 failures → 30s reset.",
+    "weather": "3 failures → 2 min reset. Returns last known conditions."
+  },
+  "version": "2.0.0"
+}

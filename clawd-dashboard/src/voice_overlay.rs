@@ -14,13 +14,24 @@ impl Default for VoiceState {
 
 pub struct VoiceOverlay {
     pub state: VoiceState,
+    pub last_heartbeat: Option<f64>,
 }
 
 impl VoiceOverlay {
     pub fn new() -> Self {
         Self {
             state: VoiceState::Hidden,
+            last_heartbeat: None,
         }
+    }
+
+    /// True if a heartbeat was received within the last 90 seconds.
+    pub fn evo_online(&self, time: f64) -> bool {
+        self.last_heartbeat.map_or(false, |t| time - t < 90.0)
+    }
+
+    pub fn record_heartbeat(&mut self, time: f64) {
+        self.last_heartbeat = Some(time);
     }
 
     pub fn set_listening(&mut self, time: f64) {

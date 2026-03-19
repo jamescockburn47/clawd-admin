@@ -1,0 +1,19 @@
+{
+  "owner": "James Cockburn",
+  "contacts": [
+    {
+      "name": "MG",
+      "aliases": ["MG"],
+      "relation": "wife",
+      "email": null,
+      "notes": "James's wife. Uses WhatsApp with Clawd."
+    },
+    {
+      "name": "Henry Cockburn",
+      "aliases": ["Henry"],
+      "relation": "son",
+      "notes": "Alternate weekends with James (Henry weekends)."
+    }
+  ],
+  "_instructions": "Add contacts here. 'aliases' are what James might say by voice. 'email' is used for drafting. Set email to null if unknown — Claude will ask."
+}

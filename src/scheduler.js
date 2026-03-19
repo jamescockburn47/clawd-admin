@@ -10,7 +10,9 @@ import { fileURLToPath } from 'url';
 import { getDueReminders, markReminded, getActiveTodos } from './tools/todo.js';
 import { getWidgetData } from './widgets.js';
 import { checkEvoHealth, getEvoStatus, getMemoryStats, extractFromConversation, isEvoOnline, syncCache } from './memory.js';
-import { keepEvoModelWarm } from './ollama.js';
+import { keepEvoWarm } from './evo-llm.js';
+import { runImprovementCycle } from './self-improve/cycle.js';
+import { refreshSystemKnowledge } from './system-knowledge.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -90,6 +92,8 @@ async function runScheduler() {
     await checkMorningBriefing();
     await checkWeeklyReview();
     await checkOvernightExtraction();
+    await checkSelfImprovement();
+    await checkSystemKnowledgeRefresh();
     await checkDailyBackup();
     if (config.evoMemoryEnabled) {
       // Sync cache every 30 minutes
@@ -105,7 +109,7 @@ async function runScheduler() {
     if (config.evoToolEnabled) {
       const { minutes } = getLondonTime();
       if (minutes % 10 === 0) {
-        keepEvoModelWarm().catch(() => {});
+        keepEvoWarm().catch(() => {});
       }
     }
   } catch (err) {
@@ -361,6 +365,51 @@ async function checkOvernightExtraction() {
     }
   } catch (err) {
     logger.error({ err: err.message }, 'overnight extraction failed');
+  }
+}
+
+// --- Self-improvement cycle (runs at 1 AM) ---
+let lastSelfImproveDate = null;
+
+async function checkSelfImprovement() {
+  if (!config.evoToolEnabled) return;
+
+  const { todayStr, hours } = getLondonTime();
+
+  if (lastSelfImproveDate === todayStr) return;
+  if (hours !== 1) return;
+
+  lastSelfImproveDate = todayStr;
+
+  try {
+    logger.info('self-improve: starting nightly cycle');
+    await runImprovementCycle(sendFn);
+  } catch (err) {
+    logger.error({ err: err.message }, 'self-improve: nightly cycle failed');
+  }
+}
+
+// --- System knowledge refresh (runs at 2 AM) ---
+let lastKnowledgeRefreshDate = null;
+
+async function checkSystemKnowledgeRefresh() {
+  if (!config.evoMemoryEnabled) return;
+
+  const { todayStr, hours } = getLondonTime();
+
+  if (lastKnowledgeRefreshDate === todayStr) return;
+  if (hours !== 2) return;
+
+  lastKnowledgeRefreshDate = todayStr;
+
+  try {
+    logger.info('system-knowledge: starting nightly refresh');
+    const result = await refreshSystemKnowledge();
+    if (result.refreshed) {
+      logger.info({ deleted: result.deleted, seeded: result.seeded, elapsed: result.elapsed }, 'system-knowledge: nightly refresh complete');
+    }
+  } catch (err) {
+    logger.error({ err: err.message }, 'system-knowledge: nightly refresh failed');
   }
 }
 

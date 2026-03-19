@@ -50,8 +50,30 @@
 │  └──────────────────────────────────────────────────────┘           │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────┐           │
-│  │  Chromium Kiosk (Wayland, labwc autostart)           │           │
-│  │  → http://localhost:3000/dashboard?token=...         │           │
+│  │  clawd-dashboard (Rust native, eframe/egui)          │           │
+│  │  ~/clawd-dashboard/target/release/clawd-dashboard   │           │
+│  │  Connects to localhost:3000 API + SSE               │           │
+│  └──────────────────────────────────────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│  EVO X2 NucBox (192.168.1.230, user: james)                        │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────┐           │
+│  │  systemd: clawdbot-voice.service                     │           │
+│  │  python3 ~/clawdbot-memory/voice_listener.py         │           │
+│  │                                                      │           │
+│  │  USB Mic → PyAudio → Resample 44.1→16kHz            │           │
+│  │  → RMS VAD (threshold 3000) → Record until silence  │           │
+│  │  → faster-whisper (small, CPU, int8, language=en)    │           │
+│  │  → Wake phrase detect ("clawd"/"claude"/variants)    │           │
+│  │  → POST to Pi /api/voice-command                    │           │
+│  │  → Piper TTS for local confirmations                │           │
+│  └──────────────────────────────────────────────────────┘           │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────┐           │
+│  │  systemd: ollama.service                              │           │
+│  │  Model: qwen3.5:35b (tool calling for voice)         │           │
 │  └──────────────────────────────────────────────────────┘           │
 └─────────────────────────────────────────────────────────────────────┘
 
@@ -81,8 +103,18 @@ clawdbot/
 ├── Dockerfile               # Docker deployment option
 ├── docker-compose.yml       # Docker service definition
 ├── get-google-token.js      # One-time Google OAuth token helper
+├── clawd-dashboard/         # Rust native dashboard (eframe/egui)
+│   └── src/
+│       ├── main.rs          # Main app: layout, panels, voice overlay, rendering
+│       ├── api.rs           # HTTP/SSE client for clawdbot API
+│       ├── models.rs        # Data models (deserialization from API)
+│       ├── state.rs         # Shared app state (RwLock)
+│       └── voice_overlay.rs # Voice state machine (Hidden/Listening/Processing/Response/Toast)
+├── evo-voice/               # Voice listener (runs on EVO X2, NOT Pi)
+│   ├── voice_listener.py   # Main voice pipeline (mic→whisper→wake→API)
+│   └── clawdbot-voice.service # systemd unit file
 ├── public/
-│   └── dashboard.html       # Single-file dashboard (HTML+CSS+JS, ~1400 lines)
+│   └── dashboard.html       # Legacy HTML dashboard (superseded by Rust app)
 ├── src/
 │   ├── index.js             # Main entry: WhatsApp, HTTP server, image handling, shutdown
 │   ├── config.js            # Env var loader with defaults and validation
@@ -187,13 +219,35 @@ clawdbot/
 - **Henry cards** tap to auto-generate a planning prompt in the chat bar
 - **Bottom bar**: last Clawd message + chat input + voice activation (wake word "Clawd")
 
-### Dashboard Rendering Constraints
+### Dashboard Rendering (Rust/egui)
 
-- No emoji (Pi Chromium renders them as "?") — use HTML entities and CSS
+- **Native app**, not a browser — no HTML/CSS/JS constraints
+- Uses eframe/egui with Wayland backend on Pi
 - Touch targets must be 48px+ (Pi touchscreen)
-- Status badges use CSS-styled circles with `&check;`, `!`, `&rarr;`, `&mdash;`
-- Compact layout via `@media (max-height: 700px)` for the 600px screen
-- On-screen keyboard provided for kiosk mode
+- Status badges: solid green/red backgrounds with black text for contrast
+- Layout: left 42%, center 30%, right 28% of 1024px
+- Voice overlay: compact bottom-anchored cards (not full-screen modals)
+- Build: `source ~/.cargo/env; cd ~/clawd-dashboard && cargo build --release`
+- Launch: `export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; nohup ~/clawd-dashboard/target/release/clawd-dashboard > /tmp/clawd-dashboard.log 2>&1 &`
+
+### Voice Command Flow (EVO X2 → Pi)
+
+1. USB mic on EVO captures audio at 44.1kHz via PyAudio
+2. Resampled to 16kHz, gain applied (6x default)
+3. RMS-based speech detection (threshold 3000 after gain)
+4. Records until 1.2s silence or 12s max
+5. Trims silence, sends to faster-whisper (small model, CPU, int8, language=en)
+6. Rejects Whisper hallucinations ("thank you", single short words, etc.)
+7. Checks first 45 chars for wake phrase (clawd/claude/claud/clawed/klawd/cloud/claw)
+8. If wake phrase found: strips it, sends command to Pi `/api/voice-command`
+9. Pi processes via Claude, response broadcast via SSE
+10. Dashboard shows voice overlay (Listening → Processing → Response → auto-dismiss)
+
+**Key tuning parameters** (env vars on EVO, defaults in voice_listener.py):
+- `MIC_GAIN=6.0` — amplification factor for quiet USB mic
+- `SPEECH_THRESHOLD=3000` — RMS level to trigger recording (must exceed ambient noise floor)
+- `SILENCE_DURATION=1.2` — seconds of silence before stopping recording
+- `WHISPER_MODEL=small` — faster-whisper model size
 
 ## Tool Access Control
 
@@ -235,23 +289,43 @@ Calendar events with "Henry" in the title are parsed by `widgets.js`:
 
 ## Deployment
 
-### Deploy changes from Windows to Pi
+### Deploy Node.js (clawdbot backend) to Pi
 
 ```bash
-# Deploy specific files
 scp -i C:/Users/James/.ssh/id_ed25519 <file> pi@192.168.1.211:~/clawdbot/<path>
-
-# Deploy directories
-scp -i C:/Users/James/.ssh/id_ed25519 -r src/ public/ pi@192.168.1.211:~/clawdbot/
-
-# Restart service
 ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "sudo systemctl restart clawdbot"
+```
 
-# Check logs
+### Deploy dashboard (Rust) to Pi
+
+```bash
+# Copy source
+scp -i C:/Users/James/.ssh/id_ed25519 clawd-dashboard/src/main.rs pi@192.168.1.211:~/clawd-dashboard/src/main.rs
+# Build (must source cargo env)
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "source ~/.cargo/env; cd ~/clawd-dashboard && cargo build --release"
+# Relaunch
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "pkill clawd-dashboard 2>/dev/null; sleep 2; export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; nohup ~/clawd-dashboard/target/release/clawd-dashboard > /tmp/clawd-dashboard.log 2>&1 &"
+```
+
+### Deploy voice listener to EVO X2 (via Pi SSH hop)
+
+```bash
+# Stage on Pi, then copy to EVO
+scp -i C:/Users/James/.ssh/id_ed25519 evo-voice/voice_listener.py pi@192.168.1.211:/tmp/voice_listener.py
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "scp /tmp/voice_listener.py james@192.168.1.230:~/clawdbot-memory/voice_listener.py"
+# Restart voice service on EVO
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "ssh james@192.168.1.230 'sudo systemctl restart clawdbot-voice'"
+```
+
+### Check logs
+
+```bash
+# Pi clawdbot
 ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "journalctl -u clawdbot --no-pager -n 50"
-
-# Reload kiosk browser (kills and relaunches Chromium)
-ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "pkill chromium; sleep 2; export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; nohup chromium-browser --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --disable-features=TranslateUI --check-for-update-interval=31536000 --disable-gpu --password-store=basic --ozone-platform=wayland 'http://localhost:3000/dashboard?token=VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM' > /dev/null 2>&1 &"
+# Pi dashboard
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "tail -50 /tmp/clawd-dashboard.log"
+# EVO voice listener
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "ssh james@192.168.1.230 'journalctl -u clawdbot-voice -n 50 --no-pager'"
 ```
 
 ### Pi systemd service
@@ -292,6 +366,9 @@ WantedBy=multi-user.target
 | GET | `/api/messages` | Bearer token | Recent owner DM messages |
 | GET | `/api/audit` | Bearer token | Last 50 tool execution audit entries |
 | GET | `/api/ollama` | Bearer token | Ollama health check (model availability) |
+| POST | `/api/voice-command` | Bearer token | Voice command from EVO (text + source) |
+| POST | `/api/voice-status` | Bearer token | Voice status events from EVO (listening/processing/etc.) |
+| POST | `/api/voice-local` | Bearer token | Locally-routed voice command (action + params) |
 | POST | `/api/send` | None | Proactive message send (jid + message) |
 
 ### New Infrastructure Components

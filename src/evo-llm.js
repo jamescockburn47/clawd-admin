@@ -1,11 +1,11 @@
-// EVO X2 local model integration via Ollama (qwen3.5:35b)
+// EVO X2 local model integration via llama.cpp (OpenAI-compatible API)
 // Handles tool calling and response generation locally, falling back to Claude
 import config from './config.js';
 import logger from './logger.js';
 import { executeTool } from './tools/handler.js';
 
-// Convert Anthropic-style tool definitions to Ollama format
-function toOllamaTools(tools) {
+// Convert Anthropic-style tool definitions to OpenAI function-calling format
+function toOpenAITools(tools) {
   return tools.map((t) => ({
     type: 'function',
     function: {
@@ -62,12 +62,41 @@ You may have background knowledge about James injected below. Use it to understa
   return base;
 }
 
-// Full tool-calling response via EVO X2's qwen3.5:35b
-// Handles tool selection, execution, and final response generation
-export async function getEvoToolResponse(context, tools, senderJid, memoryFragment = '', category = null) {
-  const evoOllamaUrl = config.evoMemoryUrl.replace(':5100', ':11434');
-  const ollamaTools = toOllamaTools(tools);
+// Validate tool call parameters before executing — local models can hallucinate args
+function validateToolParams(toolName, params) {
+  if (!params || typeof params !== 'object') return 'missing or invalid parameters';
 
+  const dateFields = ['date', 'startDate', 'endDate', 'start_date', 'end_date', 'due_date', 'dueDate'];
+  for (const field of dateFields) {
+    if (params[field] && typeof params[field] === 'string') {
+      if (!/^\d{4}-\d{2}-\d{2}/.test(params[field])) {
+        return `invalid date format for ${field}: ${params[field]}`;
+      }
+    }
+  }
+
+  const required = {
+    'calendar_create_event': ['summary', 'start'],
+    'todo_add': ['text'],
+    'gmail_draft': ['to', 'subject'],
+    'train_departures': ['from', 'to'],
+    'memory_search': ['query'],
+    'web_search': ['query'],
+  };
+  const reqs = required[toolName];
+  if (reqs) {
+    for (const r of reqs) {
+      if (!params[r]) return `missing required parameter: ${r}`;
+    }
+  }
+
+  return null;
+}
+
+// Full tool-calling response via EVO X2's llama-server (OpenAI-compatible API)
+export async function getEvoToolResponse(context, tools, senderJid, memoryFragment = '', category = null) {
+  const baseUrl = config.evoLlmUrl;
+  const openAITools = toOpenAITools(tools);
   const systemPrompt = buildEvoSystemPrompt(category) + memoryFragment;
 
   const messages = [
@@ -79,27 +108,25 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
   const timeoutId = setTimeout(() => controller.abort(), 60000);
 
   try {
-    let res = await fetch(`${evoOllamaUrl}/api/chat`, {
+    let res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: config.evoToolModel,
         messages,
-        tools: ollamaTools,
-        stream: false,
-        think: false,
-        keep_alive: -1,
-        options: { temperature: 0.3 },
+        tools: openAITools.length > 0 ? openAITools : undefined,
+        temperature: 0.3,
+        max_tokens: 1000,
+        cache_prompt: true,
       }),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
 
-    if (!res.ok) throw new Error(`EVO Ollama HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`EVO llama-server HTTP ${res.status}`);
 
     let data = await res.json();
-    let msg = data.message || {};
+    let msg = data.choices?.[0]?.message || {};
 
     // Tool use loop
     let loopCount = 0;
@@ -107,55 +134,24 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
 
     while (msg.tool_calls && msg.tool_calls.length > 0 && loopCount < maxLoops) {
       loopCount++;
-      messages.push({ role: 'assistant', ...msg });
+      messages.push({ role: 'assistant', content: msg.content || '', tool_calls: msg.tool_calls });
 
-      const toolResults = [];
       const MAX_TOOL_RESULT = 1500;
-
-      // Validate tool call parameters before executing — local models can hallucinate args
-      function validateToolParams(toolName, params) {
-        if (!params || typeof params !== 'object') return 'missing or invalid parameters';
-
-        // Date format validation for tools that take dates
-        const dateFields = ['date', 'startDate', 'endDate', 'start_date', 'end_date', 'due_date', 'dueDate'];
-        for (const field of dateFields) {
-          if (params[field] && typeof params[field] === 'string') {
-            // Must match YYYY-MM-DD or ISO 8601 datetime
-            if (!/^\d{4}-\d{2}-\d{2}/.test(params[field])) {
-              return `invalid date format for ${field}: ${params[field]}`;
-            }
-          }
-        }
-
-        // Required params per tool
-        const required = {
-          'calendar_create_event': ['summary', 'start'],
-          'todo_add': ['text'],
-          'gmail_draft': ['to', 'subject'],
-          'train_departures': ['from', 'to'],
-          'memory_search': ['query'],
-          'web_search': ['query'],
-        };
-        const reqs = required[toolName];
-        if (reqs) {
-          for (const r of reqs) {
-            if (!params[r]) return `missing required parameter: ${r}`;
-          }
-        }
-
-        return null; // valid
-      }
 
       for (const tc of msg.tool_calls) {
         const fn = tc.function || {};
         const toolName = fn.name;
-        const toolInput = fn.arguments || {};
+        let toolInput;
+        try {
+          toolInput = typeof fn.arguments === 'string' ? JSON.parse(fn.arguments) : fn.arguments || {};
+        } catch {
+          toolInput = {};
+        }
 
-        // Validate params before executing — reject hallucinated args
         const validationError = validateToolParams(toolName, toolInput);
         if (validationError) {
           logger.warn({ tool: toolName, error: validationError, source: 'evo' }, 'tool params rejected');
-          toolResults.push({ role: 'tool', content: `Error: ${validationError}. Please fix and try again.` });
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: `Error: ${validationError}. Please fix and try again.` });
           continue;
         }
 
@@ -166,26 +162,22 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
         if (result.length > MAX_TOOL_RESULT) {
           result = result.slice(0, MAX_TOOL_RESULT) + '\n[...truncated]';
         }
-        toolResults.push({ role: 'tool', content: result });
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
       }
 
       // Send tool results back for final response
-      messages.push(...toolResults);
-
       const loopController = new AbortController();
       const loopTimeout = setTimeout(() => loopController.abort(), 60000);
 
-      res = await fetch(`${evoOllamaUrl}/api/chat`, {
+      res = await fetch(`${baseUrl}/v1/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: config.evoToolModel,
           messages,
-          tools: ollamaTools,
-          stream: false,
-          think: false,
-          keep_alive: -1,
-          options: { temperature: 0.3 },
+          tools: openAITools.length > 0 ? openAITools : undefined,
+          temperature: 0.3,
+          max_tokens: 1000,
+          cache_prompt: true,
         }),
         signal: loopController.signal,
       });
@@ -194,18 +186,21 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
       if (!res.ok) break;
 
       data = await res.json();
-      msg = data.message || {};
+      msg = data.choices?.[0]?.message || {};
       logger.info({ loop: loopCount, source: 'evo' }, 'tool loop');
     }
 
     const content = msg.content;
     if (!content) return null;
 
+    // Extract timing from llama-server response
+    const timings = data.timings || data.usage || {};
     logger.info({
-      model: config.evoToolModel,
+      model: data.model || 'evo-local',
       chars: content.length,
       toolLoops: loopCount,
-      evalMs: data.eval_duration ? Math.round(data.eval_duration / 1e6) : null,
+      promptTokens: timings.prompt_tokens || data.usage?.prompt_tokens,
+      completionTokens: timings.completion_tokens || data.usage?.completion_tokens,
     }, 'evo tool response');
 
     return content;
@@ -220,36 +215,69 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
   }
 }
 
-// Keep EVO X2 model loaded in VRAM (call periodically to prevent eviction)
-export async function keepEvoModelWarm() {
-  const evoOllamaUrl = config.evoMemoryUrl.replace(':5100', ':11434');
-  try {
-    const res = await fetch(`${evoOllamaUrl}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.evoToolModel, prompt: '', keep_alive: -1 }),
-    });
-    if (res.ok) {
-      logger.info({ model: config.evoToolModel }, 'evo model kept warm');
-    }
-  } catch {
-    // EVO offline — ignore
-  }
-}
-
-// Check if EVO X2's Ollama is reachable and has the tool model
-export async function checkEvoOllamaHealth() {
-  const evoOllamaUrl = config.evoMemoryUrl.replace(':5100', ':11434');
+// Check if EVO X2's llama-server is healthy
+export async function checkEvoHealth() {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(`${evoOllamaUrl}/api/tags`, { signal: controller.signal });
+    const res = await fetch(`${config.evoLlmUrl}/health`, { signal: controller.signal });
     clearTimeout(timeoutId);
     if (!res.ok) return false;
     const data = await res.json();
-    const models = (data.models || []).map((m) => m.name);
-    return models.some((m) => m.startsWith(config.evoToolModel.split(':')[0]));
+    return data.status === 'ok' || data.status === 'no slot available';
   } catch {
     return false;
+  }
+}
+
+// Classify message via EVO X2's classifier llama-server
+export async function classifyViaEvo(text, systemPrompt) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const res = await fetch(`${config.evoClassifierUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: text },
+        ],
+        temperature: 0,
+        max_tokens: 10,
+        cache_prompt: true,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    return (data.choices?.[0]?.message?.content || '').trim().toLowerCase().replace(/[^a-z_]/g, '');
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
+}
+
+// Keep-alive ping — exercises inference path to prevent any idle-state degradation
+export async function keepEvoWarm() {
+  try {
+    const res = await fetch(`${config.evoLlmUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+        cache_prompt: true,
+      }),
+    });
+    if (res.ok) {
+      logger.info('evo model kept warm');
+    }
+  } catch {
+    // EVO offline — ignore
   }
 }

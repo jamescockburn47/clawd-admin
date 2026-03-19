@@ -1,0 +1,19 @@
+[Unit]
+Description=llama.cpp classifier server (Qwen3-0.6B Q8_0)
+After=network.target
+
+[Service]
+Type=simple
+User=james
+ExecStart=/home/james/llama.cpp/build/bin/llama-server \
+  -m /home/james/models/Qwen3-0.6B-Q8_0.gguf \
+  --host 0.0.0.0 --port 8081 \
+  -ngl 999 \
+  -c 2048 \
+  --parallel 1
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

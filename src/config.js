@@ -42,8 +42,9 @@ const config = {
   httpPort: parseInt(process.env.HTTP_PORT) || 8080,
   dashboardToken: process.env.DASHBOARD_TOKEN || '',
 
-  // EVO X2 local model (qwen3.5:35b via Ollama)
-  evoToolModel: process.env.EVO_TOOL_MODEL || 'qwen3.5:35b',
+  // EVO X2 local models via llama.cpp (OpenAI-compatible API)
+  evoLlmUrl: process.env.EVO_LLM_URL || 'http://10.0.0.2:8080',           // Main tool-calling server (direct ethernet)
+  evoClassifierUrl: process.env.EVO_CLASSIFIER_URL || 'http://10.0.0.2:8081', // Fast classifier server
   evoToolEnabled: process.env.EVO_TOOL_ENABLED !== 'false',
 
   // Weather (Open-Meteo — free, no API key)

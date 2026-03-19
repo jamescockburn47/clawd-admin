@@ -523,4 +523,12 @@ export const TOOL_DEFINITIONS = [
       required: ['memory_id'],
     },
   },
+  {
+    name: 'system_status',
+    description: 'Get the current status of the Clawd system — uptime, memory, WhatsApp connection, EVO X2 health.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
 ];

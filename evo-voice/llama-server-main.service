@@ -1,0 +1,30 @@
+[Unit]
+Description=llama.cpp main server (Qwen3-30B-A3B Q4_K_M) - interactive, optimised
+After=network.target
+Wants=llama-server-classifier.service
+
+[Service]
+Type=simple
+User=james
+LimitMEMLOCK=infinity
+ExecStart=/home/james/llama.cpp/build/bin/llama-server \
+  -m /home/james/models/Qwen3-30B-A3B-Q4_K_M.gguf \
+  --host 0.0.0.0 --port 8080 \
+  -ngl 999 \
+  -c 8192 \
+  --parallel 2 \
+  --reasoning off \
+  --flash-attn on \
+  --mlock \
+  --no-mmap \
+  --cont-batching \
+  --batch-size 1024 \
+  --ubatch-size 512 \
+  --cache-type-k q8_0 \
+  --cache-type-v q8_0
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

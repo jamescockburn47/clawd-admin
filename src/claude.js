@@ -5,10 +5,12 @@ import config from './config.js';
 import { getSystemPrompt } from './prompt.js';
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
 import { executeTool } from './tools/handler.js';
-import { getEvoToolResponse, checkEvoOllamaHealth } from './ollama.js';
-import { classifyMessage, getToolsForCategory, needsMemories, mustUseClaude } from './router.js';
+import { getEvoToolResponse, checkEvoHealth } from './evo-llm.js';
+import { classifyMessage, getToolsForCategory, needsMemories, mustUseClaude, CATEGORY } from './router.js';
 import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline } from './memory.js';
 import { CircuitBreaker } from './circuit-breaker.js';
+import { logRouting } from './router-telemetry.js';
+import { getLiveSystemSnapshot } from './system-knowledge.js';
 import logger from './logger.js';
 
 const claudeBreaker = new CircuitBreaker('claude', { threshold: 3, resetTimeout: 30000 });
@@ -166,9 +168,11 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
   const isOwner = !senderJid || ownerJids.size === 0 || ownerJids.has(senderJid);
   const tools = getAvailableTools(isOwner);
 
-  // --- Activity-based routing ---
-  const category = await classifyMessage(context, !!imageData);
-  logger.info({ category, sender: senderJid }, 'routed');
+  // --- Smart activity-based routing ---
+  const routeStart = Date.now();
+  const route = await classifyMessage(context, !!imageData);
+  const { category, source: classifySource, forceClaude, reason: routeReason } = route;
+  logger.info({ category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid }, 'routed');
 
   // Filter tools for this category
   const categoryTools = getToolsForCategory(category, tools);
@@ -187,20 +191,46 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
-  // Try EVO X2 for non-Claude categories
-  if (!mustUseClaude(category) && config.evoToolEnabled && mode !== 'random' && !imageData) {
+  // For SYSTEM queries: inject live status snapshot alongside stored knowledge
+  if (category === CATEGORY.SYSTEM) {
     try {
-      const evoAvailable = await checkEvoOllamaHealth();
+      const liveSnapshot = await getLiveSystemSnapshot();
+      memoryFragment += liveSnapshot;
+    } catch (err) {
+      logger.warn({ err: err.message }, 'live snapshot failed');
+    }
+  }
+
+  // Try EVO X2 for non-forced-Claude categories
+  if (!forceClaude && config.evoToolEnabled && mode !== 'random' && !imageData) {
+    try {
+      const evoAvailable = await checkEvoHealth();
       if (evoAvailable) {
+        const evoStart = Date.now();
         const evoResponse = await getEvoToolResponse(context, categoryTools, senderJid, memoryFragment, category);
         if (evoResponse) {
+          logRouting({
+            category, confidence: null, model: 'local',
+            latencyMs: Date.now() - evoStart, fallback: false,
+            reason: classifySource, toolsCalled: [], text: context,
+          });
           logger.info({ source: 'evo', category, chars: evoResponse.length }, 'responded via EVO X2');
           return evoResponse;
         }
         logger.warn('evo tool response was empty, falling back to Claude');
+        logRouting({
+          category, confidence: null, model: 'claude',
+          latencyMs: Date.now() - evoStart, fallback: true,
+          reason: 'evo empty response', toolsCalled: [], text: context,
+        });
       }
     } catch (err) {
       logger.warn({ err: err.message }, 'evo tool call failed, falling back to Claude');
+      logRouting({
+        category, confidence: null, model: 'claude',
+        latencyMs: Date.now() - routeStart, fallback: true,
+        reason: `evo error: ${err.message}`, toolsCalled: [], text: context,
+      });
     }
   }
 
@@ -324,6 +354,15 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     const text = textBlocks.map((b) => b.text).join('\n');
 
     if (!text) return null;
+
+    logRouting({
+      category, confidence: null, model: 'claude',
+      latencyMs: Date.now() - routeStart,
+      fallback: !forceClaude && config.evoToolEnabled,
+      reason: routeReason || classifySource,
+      toolsCalled: [], text: context,
+    });
+
     return text;
   } catch (err) {
     const status = err?.status;

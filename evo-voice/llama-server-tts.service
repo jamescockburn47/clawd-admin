@@ -1,0 +1,28 @@
+[Unit]
+Description=llama.cpp TTS server (Orpheus-3B Q8_0) - voice synthesis
+After=network.target
+
+[Service]
+Type=simple
+User=james
+LimitMEMLOCK=infinity
+ExecStart=/home/james/llama.cpp/build/bin/llama-server \
+  -m /home/james/models/orpheus-3b-0.1-ft-Q8_0.gguf \
+  --host 0.0.0.0 --port 8082 \
+  -ngl 999 \
+  -c 8192 \
+  --parallel 1 \
+  --flash-attn on \
+  --mlock \
+  --no-mmap \
+  --batch-size 512 \
+  --ubatch-size 256 \
+  --cache-type-k q8_0 \
+  --cache-type-v q8_0 \
+  --special
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Run evolution session at 10:05pm (after llama shutdown)
+
+[Timer]
+OnCalendar=*-*-* 22:05:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
