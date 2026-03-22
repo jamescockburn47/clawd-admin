@@ -44,8 +44,10 @@ These have been verified through testing. Do not waste time re-investigating:
 - **Direct Ethernet link** between Pi (10.0.0.1) and EVO (10.0.0.2) gives 0.4ms latency vs 124ms WiFi.
 - **`huggingface-cli` not in nohup PATH** on EVO. Use `wget` with direct HuggingFace URLs, or use full path `~/.local/bin/huggingface-cli`. HF GGUF repos use subdirectory structure (e.g. `Q4_K_M/model-00001-of-00002.gguf`).
 - **Thinking mode in Qwen3.5**: Use `--reasoning off` flag on llama-server. The `--chat-template-kwargs '{"enable_thinking":false}'` alone has a known bug. `--reasoning-budget 0` leaves residual `</think>` tags.
-- **systemd service names**: `llama-server-main` (port 8080), `llama-server-classifier` (port 8081), `llama-server-tts` (port 8082, Orpheus-3B). NOT `llama-main`/`llama-classifier`.
-- **Shutdown schedule**: `llama-sleep.timer` stops all 3 servers at 22:00. `llama-wake.timer` starts them at 05:00. Overnight reasoning task runs separately.
+- **systemd service names**: `llama-server-main` (port 8080), `llama-server-classifier` (port 8081), `llama-server-tts` (port 8082, Orpheus-3B), `llama-server-embed` (port 8083, nomic-embed-text — always on), `clawdbot-memory` (port 5100, FastAPI memory service). NOT `llama-main`/`llama-classifier`.
+- **Shutdown schedule**: `llama-sleep.timer` stops main + classifier + TTS at 22:00. `llama-wake.timer` starts them at 05:00. Embedding server (`llama-server-embed`) and memory service (`clawdbot-memory`) run 24/7 — they are NOT stopped by llama-sleep. Dream mode starts its own LLM at 22:05.
+- **Ollama is still installed on EVO** but is NOT used by the memory service (which now uses llama.cpp). Ollama may still be running — can be stopped with `sudo systemctl stop ollama` if memory is needed.
+- **Memory service uses llama.cpp for embeddings** (nomic-embed-text on port 8083) and fact extraction (Qwen3-30B on port 8080, daytime only). The `ollama_client.py` name is legacy — it talks to llama.cpp.
 - **Bot code uses `evo-llm.js`** (OpenAI-compatible API via direct ethernet `http://10.0.0.2:8080`). Legacy `ollama.js` was removed from the tree.
 - **Orpheus-3B TTS**: Needs `--special` flag on llama-server. Prompt format: `<|audio|>voice: text<|eot_id|>`. Uses `/v1/completions` endpoint. Outputs SNAC audio tokens decoded with Python `snac` library.
 - **Optimised llama-server flags**: `--flash-attn on --mlock --no-mmap --cont-batching --batch-size 1024 --ubatch-size 512 --cache-type-k q8_0 --cache-type-v q8_0`. Requires `LimitMEMLOCK=infinity` in systemd unit.
@@ -63,6 +65,8 @@ These have been verified through testing. Do not waste time re-investigating:
 | **EVO main LLM** | `http://10.0.0.2:8080` — Qwen3-30B-A3B Q4_K_M (llama-server, Vulkan) |
 | **EVO classifier** | `http://10.0.0.2:8081` — Qwen3-0.6B Q8_0 |
 | **EVO TTS** | `http://10.0.0.2:8082` — Orpheus-3B Q8_0 (SNAC audio tokens) |
+| **EVO embeddings** | `http://10.0.0.2:8083` — nomic-embed-text-v1.5 Q8_0 (always on, 140MB) |
+| **EVO memory** | `http://10.0.0.2:5100` — FastAPI memory service (clawdbot-memory) |
 | **SSH key** | `C:\Users\James\.ssh\id_ed25519` |
 | **Pi project path** | `~/clawdbot` (NOT `~/clawdbot-claude-code`) |
 | **Pi dashboard source** | `~/clawd-dashboard/` (Rust project, built with `cargo build --release`) |
