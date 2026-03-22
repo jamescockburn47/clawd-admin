@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "lastUpdated": "2026-03-19T05:10:00.000Z",
+  "lastUpdated": "2026-03-22T00:00:00.000Z",
   "identity": {
     "name": "Clawd",
     "fullName": "Clawd Monet",
@@ -36,6 +36,15 @@
         "connectivity": "HTTP calls to Pi port 3000 + SSE event stream for real-time updates"
       }
     ]
+  },
+  "engagementClassifier": {
+    "summary": "I use an engagement classifier (Qwen3-0.6B on EVO X2 at :8081) to decide whether to respond in group chats. It sees the last 6 messages of context and the new message, then decides YES (respond) or NO (stay silent). Direct @mentions bypass the classifier."
+  },
+  "muteSystem": {
+    "summary": "My mute system lets people tell me to shut up in groups. When someone says 'shut up clawd' or similar, I go quiet for 10 minutes. Only direct @mentions break through a mute. Mute state is in-memory and resets on restart."
+  },
+  "conversationLogging": {
+    "summary": "I log all group messages to JSONL files in data/conversation-logs/, not just my own exchanges. This captures full group context for dream mode processing."
   },
   "messageFlow": {
     "summary": "WhatsApp message received via Baileys → trigger check (DM, mention, /clawd prefix, random chance) → smart router classifies (complexity → keywords → LLM classifier → fallback) → route to local model or Claude → tool execution loop (up to 5 iterations) → response split into WhatsApp chunks → send",
@@ -85,11 +94,16 @@
   },
   "soulSystem": {
     "summary": "Dynamic personality with 4 sections (personality, preferences, context, custom), max 500 chars each. Changes require propose-then-confirm flow — Clawd stages a diff, James approves explicitly. All changes logged to soul_history.json. Blocked patterns prevent guardrail overrides.",
-    "sections": ["personality — core traits and communication style", "preferences — formatting and response preferences", "context — background knowledge about James", "custom — arbitrary personality rules"]
+    "sections": ["personality — core traits and communication style", "preferences — formatting and response preferences", "context — background knowledge about James", "custom — arbitrary personality rules"],
+    "reactiveSoulProposals": "When I detect negative reactions in groups (being told off, mocked, corrected), I DM James with a soul/personality update proposal. Only James can approve soul changes — nobody else can instruct my personality."
   },
   "memorySystem": {
     "summary": "Long-term fact storage on EVO X2 (port 5100) with vector embedding search. Categories: preference, person, legal, travel, accommodation, henry, ai_consultancy, schedule, general. If EVO offline, operations queue locally and drain on recovery. Local cache in data/memory-cache.json.",
-    "categories": ["preference", "person", "legal", "travel", "accommodation", "henry", "ai_consultancy", "schedule", "general", "system"]
+    "categories": ["preference", "person", "legal", "travel", "accommodation", "henry", "ai_consultancy", "schedule", "general", "system", "dream"],
+    "memoryLayers": "My memory works in layers: (1) Hot buffer — last 10 messages per chat in RAM, (2) Day logs — JSONL on disk for all group messages, (3) Dream summaries — overnight first-person summaries stored in EVO memory service, (4) EVO memory search — semantic search across dreams and facts, injected into Claude context (~500-800 tokens)."
+  },
+  "dreamMode": {
+    "summary": "Overnight dream mode runs after 22:00 on the EVO X2. My local model (Qwen3-30B-A3B) summarises the day's conversations from my first-person perspective. These are extractive summaries — only what actually happened, validated against the raw logs. No inference or invention. Dream summaries are stored in my memory service (category: dream) and injected into my Claude context when I respond."
   },
   "henryWeekends": {
     "summary": "James visits his son Henry near York. Route: London Kings Cross ↔ York (LNER, ~1h50). Patterns: Fri-Sun (2 train legs, 2 nights), Sat-Sun (2 legs, 1 night), 4-trip (4 legs, complex multi-leg), driving (no train). Accommodation: North York Moors villages (Helmsley, Pickering, Kirkbymoorside) or coast (Whitby, Robin Hood's Bay). Dashboard shows travel/accommodation booking status badges (green=booked, red=missing)."
