@@ -1,0 +1,16 @@
+[Unit]
+Description=Clawd Style Calibration — weekly voice profile review
+After=network.target llama-server-main.service clawdbot-memory.service
+Requires=llama-server-main.service clawdbot-memory.service
+
+[Service]
+Type=oneshot
+User=james
+WorkingDirectory=/home/james/clawdbot-memory
+Environment=EVO_LLM_URL=http://localhost:8080
+Environment=EVO_MEMORY_URL=http://localhost:5100
+Environment=PI_LOG_DIR=/tmp/conversation-logs
+ExecStart=/home/james/clawdbot-memory/venv/bin/python /home/james/clawdbot-memory/style_calibration.py --days 7
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=300
