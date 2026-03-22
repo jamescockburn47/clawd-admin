@@ -137,7 +137,10 @@ const KEYWORD_RULES = [
   {
     category: CATEGORY.EMAIL,
     test: (lower) =>
-      /\b(email|gmail|mail|inbox|draft|send an? email|reply to|forward)\b/.test(lower)
+      // Require email keywords with action intent, or explicit email tool words.
+      // "his email" or "an email" in passing context should NOT trigger email category.
+      (/\b(gmail|inbox|draft an? email|send an? email|reply to .* email|forward .* email|compose)\b/.test(lower))
+      || (/\b(email|mail)\b/.test(lower) && /\b(check|read|search|send|draft|compose|write|reply|forward)\b/.test(lower))
       || (/\b(soul|personality)\b/.test(lower) && /\b(change|update|modify|propose|set|adjust)\b/.test(lower)),
   },
   {
@@ -364,26 +367,19 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
     };
   }
 
-  // Fallback depends on context:
-  // Groups: default to CONVERSATIONAL (EVO 30B, no tools) — most unclassified group
-  //   messages are chat/discussion, and EVO is faster + free.
-  // DMs: default to PLANNING (Claude + all tools) — DMs from James likely need tools,
-  //   and the safest fallback is full capability.
-  if (isGroup) {
-    logger.info({ category: CATEGORY.CONVERSATIONAL, source: 'fallback_group' }, 'message classified');
-    return {
-      category: CATEGORY.CONVERSATIONAL,
-      source: 'fallback_group',
-      forceClaude: false,
-      reason: 'no confident classification in group — defaulting to conversational',
-    };
-  }
-  logger.info({ category: CATEGORY.PLANNING, source: 'fallback_dm' }, 'message classified');
+  // Fallback: PLANNING with Claude.
+  // Groups: Claude handles nuanced discussion, social dynamics, technical debate.
+  //   Qwen3-30B is fine for structured tool tasks but not for the quality of response
+  //   Clawd needs in group conversations. Claude is the sophistication layer.
+  // DMs: Claude handles full capability.
+  // EVO 30B fires when keywords or LLM classifier confidently identify a simple
+  //   tool-based category (calendar, todo, travel, recall, system, general_knowledge).
+  logger.info({ category: CATEGORY.PLANNING, source: 'fallback', isGroup }, 'message classified');
   return {
     category: CATEGORY.PLANNING,
-    source: 'fallback_dm',
+    source: 'fallback',
     forceClaude: true,
-    reason: 'no confident classification in DM — defaulting to planning',
+    reason: 'no confident classification',
   };
 }
 
