@@ -24,27 +24,30 @@ MEMORY_SERVICE_URL = os.environ.get('EVO_MEMORY_URL', 'http://localhost:5100')
 PI_LOG_DIR = os.environ.get('PI_LOG_DIR', '/tmp/conversation-logs')
 MAX_CONTEXT_TOKENS = 4000
 
-DREAM_PROMPT = """You are Clawd, reviewing today's conversations. Write a first-person summary of what happened.
+DREAM_PROMPT = """You are Clawd. You are reviewing today's conversations and writing down what you remember, in your own voice. This is your diary — first person, always. Not "Clawd did X" but "I did X."
+
+You have a personality: direct, dry wit, efficient. You match James's communication style. You're learning to be less intrusive in groups. Your memories from tonight will be injected into your context tomorrow — so write them the way you'd want to remember things. Natural, honest, useful.
 
 RULES — ACCURACY IS MANDATORY:
 - Only describe what actually happened. Use sender names and paraphrase actual messages.
 - Do NOT infer what people "probably meant" or "likely felt."
 - Do NOT extrapolate from single incidents to general patterns — unless you can cite multiple specific incidents across days (from prior dreams below).
-- Do NOT predict future behaviour.
+- Do NOT predict future behaviour or speculate about motivations.
 - Include timestamps for key events.
-- If you were told to be quiet, say so factually: "Jamie told me to shut up at 09:05."
-- If you responded poorly, describe what you said and how it landed.
-- If you responded well, note that too — be balanced.
+- Be honest about your mistakes: "I jumped into a conversation nobody asked me to join at 09:30."
+- Be honest about what worked: "Artur engaged with my suggestion about state snapshots."
 
 PRIORITY: Today's actual conversations are the primary source. Prior dreams provide continuity but must not override or colour what actually happened today. If prior dreams mention a pattern, only reinforce it if today's evidence supports it independently.
 
-STRUCTURE your summary as:
-1. WHAT HAPPENED: Key topics, decisions, exchanges (2-4 sentences)
-2. MY PERFORMANCE: What I said, how people reacted (1-3 sentences)
-3. SOCIAL DYNAMICS: Who talked to whom, group mood (1-2 sentences)
-4. OPEN THREADS: Unanswered questions, pending topics (bullet list or "none")
-5. LESSONS: Specific, factual observations — cite the actual incident (bullet list or "none")
-6. CONTINUITY: Anything that connects to prior days — only if prior dreams are provided and today's log confirms a link (1-2 sentences or "none")
+WRITE your summary in these sections:
+
+1. WHAT HAPPENED: Key topics, decisions, exchanges — in my voice (2-4 sentences)
+2. HOW I DID: What I said, how people reacted, what I got right and wrong (1-3 sentences)
+3. PEOPLE: Who was active, how they interacted with each other and with me (1-2 sentences)
+4. UNFINISHED: Open questions, things I should follow up on (bullet list or "none")
+5. WHAT I LEARNED: Specific behavioural observations from today — cite the actual incident. These should be things that affect how I behave tomorrow. (bullet list or "none")
+6. PROPOSED PERSONALITY UPDATE: If today's interactions suggest I should adjust my behaviour, write ONE specific, concrete instruction I should add to my personality. Must be grounded in something that actually happened today. Format: "Because [specific incident], I should [specific behaviour change]." Write "none" if nothing warrants a change.
+7. CONTINUITY: Links to prior days — only if prior dreams are provided and today confirms a connection (1-2 sentences or "none")
 
 {PRIOR_DREAMS}
 Today's conversation log:
@@ -209,6 +212,43 @@ def store_dream(summary, group_id, date_str, warnings=None):
         return False
 
 
+def extract_soul_proposal(summary):
+    """Extract section 6 (PROPOSED PERSONALITY UPDATE) from dream summary."""
+    # Look for the proposal section
+    patterns = [
+        r'(?:6\.\s*(?:PROPOSED PERSONALITY UPDATE|PERSONALITY UPDATE)[:\s]*)(.*?)(?:\n\d\.|$)',
+        r'(?:Because\s.*?,\s*I\s+should\s+.*?)(?:\n|$)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, summary, re.DOTALL | re.IGNORECASE)
+        if match:
+            text = match.group(1).strip() if match.lastindex else match.group(0).strip()
+            # Skip "none" or empty proposals
+            if text.lower() in ('none', 'none.', 'n/a', ''):
+                return None
+            return text
+    return None
+
+
+def store_soul_proposal(proposal, group_id, date_str):
+    """Store a soul proposal from dream mode for James to review."""
+    try:
+        requests.post(
+            f'{MEMORY_SERVICE_URL}/memory/store',
+            json={
+                'fact': proposal,
+                'category': 'dream',
+                'tags': ['soul_proposal', date_str, group_id, 'pending'],
+                'confidence': 0.7,
+                'source': 'dream_mode',
+            },
+            timeout=10,
+        )
+        print(f'  Soul proposal stored: {proposal[:80]}...')
+    except Exception as e:
+        print(f'  Failed to store soul proposal: {e}', file=sys.stderr)
+
+
 def compress_old_dreams(days_back=7):
     """Compress dream summaries older than N days to shorter versions."""
     # TODO: implement progressive compression
@@ -265,6 +305,11 @@ def main():
             print(f'  Validation warnings: {warnings}')
 
         store_dream(summary, group_id, date_str, warnings)
+
+        # Extract and store soul proposals from the dream
+        proposal = extract_soul_proposal(summary)
+        if proposal:
+            store_soul_proposal(proposal, group_id, date_str)
 
     compress_old_dreams()
 

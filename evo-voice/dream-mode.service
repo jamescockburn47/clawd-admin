@@ -11,10 +11,8 @@ Environment=EVO_MEMORY_URL=http://localhost:5100
 Environment=PI_LOG_DIR=/tmp/conversation-logs
 
 # Step 1: Pull conversation logs from Pi
-# Log sync: Pi pushes to EVO via a pre-placed script, or we pull via SSH
-# NOTE: EVO does not have Pi's host key for 10.0.0.1 — sync must be Pi-initiated
-# The Pi scheduler should push logs daily, or use this as fallback:
-ExecStartPre=/bin/bash -c 'mkdir -p /tmp/conversation-logs && ssh -o StrictHostKeyChecking=accept-new pi@10.0.0.1 "cat /dev/null" 2>/dev/null; scp pi@10.0.0.1:~/clawdbot/data/conversation-logs/*.jsonl /tmp/conversation-logs/ 2>/dev/null || true'
+# Step 1: Pull conversation logs from Pi via direct ethernet
+ExecStartPre=/bin/bash -c 'mkdir -p /tmp/conversation-logs && scp pi@10.0.0.1:~/clawdbot/data/conversation-logs/*.jsonl /tmp/conversation-logs/ 2>/dev/null || true'
 
 # Step 2: Start the main LLM server for dream summarisation
 ExecStartPre=/bin/bash -c 'sudo systemctl start llama-server-main && echo "Waiting for LLM..." && for i in $(seq 1 30); do curl -sf http://localhost:8080/health > /dev/null 2>&1 && echo "LLM ready" && exit 0; sleep 2; done; echo "LLM failed to start" && exit 1'
