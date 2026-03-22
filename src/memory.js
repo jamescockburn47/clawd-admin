@@ -392,6 +392,19 @@ export async function getDreamMemories(groupJid, limit = 3) {
   }
 }
 
+// Fetch identity memories — always injected, not gated by category.
+// These are core facts about who Clawd is, who James is, voice/style profiles.
+export async function getIdentityMemories() {
+  if (!evoOnline) return [];
+  try {
+    const results = await searchMemory('identity core permanent', 'identity', 10);
+    return results.map(r => r.memory || r).filter(Boolean);
+  } catch (err) {
+    logger.warn({ err: err.message }, 'identity memory fetch failed');
+    return [];
+  }
+}
+
 export function formatMemoriesForPrompt(memories) {
   if (!memories || memories.length === 0) return '';
 

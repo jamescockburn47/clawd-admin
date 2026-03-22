@@ -7,7 +7,7 @@ import { TOOL_DEFINITIONS } from './tools/definitions.js';
 import { executeTool } from './tools/handler.js';
 import { getEvoToolResponse, checkEvoHealth } from './evo-llm.js';
 import { classifyMessage, getToolsForCategory, needsMemories, mustUseClaude, CATEGORY } from './router.js';
-import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline, getDreamMemories } from './memory.js';
+import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline, getDreamMemories, getIdentityMemories } from './memory.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { logRouting } from './router-telemetry.js';
 import { getLiveSystemSnapshot } from './system-knowledge.js';
@@ -189,6 +189,19 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       }
     } catch (err) {
       logger.warn({ err: err.message }, 'memory fetch failed');
+    }
+  }
+
+  // Always inject identity memories (voice, style, core facts)
+  if (config.evoMemoryEnabled) {
+    try {
+      const identityMems = await getIdentityMemories();
+      if (identityMems.length > 0) {
+        const idLines = identityMems.map(m => `- ${m.fact}`).join('\n');
+        memoryFragment += `\n\n## Who I am\n${idLines}`;
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'identity memory fetch failed');
     }
   }
 
