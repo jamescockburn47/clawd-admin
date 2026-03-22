@@ -2,6 +2,30 @@
 
 > **READ THIS FIRST.** Every session must start by reading this file AND `architecture.md`. Do not skip.
 
+## Design Decisions — BINDING
+
+These are agreed decisions. Do not revisit, reverse, or work around them. If a decision needs changing, discuss with James first.
+
+### Voice Pipeline
+1. **Piper TTS for everything.** Orpheus-3B is too slow (8-12s generation). All TTS uses `speak_fast()` via Piper until a faster model or streaming solution exists. `speak()` delegates to `speak_fast()`. Do not re-add Orpheus TTS calls.
+2. **Every voice command MUST produce audible output.** No silent failures. If a local action returns no speakable text, say "Done". If Claude returns nothing, say "Sorry, I couldn't get an answer."
+3. **Mic flush after ALL TTS.** After any spoken output, wait `audio_duration + 0.5s` minimum before reopening mic. This prevents the mic picking up its own TTS from the Pi speaker.
+4. **Follow-up mode after ALL spoken responses** — not just Claude. Any TTS output triggers follow-up listening window (10s).
+5. **Local model handles everything the classifier routes locally.** Calendar, email summaries, etc. go to the Pi's `/api/voice-local` which must return human-readable `message` text (not raw counts or JSON). Do not restrict local routing — fix the response layer instead.
+6. **Wake phrase ack is "Yes?"** via Piper. Not "How can I help?" — Piper mangles it. Keep it single-word.
+7. **Whisper initial_prompt must include wake phrases** ("Hey Claude, hey Clawd") and example commands for decoder biasing.
+
+### Architecture
+8. **Bot code uses `evo-llm.js`** — OpenAI-compatible API. Legacy `ollama.js` was removed; do not reintroduce it.
+9. **All EVO communication via direct ethernet** (`10.0.0.2`). Never use WiFi IP (`192.168.1.230`) for API calls.
+10. **Dashboard is Rust/egui native app.** Not Chromium, not HTML. Source in `clawd-dashboard/src/`.
+11. **Fix general before specific.** When a bug affects one action (e.g. calendar_list has no TTS), fix the general case (all actions must have TTS fallback) not just the specific action.
+
+### Evolution Pipeline (PLANNED — not yet built)
+12. **Overnight Claude Code CLI session** — runs after 22:00 llama shutdown. Works in a git branch, never main. Reads health report + interaction logs + feedback. Writes evolution-report.md. James reviews in morning.
+13. **Data collection layers needed first**: interaction logging (JSONL), WhatsApp reaction feedback, correction detection, development journal entries.
+14. **Local model does analysis only** — log crunching, pattern detection, health reports. Code mutation requires Claude-level reasoning.
+
 ## Research Protocol — MANDATORY
 
 - **ALWAYS search online** for hardware compatibility, driver support, library versions, and performance benchmarks. Never rely on training data for anything version-specific or hardware-specific.
@@ -22,7 +46,7 @@ These have been verified through testing. Do not waste time re-investigating:
 - **Thinking mode in Qwen3.5**: Use `--reasoning off` flag on llama-server. The `--chat-template-kwargs '{"enable_thinking":false}'` alone has a known bug. `--reasoning-budget 0` leaves residual `</think>` tags.
 - **systemd service names**: `llama-server-main` (port 8080), `llama-server-classifier` (port 8081), `llama-server-tts` (port 8082, Orpheus-3B). NOT `llama-main`/`llama-classifier`.
 - **Shutdown schedule**: `llama-sleep.timer` stops all 3 servers at 22:00. `llama-wake.timer` starts them at 05:00. Overnight reasoning task runs separately.
-- **Bot code uses `evo-llm.js`** (NOT `ollama.js`). OpenAI-compatible API via direct ethernet `http://10.0.0.2:8080`. The old `ollama.js` is dead code.
+- **Bot code uses `evo-llm.js`** (OpenAI-compatible API via direct ethernet `http://10.0.0.2:8080`). Legacy `ollama.js` was removed from the tree.
 - **Orpheus-3B TTS**: Needs `--special` flag on llama-server. Prompt format: `<|audio|>voice: text<|eot_id|>`. Uses `/v1/completions` endpoint. Outputs SNAC audio tokens decoded with Python `snac` library.
 - **Optimised llama-server flags**: `--flash-attn on --mlock --no-mmap --cont-batching --batch-size 1024 --ubatch-size 512 --cache-type-k q8_0 --cache-type-v q8_0`. Requires `LimitMEMLOCK=infinity` in systemd unit.
 - **SSH to EVO via direct link**: `ssh james@10.0.0.2` from Pi. Host key already in Pi's `known_hosts` for 10.0.0.2.
@@ -55,7 +79,7 @@ These have been verified through testing. Do not waste time re-investigating:
 
 ## Session Protocol — MANDATORY
 
-1. **Read `CLAUDE.md` and `architecture.md`** at the start of every session.
+1. **Read `CLAUDE.md` and `architecture.md`** at the start of every session. **Cursor:** also read **`.cursorrules`** for deploy commands, SSH key path, and **agent timeout / split-step** notes (Pi `cargo build` needs a long wait or a separate terminal step).
 2. **Verify Pi IP** before deploying — ping `192.168.1.211` first. If unreachable, check `~/.ssh/known_hosts` for alternatives.
 3. **SSH command pattern**: `ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "command"`.
 4. **SCP deploy pattern**: `scp -i C:/Users/James/.ssh/id_ed25519 <local_file> pi@192.168.1.211:~/clawdbot/<remote_path>`.
@@ -142,7 +166,7 @@ WhatsApp admin assistant bot ("Clawd") running on a Raspberry Pi 5 with a 10.1" 
 - **Runtime**: Node.js 20+ (ESM modules, `"type": "module"`)
 - **WhatsApp**: `@whiskeysockets/baileys` v6.x
 - **AI (cloud)**: `@anthropic-ai/sdk` — Claude Sonnet 4.6
-- **AI (local)**: Ollama — Qwen 3.5 4B (routes simple conversational messages locally to save API costs)
+- **AI (local)**: llama.cpp (Vulkan) on EVO X2 — Qwen3-30B-A3B Q4_K_M (main), Qwen3-0.6B Q8_0 (classifier), Orpheus-3B Q8_0 (TTS, currently disabled — too slow)
 - **Google**: `googleapis` — Calendar v3, Gmail v1
 - **Weather**: OpenWeatherMap free tier (current conditions for configurable locations)
 - **Travel**: Darwin (live trains), BR Fares (ticket prices), Amadeus (hotels), Brave Search (web)
@@ -164,11 +188,9 @@ See `src/config.js` for all env vars. Key ones:
 - `DASHBOARD_TOKEN` — auth token for dashboard HTTP endpoints
 - `HTTP_PORT` — default 3000 on Pi
 - `DARWIN_TOKEN`, `AMADEUS_CLIENT_ID/SECRET`, `BRAVE_API_KEY` — travel/search APIs
-- `OLLAMA_ENABLED` — `true` to enable local model routing (default `false`)
-- `OLLAMA_HOST` — Ollama API URL (default `http://localhost:11434`)
-- `OLLAMA_MODEL` — model name (default `qwen3.5:4b`)
-- `OLLAMA_TIMEOUT` — max ms to wait for local model (default `15000`)
-- `OLLAMA_MAX_TOKENS` — max tokens from local model (default `300`)
+- `EVO_LLM_URL` — EVO X2 main LLM URL (default `http://10.0.0.2:8080`)
+- `EVO_CLASSIFIER_URL` — EVO X2 classifier URL (default `http://10.0.0.2:8081`)
+- `EVO_TOOL_ENABLED` — `true`/`false` (default `true`)
 - `WEATHER_API_KEY` — OpenWeatherMap API key
 - `WEATHER_ENABLED` — `true`/`false` (default `true`)
 - `WEATHER_LOCATIONS` — comma-separated locations (default `London,York`)
@@ -176,19 +198,24 @@ See `src/config.js` for all env vars. Key ones:
 - `BRIEFING_TIME` — HH:MM in London timezone (default `07:00`)
 - `LOG_LEVEL` — Pino log level (default `info`)
 
-## Ollama Setup (Pi)
+## Adding New Design Decisions
 
-```bash
-# Enable and start Ollama service
-sudo systemctl enable ollama
-sudo systemctl start ollama
+When a decision is made during a session (explicitly agreed with James, or arising from a bug fix that establishes a general rule), **add it to the Design Decisions section above immediately**. Number it sequentially. This is not optional — it's how continuity works across sessions.
 
-# Pull the model (~2.5GB download, ~3GB RAM at runtime)
-ollama pull qwen3.5:4b
+### Process Rules
+15. **Update CLAUDE.md in real-time.** Every decision, every agreed architectural change, every "don't do X" — add it to Design Decisions immediately, not at the end of the session. If you just learned something the hard way, write it down before moving on.
+16. **Use superpowers skills.** Always use brainstorming before creative/design work. Use systematic-debugging before proposing fixes. Use verification-before-completion before claiming something works. These are not optional.
+17. **Fix general before specific** (repeated for emphasis). When you find a bug in one place, ask "what's the general class of this bug?" and fix that. Don't patch individual symptoms.
 
-# Verify
-ollama run qwen3.5:4b "Hello"
+### Group Chat & Social Intelligence
+18. **Engagement classifier gates all group responses.** Every group message passes through the EVO 0.6B classifier which decides respond/silent. Direct mentions bypass the classifier. DMs are unaffected.
+19. **Mute system: 10 min per-group cooldown.** "Shut up" / "go quiet" triggers mute. Only direct @mention breaks through. In-memory only, resets on restart.
+20. **All group messages logged.** Every message in every group goes to `conversation-logs/` JSONL, not just Clawd's exchanges. This feeds dream mode.
 
-# Then set in .env:
-OLLAMA_ENABLED=true
-```
+### Dream Mode & Memory
+21. **Dream mode runs overnight on EVO.** After 22:00 shutdown, the local model summarises the day's conversations from Clawd's first-person perspective. Extractive only — no inference, no extrapolation. Validated against source logs.
+22. **Dream summaries are Clawd's long-term memory.** Stored in EVO memory service, searched and injected into Claude context (~500-800 tokens). Progressive compression: full → paragraph → one-liner over 30 days.
+
+### Soul & Self-Awareness
+23. **Reactive soul proposals via DM.** When Clawd detects negative reactions in groups, it proposes soul updates to James via private DM. Only James can approve. No one else can instruct Clawd's personality.
+24. **System self-awareness is queryable.** Clawd knows about all its subsystems (dream mode, engagement classifier, memory layers, mute system) via system-knowledge.json and can explain them in first person.
