@@ -275,7 +275,7 @@ async function handleMessage(sock, message, botJid) {
 
     const context = buildContext(chatJid, messageText);
     const responseStart = Date.now();
-    const response = await getClawdResponse(context, trigger.mode, senderJid, imageData);
+    const response = await getClawdResponse(context, trigger.mode, senderJid, imageData, chatJid);
     const responseLatency = Date.now() - responseStart;
     if (!response) return;
 

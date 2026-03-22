@@ -7,7 +7,7 @@ import { TOOL_DEFINITIONS } from './tools/definitions.js';
 import { executeTool } from './tools/handler.js';
 import { getEvoToolResponse, checkEvoHealth } from './evo-llm.js';
 import { classifyMessage, getToolsForCategory, needsMemories, mustUseClaude, CATEGORY } from './router.js';
-import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline } from './memory.js';
+import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline, getDreamMemories } from './memory.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { logRouting } from './router-telemetry.js';
 import { getLiveSystemSnapshot } from './system-knowledge.js';
@@ -156,7 +156,7 @@ function getAvailableTools(isOwner = true) {
   });
 }
 
-export async function getClawdResponse(context, mode, senderJid, imageData = null) {
+export async function getClawdResponse(context, mode, senderJid, imageData = null, chatJid = null) {
   if (!checkDailyLimit()) {
     logger.warn({ limit: config.dailyCallLimit }, 'daily limit reached');
     return null;
@@ -188,6 +188,20 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       }
     } catch (err) {
       logger.warn({ err: err.message }, 'memory fetch failed');
+    }
+  }
+
+  // Inject dream memories for group context
+  if (config.evoMemoryEnabled && config.dreamModeEnabled) {
+    try {
+      const dreams = await getDreamMemories('', 2);
+      if (dreams.length > 0) {
+        const dreamLines = dreams.map(d => `- ${d.fact}`).join('\n');
+        memoryFragment += `\n\n## Recent experiences (dream summaries)\n${dreamLines}`;
+        logger.info({ count: dreams.length }, 'dream memories injected');
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'dream memory injection failed');
     }
   }
 
@@ -243,8 +257,9 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       i === claudeTools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t,
     );
 
+    const isGroup = chatJid ? chatJid.endsWith('@g.us') : false;
     const system = [
-      { type: 'text', text: getSystemPrompt(mode, isOwner) + memoryFragment, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: getSystemPrompt(mode, isOwner, isGroup) + memoryFragment, cache_control: { type: 'ephemeral' } },
     ];
 
     // Build user message content — supports text + optional image

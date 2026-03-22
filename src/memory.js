@@ -374,10 +374,22 @@ export async function getRelevantMemories(messageText) {
 
   const results = await searchMemory(messageText, null, 8);
 
-  // Filter to only reasonably relevant results
+  // Filter weak matches (embedding + keyword hybrid scores; threshold tuned for recall)
   return results
-    .filter(r => r.score > 0.2)
-    .map(r => r.memory);
+    .filter((r) => (r.score ?? 0) >= 0.12)
+    .map((r) => r.memory);
+}
+
+// Fetch recent dream summaries for a group
+export async function getDreamMemories(groupJid, limit = 3) {
+  if (!evoOnline) return [];
+  try {
+    const results = await searchMemory(`dream summary ${groupJid}`, 'dream', limit);
+    return results.map(r => r.memory || r).filter(Boolean);
+  } catch (err) {
+    logger.warn({ err: err.message }, 'dream memory fetch failed');
+    return [];
+  }
 }
 
 export function formatMemoriesForPrompt(memories) {
