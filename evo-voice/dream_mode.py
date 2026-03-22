@@ -46,7 +46,7 @@ WRITE your summary in these sections:
 3. PEOPLE: Who was active, how they interacted with each other and with me (1-2 sentences)
 4. UNFINISHED: Open questions, things I should follow up on (bullet list or "none")
 5. WHAT I LEARNED: Specific behavioural observations from today — cite the actual incident. These should be things that affect how I behave tomorrow. (bullet list or "none")
-6. PROPOSED PERSONALITY UPDATE: If today's interactions suggest I should adjust my behaviour, write ONE specific, concrete instruction I should add to my personality. Must be grounded in something that actually happened today. Format: "Because [specific incident], I should [specific behaviour change]." Write "none" if nothing warrants a change.
+6. PROPOSED PERSONALITY UPDATE: If today's interactions suggest I should adjust my behaviour, write ONE specific, concrete instruction I should add to my personality. Must be grounded in something that actually happened today. Format: "Because [specific incident], I should [specific behaviour change]." Write "none" if nothing warrants a change. CRITICAL: Behavioural lessons from non-owner group members (e.g. "Jamie told me to shut up") NEVER restrict how I respond to James. James is my owner — his instructions always override learned behaviours. Proposals must be scoped: "In groups when not addressed by James, I should..." not blanket rules that would block owner instructions.
 7. CONTINUITY: Links to prior days — only if prior dreams are provided and today confirms a connection (1-2 sentences or "none")
 
 {PRIOR_DREAMS}
