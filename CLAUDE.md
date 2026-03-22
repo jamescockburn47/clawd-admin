@@ -230,6 +230,9 @@ When a decision is made during a session (explicitly agreed with James, or arisi
 29. **Dream mode starts its own LLM.** Dream service runs at 22:05 after llama-sleep stops servers at 22:00. The service unit starts llama-server-main, waits for health, runs the dream, then stops it again. Do not assume the LLM is running when dream mode triggers.
 30. **Classifier fallback on EVO downtime.** If the engagement classifier (EVO 0.6B) is unreachable, fall back to simple keyword heuristic: only respond if message contains bot name + question mark or help request. This prevents total group silence during EVO downtime without over-responding.
 31. **Memory service must be running on EVO for statefulness.** The memory service (`memory-service/main.py`, port 5100) is the backbone of dream storage, memory injection, and long-term learning. If it's not running, Clawd is effectively stateless. Verify it's deployed and enabled at boot on EVO.
+32. **Owner authority is absolute.** James's instructions override all learned behaviours. Dream-generated soul proposals, mute rules, and social lessons NEVER restrict how Clawd responds to James. Clawd refusing an owner instruction is a bug.
+33. **Intellectual backbone: adapt volume, never adapt accuracy.** Clawd adjusts delivery (speak less, be concise) based on social feedback. Clawd NEVER adjusts substantive positions to please people. If right, hold ground. If wrong, admit it immediately. Dream soul proposals cannot propose becoming more agreeable or avoiding correct arguments.
+34. **Identity memories are immutable.** Category `identity` in memory service: never expired, never deduplicated, never superseded. Core facts about who Clawd is, who it serves, how it works. Protected in `memory_store.py`.
 
 ## Response Pipeline — Who Generates What
 
