@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import config from './config.js';
 import logger from './logger.js';
-import { shouldRespond, recordRandomCooldown } from './trigger.js';
+import { shouldRespond } from './trigger.js';
 import { pushMessage, buildContext, getRecentMessages, loadBuffers, saveBuffers, flushBufferTimer } from './buffer.js';
 import { getClawdResponse, getUsageStats, flushUsage } from './claude.js';
 import { getWidgetData, startWidgetRefresh, stopWidgetRefresh, addSSEClient, broadcastSSE, forceRefresh } from './widgets.js';
@@ -21,6 +21,7 @@ import { checkEvoHealth as checkEvoLlmHealth } from './evo-llm.js';
 import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, updateMemory, deleteMemory, logConversation, checkEvoHealth, getLastHealthData } from './memory.js';
 import { seedSystemKnowledge } from './system-knowledge.js';
 import { logInteraction, handleReaction, isCorrection, logFeedback, getQualitySummary, getRecentFeedback } from './interaction-log.js';
+import { isMuteTrigger, activateMute, isMuted, clearMute, shouldEngage, detectNegativeSignal } from './engagement.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -113,6 +114,24 @@ function isOwnerChat(chatJid) {
   return ownerJids.has(chatJid);
 }
 
+async function proposeSoulFromReaction(sock, signal, senderName, groupJid, messageText) {
+  const ownerJid = config.ownerJid;
+  if (!ownerJid) return;
+
+  const proposal = `I noticed a negative reaction in a group chat.\n\n`
+    + `*Signal:* ${signal.type} ("${signal.matched}")\n`
+    + `*From:* ${senderName}\n`
+    + `*Message:* "${messageText.slice(0, 200)}"\n\n`
+    + `Should I update my soul to adjust my behaviour? If so, tell me what to change.`;
+
+  try {
+    await sock.sendMessage(ownerJid, { text: proposal });
+    logger.info({ signal: signal.type, sender: senderName, groupJid }, 'soul proposal DM sent');
+  } catch (err) {
+    logger.warn({ err: err.message }, 'failed to send soul proposal DM');
+  }
+}
+
 async function handleMessage(sock, message, botJid) {
   try {
     const chatJid = message.key.remoteJid;
@@ -158,6 +177,63 @@ async function handleMessage(sock, message, botJid) {
     }
 
     if (!trigger.respond) return;
+
+    // Log ALL group messages to conversation-logs (not just Clawd's exchanges)
+    if (isGroup && config.evoMemoryEnabled) {
+      try {
+        logConversation(chatJid, [
+          { senderName, text, isBot: false },
+        ]);
+      } catch {}
+    }
+
+    // --- Engagement gate for group passive messages ---
+    if (trigger.mode === 'passive' && isGroup) {
+      // Check for mute trigger
+      if (isMuteTrigger(text)) {
+        activateMute(chatJid);
+        try {
+          await sock.sendMessage(chatJid, { text: 'Going quiet.' });
+          pushMessage(chatJid, { senderName: 'Clawd', text: 'Going quiet.', hasImage: false, isBot: true });
+        } catch {}
+        return;
+      }
+
+      // Detect negative signals → DM James
+      const negSignal = detectNegativeSignal(text);
+      if (negSignal) {
+        proposeSoulFromReaction(sock, negSignal, senderName, chatJid, text).catch(() => {});
+      }
+
+      // If muted, stay silent
+      if (isMuted(chatJid)) {
+        logger.debug({ groupJid: chatJid }, 'muted — skipping passive message');
+        return;
+      }
+
+      // Engagement classifier decides
+      if (config.engagementClassifierEnabled) {
+        const engage = await shouldEngage(chatJid, senderName, text);
+        if (!engage) {
+          logger.debug({ groupJid: chatJid, sender: senderName }, 'classifier: silent');
+          return;
+        }
+        logger.info({ groupJid: chatJid, sender: senderName }, 'classifier: respond');
+      } else {
+        // Classifier disabled — default silent for passive
+        return;
+      }
+    }
+
+    // Check mute trigger on direct messages too (e.g. "@clawd shut up")
+    if (trigger.mode === 'direct' && isGroup && isMuteTrigger(text)) {
+      activateMute(chatJid);
+      try {
+        await sock.sendMessage(chatJid, { text: 'Going quiet.' });
+        pushMessage(chatJid, { senderName: 'Clawd', text: 'Going quiet.', hasImage: false, isBot: true });
+      } catch {}
+      return;
+    }
 
     logger.info({ mode: trigger.mode, chat: chatJid }, 'triggered');
 
@@ -240,14 +316,9 @@ async function handleMessage(sock, message, botJid) {
     if (config.evoMemoryEnabled) {
       try {
         logConversation(chatJid, [
-          { senderName: senderName, text: messageText, isBot: false },
           { senderName: 'Clawd', text: response, isBot: true },
         ]);
       } catch {}
-    }
-
-    if (trigger.mode === 'random') {
-      recordRandomCooldown();
     }
 
     logger.info({ mode: trigger.mode, chars: response.length, latencyMs: responseLatency }, 'response sent');
@@ -708,7 +779,18 @@ createServer(async (req, res) => {
           const widgets = await getWidgetData();
           data = widgets.calendar || [];
           broadcastSSE('voice', { event: 'info', data });
-          message = `${data.length} upcoming event(s)`;
+          // Build spoken summary from calendar data
+          if (data.length === 0) {
+            message = 'Nothing coming up';
+          } else {
+            const lines = data.slice(0, 5).map(ev => {
+              const title = ev.summary || ev.title || 'Event';
+              const when = ev.when || ev.start || '';
+              return when ? `${title}, ${when}` : title;
+            });
+            message = lines.join('. ');
+            if (data.length > 5) message += `. Plus ${data.length - 5} more`;
+          }
           break;
         }
 
@@ -738,7 +820,7 @@ createServer(async (req, res) => {
           const mins = Math.floor((uptime % 3600) / 60);
           const mbRss = (mem.rss / 1048576).toFixed(0);
           const statusMsg = `Running for ${hours}h ${mins}m. Memory: ${mbRss}MB. WhatsApp: ${activeSock ? 'connected' : 'disconnected'}.`;
-          broadcastSSE('voice', { event: 'response', text: statusMsg, command: text });
+          broadcastSSE('voice', { event: 'response', text: statusMsg, command: text, panel: 'admin' });
           message = statusMsg;
           break;
         }
@@ -770,7 +852,7 @@ createServer(async (req, res) => {
             if (/\b(henry|weekend|custody)\b/.test(lc)) panels.push('henry');
             if (/\b(train|travel|hotel|fare|depart)\b/.test(lc)) panels.push('travel');
 
-            broadcastSSE('voice', { event: 'response', text: response, panels, command: cmdText });
+            broadcastSSE('voice', { event: 'response', text: response, panels, panel: panels[0], command: cmdText });
 
             if (config.ownerJid && activeSock) {
               try { await sendProactiveMessage(config.ownerJid, response); } catch {}
@@ -826,7 +908,7 @@ createServer(async (req, res) => {
         if (/\b(henry|weekend|custody)\b/.test(lc)) panels.push('henry');
         if (/\b(train|travel|hotel|fare|depart)\b/.test(lc)) panels.push('travel');
 
-        broadcastSSE('voice', { event: 'response', text: response, panels, command: text });
+        broadcastSSE('voice', { event: 'response', text: response, panels, panel: panels[0], command: text });
 
         // Log voice interaction
         logInteraction({
