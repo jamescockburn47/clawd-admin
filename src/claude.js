@@ -170,7 +170,8 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
 
   // --- Smart activity-based routing ---
   const routeStart = Date.now();
-  const route = await classifyMessage(context, !!imageData);
+  const isGroup = chatJid && chatJid.endsWith('@g.us');
+  const route = await classifyMessage(context, !!imageData, isGroup);
   const { category, source: classifySource, forceClaude, reason: routeReason } = route;
   logger.info({ category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid }, 'routed');
 

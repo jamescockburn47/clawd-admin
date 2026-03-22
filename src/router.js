@@ -117,8 +117,9 @@ function detectComplexity(text) {
   const conjunctions = (lower.match(/\b(and then|then|also|after that|as well|plus)\b/g) || []).length;
   if (conjunctions >= 2) return { complex: true, reason: 'multi-step (3+ conjunctions)' };
 
-  // Long messages are usually complex
-  if (text.length > 150) return { complex: true, reason: `long message (${text.length} chars)` };
+  // Very long messages with action verbs are usually complex
+  // (Raised from 150 — conversational messages in groups are often 150-400 chars)
+  if (text.length > 400) return { complex: true, reason: `long message (${text.length} chars)` };
 
   // Mixed intent: question + imperative
   const hasQuestion = /\b(what|when|how|where|who|which|is there|are there|can you)\b/.test(lower);
@@ -162,7 +163,8 @@ const KEYWORD_RULES = [
       || /\b(what(?:'s| is) running|what services|what components|system report|status report)\b/.test(lower)
       || /\b(what changed|changelog|what version|current version|deployment|what(?:'s| is) deployed)\b/.test(lower)
       || /\b(how are you running|how do you work|what are you running on|tell me about yourself)\b/.test(lower)
-      || /\b(evo x2|ollama|whisper model|voice listener|noise suppression)\b/.test(lower),
+      || /\b(self[- ]?aware|know yourself|what are you|who are you as a system)\b/.test(lower)
+      || /\b(evo x2|ollama|llama-server|whisper model|voice listener|noise suppression)\b/.test(lower),
   },
   {
     category: CATEGORY.GENERAL_KNOWLEDGE,
@@ -305,7 +307,7 @@ export async function classifyByLLM(text) {
 // --- Main classification entry point ---
 // Returns a rich routing decision object
 
-export async function classifyMessage(text, hasImage) {
+export async function classifyMessage(text, hasImage, isGroup = false) {
   // Images always go to Claude with full context (planning)
   if (hasImage) {
     logger.info({ category: CATEGORY.PLANNING, source: 'image' }, 'message classified');
@@ -362,13 +364,26 @@ export async function classifyMessage(text, hasImage) {
     };
   }
 
-  // Fallback: planning (Claude + all tools + memories) — safest default
-  logger.info({ category: CATEGORY.PLANNING, source: 'fallback' }, 'message classified');
+  // Fallback depends on context:
+  // Groups: default to CONVERSATIONAL (EVO 30B, no tools) — most unclassified group
+  //   messages are chat/discussion, and EVO is faster + free.
+  // DMs: default to PLANNING (Claude + all tools) — DMs from James likely need tools,
+  //   and the safest fallback is full capability.
+  if (isGroup) {
+    logger.info({ category: CATEGORY.CONVERSATIONAL, source: 'fallback_group' }, 'message classified');
+    return {
+      category: CATEGORY.CONVERSATIONAL,
+      source: 'fallback_group',
+      forceClaude: false,
+      reason: 'no confident classification in group — defaulting to conversational',
+    };
+  }
+  logger.info({ category: CATEGORY.PLANNING, source: 'fallback_dm' }, 'message classified');
   return {
     category: CATEGORY.PLANNING,
-    source: 'fallback',
+    source: 'fallback_dm',
     forceClaude: true,
-    reason: 'no confident classification',
+    reason: 'no confident classification in DM — defaulting to planning',
   };
 }
 
@@ -377,7 +392,7 @@ export function mustUseClaude(category) {
   return CLAUDE_CATEGORIES.has(category);
 }
 
-// Exported for tool validation in ollama.js
+// Exported for router eval / tooling (not used by runtime LLM path)
 export { READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS };
 
 // Exported for eval suite and self-improvement
