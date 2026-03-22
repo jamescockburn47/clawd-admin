@@ -1,0 +1,15 @@
+[Unit]
+Description=Clawd Dream Mode — overnight conversation summarisation
+After=network.target
+
+[Service]
+Type=oneshot
+User=james
+WorkingDirectory=/home/james/clawdbot-memory
+Environment=EVO_LLM_URL=http://localhost:8080
+Environment=EVO_MEMORY_URL=http://localhost:5100
+Environment=PI_LOG_DIR=/tmp/conversation-logs
+ExecStartPre=/bin/bash -c 'mkdir -p /tmp/conversation-logs && scp pi@10.0.0.1:~/clawdbot/data/conversation-logs/*.jsonl /tmp/conversation-logs/ 2>/dev/null || true'
+ExecStart=/usr/bin/python3 /home/james/clawdbot-memory/dream_mode.py
+StandardOutput=journal
+StandardError=journal

@@ -1,0 +1,9 @@
+[Unit]
+Description=Clawd Dream Mode Timer — runs nightly at 22:05
+
+[Timer]
+OnCalendar=*-*-* 22:05:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
