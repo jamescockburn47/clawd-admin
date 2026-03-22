@@ -9,7 +9,19 @@ WorkingDirectory=/home/james/clawdbot-memory
 Environment=EVO_LLM_URL=http://localhost:8080
 Environment=EVO_MEMORY_URL=http://localhost:5100
 Environment=PI_LOG_DIR=/tmp/conversation-logs
+
+# Step 1: Pull conversation logs from Pi
 ExecStartPre=/bin/bash -c 'mkdir -p /tmp/conversation-logs && scp pi@10.0.0.1:~/clawdbot/data/conversation-logs/*.jsonl /tmp/conversation-logs/ 2>/dev/null || true'
+
+# Step 2: Start the main LLM server for dream summarisation
+ExecStartPre=/bin/bash -c 'sudo systemctl start llama-server-main && echo "Waiting for LLM..." && for i in $(seq 1 30); do curl -sf http://localhost:8080/health > /dev/null 2>&1 && echo "LLM ready" && exit 0; sleep 2; done; echo "LLM failed to start" && exit 1'
+
+# Step 3: Run dream mode
 ExecStart=/usr/bin/python3 /home/james/clawdbot-memory/dream_mode.py
+
+# Step 4: Stop the LLM server again (back to sleep)
+ExecStartPost=/bin/bash -c 'sudo systemctl stop llama-server-main 2>/dev/null || true'
+
 StandardOutput=journal
 StandardError=journal
+TimeoutStartSec=600

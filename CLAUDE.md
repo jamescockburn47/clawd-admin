@@ -219,3 +219,62 @@ When a decision is made during a session (explicitly agreed with James, or arisi
 ### Soul & Self-Awareness
 23. **Reactive soul proposals via DM.** When Clawd detects negative reactions in groups, it proposes soul updates to James via private DM. Only James can approve. No one else can instruct Clawd's personality.
 24. **System self-awareness is queryable.** Clawd knows about all its subsystems (dream mode, engagement classifier, memory layers, mute system) via system-knowledge.json and can explain them in first person.
+25. **Self-explanation is natural, not technical.** Clawd describes itself like a person, not an architecture doc. "I dream overnight" not "the EVO X2 runs a summarisation cycle on JSONL logs." Technical details only when explicitly asked. No volunteering IP addresses, model names, or pipeline descriptions.
+26. **Dream chaining.** Each night's dream receives the last 2-3 days' dream summaries as context, enabling cross-day pattern recognition. Today's actual conversations always take priority — prior dreams provide continuity, not bias.
+27. **Group personality matches James.** Direct, compressed, sharp. No echoing, no "Great question!", no restating what someone just said, no unsolicited opinions. One message, not three. When told to shut up: silence immediately, no farewell, no "noted."
+28. **Soul is advisory, classifier is the gate.** The engagement classifier (code-level, EVO 0.6B) decides whether Clawd responds to passive group messages. Soul/system prompt instructions shape *how* Clawd responds once the classifier has said yes. Do not put hard response-gating rules in soul — that's the classifier's job.
+29. **Dream mode starts its own LLM.** Dream service runs at 22:05 after llama-sleep stops servers at 22:00. The service unit starts llama-server-main, waits for health, runs the dream, then stops it again. Do not assume the LLM is running when dream mode triggers.
+30. **Classifier fallback on EVO downtime.** If the engagement classifier (EVO 0.6B) is unreachable, fall back to simple keyword heuristic: only respond if message contains bot name + question mark or help request. This prevents total group silence during EVO downtime without over-responding.
+31. **Memory service must be running on EVO for statefulness.** The memory service (`memory-service/main.py`, port 5100) is the backbone of dream storage, memory injection, and long-term learning. If it's not running, Clawd is effectively stateless. Verify it's deployed and enabled at boot on EVO.
+
+## Response Pipeline — Who Generates What
+
+This is how messages flow. Do not change the routing logic without understanding this.
+
+### Model Allocation
+
+| Model | Location | Port | Role |
+|-------|----------|------|------|
+| **Qwen3-0.6B** | EVO X2 | 8081 | Engagement gating (YES/NO) + message classification |
+| **Qwen3-30B-A3B** | EVO X2 | 8080 | User-facing responses for simple/read-safe queries |
+| **Claude Sonnet 4.6** | Cloud API | — | User-facing responses for complex/write/email/image queries |
+| **Memory Service** | EVO X2 | 5100 | Dream storage, memory search, context injection |
+
+### Message Flow
+
+```
+WhatsApp message arrives
+    │
+    ├─ DM or @mention → ALWAYS respond
+    │
+    └─ Passive group message
+        ├─ Mute trigger? → "Going quiet." + 10min mute
+        ├─ Muted? → silent
+        ├─ Negative signal? → DM James (async, no group response)
+        └─ Engagement classifier (EVO 0.6B, port 8081)
+            ├─ YES → proceed to response generation
+            ├─ NO → silent
+            └─ FAIL → keyword fallback (bot name + question = respond)
+
+Response generation
+    │
+    ├─ Classification (keywords first, then EVO 0.6B if ambiguous)
+    │   → Result: category + forceClaude flag
+    │
+    ├─ forceClaude = false (calendar read, todo, travel, chat, general)
+    │   └─ EVO 30B (port 8080) generates response with tools
+    │       └─ If EVO fails → falls back to Claude
+    │
+    └─ forceClaude = true (email, planning, multi-step, images, writes)
+        └─ Claude API generates response with tools
+
+Memory injection (before either model responds)
+    └─ Search EVO memory service for relevant memories + dream summaries
+        → Injected as ~500-800 tokens into system prompt
+```
+
+### Key Rules
+- **EVO 30B generates real user-facing responses** — not just classification. For simple queries, Claude is never called.
+- **Claude handles all writes** — email, calendar mutation, soul changes. EVO only reads.
+- **Images always go to Claude** — EVO has no vision capability.
+- **If EVO is offline, everything falls back to Claude** — more expensive but never broken.

@@ -116,7 +116,24 @@ export async function shouldEngage(groupJid, senderName, messageText) {
     logger.info({ groupJid, senderName, result, engage }, 'engagement classifier');
     return engage;
   } catch (err) {
-    logger.warn({ err: err.message, groupJid }, 'engagement classifier failed — defaulting to silent');
-    return false;
+    logger.warn({ err: err.message, groupJid }, 'engagement classifier failed — using keyword fallback');
+    return keywordFallback(messageText);
   }
+}
+
+/**
+ * Simple keyword fallback when EVO classifier is unreachable.
+ * Much dumber than the LLM classifier — only responds to direct questions
+ * containing the bot name, or explicit help requests.
+ * Prevents total silence during EVO downtime without over-responding.
+ */
+function keywordFallback(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  const mentionsBot = BOT_NAMES.test(lower);
+  const isQuestion = /\?/.test(text);
+  const isHelpRequest = /\b(help|can you|could you|please)\b/i.test(text);
+
+  // Only respond if it looks like someone is talking to Clawd
+  return mentionsBot && (isQuestion || isHelpRequest);
 }

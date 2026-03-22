@@ -118,11 +118,9 @@ async function proposeSoulFromReaction(sock, signal, senderName, groupJid, messa
   const ownerJid = config.ownerJid;
   if (!ownerJid) return;
 
-  const proposal = `I noticed a negative reaction in a group chat.\n\n`
-    + `*Signal:* ${signal.type} ("${signal.matched}")\n`
-    + `*From:* ${senderName}\n`
-    + `*Message:* "${messageText.slice(0, 200)}"\n\n`
-    + `Should I update my soul to adjust my behaviour? If so, tell me what to change.`;
+  const proposal = `Negative reaction in group.\n\n`
+    + `*${signal.type}* from ${senderName}: "${messageText.slice(0, 200)}"\n\n`
+    + `Reply with what I should learn from this and I'll propose a soul update. Or ignore to dismiss.`;
 
   try {
     await sock.sendMessage(ownerJid, { text: proposal });

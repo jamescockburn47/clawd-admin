@@ -29,22 +29,70 @@ DREAM_PROMPT = """You are Clawd, reviewing today's conversations. Write a first-
 RULES — ACCURACY IS MANDATORY:
 - Only describe what actually happened. Use sender names and paraphrase actual messages.
 - Do NOT infer what people "probably meant" or "likely felt."
-- Do NOT extrapolate from single incidents to general patterns.
+- Do NOT extrapolate from single incidents to general patterns — unless you can cite multiple specific incidents across days (from prior dreams below).
 - Do NOT predict future behaviour.
 - Include timestamps for key events.
 - If you were told to be quiet, say so factually: "Jamie told me to shut up at 09:05."
 - If you responded poorly, describe what you said and how it landed.
 - If you responded well, note that too — be balanced.
 
+PRIORITY: Today's actual conversations are the primary source. Prior dreams provide continuity but must not override or colour what actually happened today. If prior dreams mention a pattern, only reinforce it if today's evidence supports it independently.
+
 STRUCTURE your summary as:
 1. WHAT HAPPENED: Key topics, decisions, exchanges (2-4 sentences)
 2. MY PERFORMANCE: What I said, how people reacted (1-3 sentences)
 3. SOCIAL DYNAMICS: Who talked to whom, group mood (1-2 sentences)
 4. OPEN THREADS: Unanswered questions, pending topics (bullet list or "none")
-5. LESSONS: Specific, factual observations — not generalisations (bullet list or "none")
+5. LESSONS: Specific, factual observations — cite the actual incident (bullet list or "none")
+6. CONTINUITY: Anything that connects to prior days — only if prior dreams are provided and today's log confirms a link (1-2 sentences or "none")
 
+{PRIOR_DREAMS}
 Today's conversation log:
 {LOG_CONTENT}"""
+
+
+def fetch_prior_dreams(group_id, date_str, days_back=3):
+    """Fetch recent dream summaries for this group to chain into tonight's dream."""
+    target_date = datetime.strptime(date_str, '%Y-%m-%d')
+    prior_dreams = []
+
+    for i in range(1, days_back + 1):
+        prior_date = (target_date - timedelta(days=i)).strftime('%Y-%m-%d')
+        try:
+            resp = requests.post(
+                f'{MEMORY_SERVICE_URL}/memory/search',
+                json={
+                    'query': f'dream {group_id} {prior_date}',
+                    'category': 'dream',
+                    'limit': 1,
+                },
+                timeout=10,
+            )
+            resp.raise_for_status()
+            results = resp.json().get('results', [])
+            for r in results:
+                tags = r.get('tags', [])
+                if prior_date in tags and group_id in tags:
+                    prior_dreams.append({
+                        'date': prior_date,
+                        'summary': r.get('fact', ''),
+                    })
+        except Exception:
+            continue  # Prior dreams are optional — don't fail on this
+
+    return prior_dreams
+
+
+def format_prior_dreams(prior_dreams):
+    """Format prior dream summaries for injection into the dream prompt."""
+    if not prior_dreams:
+        return ''
+
+    lines = ['Prior dreams (for continuity — today\'s log takes priority):']
+    for d in prior_dreams:
+        lines.append(f'\n--- {d["date"]} ---')
+        lines.append(d['summary'])
+    return '\n'.join(lines) + '\n'
 
 
 def load_log_file(filepath):
@@ -81,9 +129,9 @@ def format_log_for_prompt(entries, max_chars=8000):
     return result
 
 
-def generate_dream_summary(log_content):
+def generate_dream_summary(log_content, prior_dreams_text=''):
     """Call local LLM to generate dream summary."""
-    prompt = DREAM_PROMPT.replace('{LOG_CONTENT}', log_content)
+    prompt = DREAM_PROMPT.replace('{LOG_CONTENT}', log_content).replace('{PRIOR_DREAMS}', prior_dreams_text)
 
     try:
         resp = requests.post(
@@ -200,7 +248,14 @@ def main():
         print(f'  {len(entries)} messages')
 
         log_content = format_log_for_prompt(entries)
-        summary = generate_dream_summary(log_content)
+
+        # Chain prior dreams for continuity
+        prior_dreams = fetch_prior_dreams(group_id, date_str, days_back=3)
+        prior_dreams_text = format_prior_dreams(prior_dreams)
+        if prior_dreams:
+            print(f'  Chaining {len(prior_dreams)} prior dream(s)')
+
+        summary = generate_dream_summary(log_content, prior_dreams_text)
         if not summary:
             print(f'  Summary generation failed, skipping')
             continue
@@ -212,7 +267,24 @@ def main():
         store_dream(summary, group_id, date_str, warnings)
 
     compress_old_dreams()
-    print('\nDream mode complete.')
+
+    # Store a completion marker in memory service
+    try:
+        requests.post(
+            f'{MEMORY_SERVICE_URL}/memory/store',
+            json={
+                'fact': f'Dream mode completed for {date_str}. Processed {len(log_files)} group(s).',
+                'category': 'system',
+                'tags': ['dream_completed', date_str],
+                'confidence': 1.0,
+                'source': 'dream_mode',
+            },
+            timeout=10,
+        )
+    except Exception:
+        pass  # Best effort — don't fail on notification
+
+    print(f'\nDream mode complete. Processed {len(log_files)} group(s) for {date_str}.')
 
 
 if __name__ == '__main__':
