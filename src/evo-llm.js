@@ -3,6 +3,7 @@
 import config from './config.js';
 import logger from './logger.js';
 import { executeTool } from './tools/handler.js';
+import { getWorkingKnowledge, warmFromQuery } from './lquorum-rag.js';
 
 // Convert Anthropic-style tool definitions to OpenAI function-calling format
 function toOpenAITools(tools) {
@@ -94,14 +95,31 @@ function validateToolParams(toolName, params) {
 }
 
 // Full tool-calling response via EVO X2's llama-server (OpenAI-compatible API)
-export async function getEvoToolResponse(context, tools, senderJid, memoryFragment = '', category = null) {
+export async function getEvoToolResponse(context, tools, senderJid, memoryFragment = '', category = null, imageData = null) {
   const baseUrl = config.evoLlmUrl;
   const openAITools = toOpenAITools(tools);
-  const systemPrompt = buildEvoSystemPrompt(category) + memoryFragment;
+  warmFromQuery(context);
+  const lquorumContext = getWorkingKnowledge();
+  const systemPrompt = buildEvoSystemPrompt(category) + memoryFragment + (lquorumContext ? '\n\n' + lquorumContext : '');
+
+  // Build user content — text or text + image for VL model
+  let userContent;
+  const isVisionQuery = !!imageData;
+  if (imageData) {
+    const base64 = imageData.source?.data || (Buffer.isBuffer(imageData) ? imageData.toString('base64') : null);
+    const mediaType = imageData.source?.media_type || 'image/jpeg';
+    userContent = [
+      { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}` } },
+      { type: 'text', text: context || 'Describe this image in detail. Extract any text, numbers, names, dates visible.' },
+    ];
+    logger.info('sending image to EVO VL model');
+  } else {
+    userContent = context;
+  }
 
   const messages = [
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: context },
+    { role: 'user', content: userContent },
   ];
 
   const controller = new AbortController();
@@ -113,9 +131,10 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages,
-        tools: openAITools.length > 0 ? openAITools : undefined,
+        // No tools for vision queries — model should respond directly about the image
+        tools: (!isVisionQuery && openAITools.length > 0) ? openAITools : undefined,
         temperature: 0.3,
-        max_tokens: 1000,
+        max_tokens: isVisionQuery ? 2000 : 1000,
         cache_prompt: true,
       }),
       signal: controller.signal,
@@ -123,7 +142,11 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
 
     clearTimeout(timeoutId);
 
-    if (!res.ok) throw new Error(`EVO llama-server HTTP ${res.status}`);
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => 'no body');
+      logger.warn({ status: res.status, body: errBody.slice(0, 500), hasImage: !!imageData }, 'EVO llama-server error response');
+      throw new Error(`EVO llama-server HTTP ${res.status}`);
+    }
 
     let data = await res.json();
     let msg = data.choices?.[0]?.message || {};
@@ -227,6 +250,185 @@ export async function checkEvoHealth() {
     return data.status === 'ok' || data.status === 'no slot available';
   } catch {
     return false;
+  }
+}
+
+// ── Granite-Docling structured document parsing ──────────────────────────────
+
+const DOCLING_URL = (config.evoLlmUrl || 'http://10.0.0.2:8080').replace(/:8080$/, ':8084');
+
+/**
+ * Parse a PDF page image via Granite-Docling on EVO X2.
+ * Takes a PNG/JPEG buffer of a rendered page, returns structured DocTags as text.
+ */
+async function parsePageViaDocling(imageBuffer) {
+  const base64 = imageBuffer.toString('base64');
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const res = await fetch(`${DOCLING_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64}` } },
+            { type: 'text', text: 'Convert this document page to DocTags.' },
+          ],
+        }],
+        temperature: 0.0,
+        max_tokens: 4000,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    logger.warn({ err: err.message }, 'Granite-Docling page parse failed');
+    return null;
+  }
+}
+
+/**
+ * Convert DocTags output to clean markdown.
+ * DocTags format: <loc_x1><loc_y1><loc_x2><loc_y2>text content
+ */
+function docTagsToMarkdown(docTags) {
+  if (!docTags) return null;
+
+  // Strip location tags and extract text content
+  let md = docTags
+    .replace(/<loc_\d+>/g, '')
+    .replace(/<otsl>/g, '')
+    .replace(/<\/otsl>/g, '')
+    .replace(/<fcel>/g, '| ')
+    .replace(/<\/fcel>/g, ' ')
+    .replace(/<ecel>/g, '| ')
+    .replace(/<\/ecel>/g, ' ')
+    .replace(/<nl>/g, '|\n')
+    .replace(/<caption>/g, '*')
+    .replace(/<\/caption>/g, '*')
+    .replace(/<section-header[^>]*>/g, '## ')
+    .replace(/<\/section-header>/g, '')
+    .replace(/<title>/g, '# ')
+    .replace(/<\/title>/g, '')
+    .replace(/<text>/g, '')
+    .replace(/<\/text>/g, '')
+    .replace(/<list-item>/g, '- ')
+    .replace(/<\/list-item>/g, '')
+    .replace(/<table>/g, '')
+    .replace(/<\/table>/g, '')
+    .replace(/<figure>/g, '[Figure]')
+    .replace(/<\/figure>/g, '')
+    .replace(/<page_break>/g, '\n---\n')
+    .replace(/<[^>]+>/g, '') // catch remaining tags
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return md || null;
+}
+
+/**
+ * Parse a PDF via Granite-Docling: render pages to images, parse each, return structured markdown.
+ * Requires pdftoppm on the Pi (poppler-utils).
+ */
+export async function parseDocumentWithDocling(pdfBuffer, fileName, maxPages = 10) {
+  const { execSync } = await import('child_process');
+  const { writeFileSync, readFileSync, readdirSync, unlinkSync, mkdirSync } = await import('fs');
+  const { join } = await import('path');
+
+  const tmpDir = join('/tmp', `docling_${Date.now()}`);
+  mkdirSync(tmpDir, { recursive: true });
+
+  const pdfPath = join(tmpDir, 'input.pdf');
+  writeFileSync(pdfPath, pdfBuffer);
+
+  try {
+    // Render PDF pages to PNG images using pdftoppm
+    execSync(`pdftoppm -png -r 200 -l ${maxPages} "${pdfPath}" "${join(tmpDir, 'page')}"`, { timeout: 30000 });
+
+    const pageFiles = readdirSync(tmpDir)
+      .filter(f => f.startsWith('page') && f.endsWith('.png'))
+      .sort();
+
+    if (pageFiles.length === 0) {
+      logger.warn({ fileName }, 'pdftoppm produced no page images');
+      return null;
+    }
+
+    logger.info({ fileName, pages: pageFiles.length }, 'rendering PDF pages for Docling');
+
+    const allMarkdown = [];
+    for (const pageFile of pageFiles) {
+      const imgBuffer = readFileSync(join(tmpDir, pageFile));
+      const docTags = await parsePageViaDocling(imgBuffer);
+      const md = docTagsToMarkdown(docTags);
+      if (md) allMarkdown.push(md);
+    }
+
+    // Cleanup
+    for (const f of readdirSync(tmpDir)) unlinkSync(join(tmpDir, f));
+    try { execSync(`rmdir "${tmpDir}"`); } catch {}
+
+    if (allMarkdown.length === 0) return null;
+
+    const result = allMarkdown.join('\n\n---\n\n');
+    logger.info({ fileName, pages: allMarkdown.length, chars: result.length }, 'PDF parsed via Granite-Docling');
+    return result;
+  } catch (err) {
+    logger.warn({ err: err.message, fileName }, 'Granite-Docling PDF parsing failed');
+    // Cleanup on error
+    try {
+      for (const f of readdirSync(tmpDir)) unlinkSync(join(tmpDir, f));
+      execSync(`rmdir "${tmpDir}"`);
+    } catch {}
+    return null;
+  }
+}
+
+// Summarise document text via EVO X2 — saves Claude tokens
+export async function summariseDocument(text, fileName, maxOutputTokens = 500) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const res = await fetch(`${config.evoLlmUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: 'You are a document summariser. Produce a concise but thorough summary preserving key facts, figures, names, dates, arguments, and conclusions. Do not add commentary or opinion. If the document has structure (sections, headings), preserve that structure in condensed form.' },
+          { role: 'user', content: `Summarise this document (${fileName}):\n\n${text}` },
+        ],
+        temperature: 0.1,
+        max_tokens: maxOutputTokens,
+        cache_prompt: true,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      logger.warn({ status: res.status, fileName }, 'EVO document summarisation failed');
+      return null;
+    }
+
+    const data = await res.json();
+    const summary = data.choices?.[0]?.message?.content?.trim();
+    if (summary) {
+      logger.info({ fileName, inputChars: text.length, summaryChars: summary.length }, 'document summarised via EVO');
+    }
+    return summary || null;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    logger.warn({ err: err.message, fileName }, 'EVO document summarisation error');
+    return null;
   }
 }
 

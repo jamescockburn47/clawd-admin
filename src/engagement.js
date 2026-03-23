@@ -1,6 +1,7 @@
 // Group engagement gate — mute system, negative signal detection, engagement classifier
 import config from './config.js';
 import { classifyViaEvo } from './evo-llm.js';
+import { getWarmTopicTitles } from './lquorum-rag.js';
 import { getRecentMessages } from './buffer.js';
 import logger from './logger.js';
 
@@ -101,11 +102,19 @@ export async function shouldEngage(groupJid, senderName, messageText) {
       return `${name}: ${m.text || '[media]'}`;
     });
 
+    // Enrich classifier with lquorum working memory signal
+    const warmTopics = getWarmTopicTitles();
+    let systemPrompt = CLASSIFIER_SYSTEM_PROMPT;
+    if (warmTopics.length > 0) {
+      systemPrompt += `\nClawd has specific community research on: ${warmTopics.join(', ')}. `
+        + `Consider responding YES if someone asks a question or expresses uncertainty about these topics.`;
+    }
+
     const prompt = contextLines.length > 0
       ? `Recent conversation:\n${contextLines.join('\n')}\n\nLatest message from ${senderName}: ${messageText}`
       : `Latest message from ${senderName}: ${messageText}`;
 
-    const result = await classifyViaEvo(prompt, CLASSIFIER_SYSTEM_PROMPT);
+    const result = await classifyViaEvo(prompt, systemPrompt);
 
     if (!result) {
       logger.warn({ groupJid }, 'engagement classifier returned null — defaulting to silent');

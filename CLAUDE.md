@@ -44,10 +44,13 @@ These have been verified through testing. Do not waste time re-investigating:
 - **Direct Ethernet link** between Pi (10.0.0.1) and EVO (10.0.0.2) gives 0.4ms latency vs 124ms WiFi.
 - **`huggingface-cli` not in nohup PATH** on EVO. Use `wget` with direct HuggingFace URLs, or use full path `~/.local/bin/huggingface-cli`. HF GGUF repos use subdirectory structure (e.g. `Q4_K_M/model-00001-of-00002.gguf`).
 - **Thinking mode in Qwen3.5**: Use `--reasoning off` flag on llama-server. The `--chat-template-kwargs '{"enable_thinking":false}'` alone has a known bug. `--reasoning-budget 0` leaves residual `</think>` tags.
-- **systemd service names**: `llama-server-main` (port 8080), `llama-server-classifier` (port 8081), `llama-server-tts` (port 8082, Orpheus-3B), `llama-server-embed` (port 8083, nomic-embed-text — always on), `clawdbot-memory` (port 5100, FastAPI memory service). NOT `llama-main`/`llama-classifier`.
+- **systemd service names**: `llama-server-main` (port 8080, Qwen3-VL-30B-A3B — text + vision, 32K ctx), `llama-server-classifier` (port 8081, Qwen3-0.6B), `llama-server-tts` (port 8082, Orpheus-3B), `llama-server-embed` (port 8083, nomic-embed-text — always on), `llama-server-docling` (port 8084, Granite-Docling-258M F16 — structured document parsing), `clawdbot-memory` (port 5100, FastAPI memory service). NOT `llama-main`/`llama-classifier`.
 - **All EVO servers run 24/7.** `llama-sleep.timer` and `llama-wake.timer` have been disabled. All llama-server instances (main, classifier, embed) and memory service run continuously. Clawd must be responsive at all hours — group chats span timezones. Dream mode runs at 22:05 against the already-running LLM.
 - **Ollama is still installed on EVO** but is NOT used by the memory service (which now uses llama.cpp). Ollama may still be running — can be stopped with `sudo systemctl stop ollama` if memory is needed.
 - **Memory service uses llama.cpp for embeddings** (nomic-embed-text on port 8083) and fact extraction (Qwen3-30B on port 8080, daytime only). The `ollama_client.py` name is legacy — it talks to llama.cpp.
+- **EVO main model is now Qwen3-VL-30B-A3B** (vision-language model). Same text performance as non-VL, adds image understanding. Context bumped to 32K (`-c 32768`). Old non-VL model backed up on EVO.
+- **SearXNG runs on EVO** in Docker (port 8888). Free, self-hosted web search — no API key required. Replaces Brave Search for `web_search` tool.
+- **Document parsing on Pi** uses `pdf-parse` (PDFs) and `mammoth` (DOCX/Word). Documents are summarised via EVO before sending to Claude (85% token reduction). Raw text cached for follow-up questions.
 - **Bot code uses `evo-llm.js`** (OpenAI-compatible API via direct ethernet `http://10.0.0.2:8080`). Legacy `ollama.js` was removed from the tree.
 - **Orpheus-3B TTS**: Needs `--special` flag on llama-server. Prompt format: `<|audio|>voice: text<|eot_id|>`. Uses `/v1/completions` endpoint. Outputs SNAC audio tokens decoded with Python `snac` library.
 - **Optimised llama-server flags**: `--flash-attn on --mlock --no-mmap --cont-batching --batch-size 1024 --ubatch-size 512 --cache-type-k q8_0 --cache-type-v q8_0`. Requires `LimitMEMLOCK=infinity` in systemd unit.
@@ -62,10 +65,12 @@ These have been verified through testing. Do not waste time re-investigating:
 | **Pi user** | `pi` (NOT `james`) |
 | **EVO X2 IP** | `192.168.1.230` WiFi / `10.0.0.2` direct ethernet (prefer direct) |
 | **EVO user** | `james` (NOT `pi`) |
-| **EVO main LLM** | `http://10.0.0.2:8080` — Qwen3-30B-A3B Q4_K_M (llama-server, Vulkan) |
+| **EVO main LLM** | `http://10.0.0.2:8080` — Qwen3-VL-30B-A3B Q4_K_M (llama-server, Vulkan, vision-capable, `-c 32768`) |
+| **EVO SearXNG** | `http://10.0.0.2:8888` — Docker, free web search (no API key) |
 | **EVO classifier** | `http://10.0.0.2:8081` — Qwen3-0.6B Q8_0 |
 | **EVO TTS** | `http://10.0.0.2:8082` — Orpheus-3B Q8_0 (SNAC audio tokens) |
 | **EVO embeddings** | `http://10.0.0.2:8083` — nomic-embed-text-v1.5 Q8_0 (always on, 140MB) |
+| **EVO docling** | `http://10.0.0.2:8084` — Granite-Docling-258M F16 (structured document parsing, 499MB) |
 | **EVO memory** | `http://10.0.0.2:5100` — FastAPI memory service (clawdbot-memory) |
 | **SSH key** | `C:\Users\James\.ssh\id_ed25519` |
 | **Pi project path** | `~/clawdbot` (NOT `~/clawdbot-claude-code`) |
@@ -151,9 +156,9 @@ WhatsApp admin assistant bot ("Clawd") running on a Raspberry Pi 5 with a 10.1" 
 
 ### What It Does
 
-1. **WhatsApp bot** — responds to messages via Baileys (unofficial WhatsApp Web API), routes to Claude or local model (Ollama)
+1. **WhatsApp bot** — responds to messages via Baileys (unofficial WhatsApp Web API), routes to Claude or local model (EVO llama.cpp)
 2. **Dashboard** — 3-column touchscreen kiosk UI showing Henry weekends, todos, side gig meetings, email, soul config, weather, usage alerts
-3. **Image understanding** — downloads photos sent via WhatsApp, base64 encodes, sends to Claude as vision input
+3. **Image & document understanding** — downloads photos/docs sent via WhatsApp, images processed by EVO VL locally (Claude fallback), documents parsed (pdf-parse/mammoth) and summarised via EVO before Claude
 4. **Tools** — calendar CRUD, email triage/draft/send, train fares/departures, hotel search, web search, todos with reminders, soul personality system
 5. **Scheduler** — 60-second interval: todo reminders, side gig meeting alerts, morning briefing (daily WhatsApp summary), daily data backup
 6. **SSE** — real-time dashboard updates when widgets/todos/soul change
@@ -170,10 +175,12 @@ WhatsApp admin assistant bot ("Clawd") running on a Raspberry Pi 5 with a 10.1" 
 - **Runtime**: Node.js 20+ (ESM modules, `"type": "module"`)
 - **WhatsApp**: `@whiskeysockets/baileys` v6.x
 - **AI (cloud)**: `@anthropic-ai/sdk` — Claude Sonnet 4.6
-- **AI (local)**: llama.cpp (Vulkan) on EVO X2 — Qwen3-30B-A3B Q4_K_M (main), Qwen3-0.6B Q8_0 (classifier), Orpheus-3B Q8_0 (TTS, currently disabled — too slow)
+- **AI (local)**: llama.cpp (Vulkan) on EVO X2 — Qwen3-VL-30B-A3B Q4_K_M (main, vision-capable, 32K ctx), Qwen3-0.6B Q8_0 (classifier), Orpheus-3B Q8_0 (TTS, currently disabled — too slow)
 - **Google**: `googleapis` — Calendar v3, Gmail v1
 - **Weather**: OpenWeatherMap free tier (current conditions for configurable locations)
-- **Travel**: Darwin (live trains), BR Fares (ticket prices), Amadeus (hotels), Brave Search (web)
+- **Travel**: Darwin (live trains), BR Fares (ticket prices), Amadeus (hotels)
+- **Search**: SearXNG (self-hosted on EVO, Docker, port 8888, no API key)
+- **Document parsing**: pdf-parse (PDFs), mammoth (DOCX/Word) — on Pi
 - **Logging**: Pino (structured JSON logging, replaces all console.log/error)
 - **Dashboard**: Rust native app (`clawd-dashboard/`) using eframe/egui — NOT Chromium, NOT HTML
 - **Data persistence**: JSON files in `data/` (todos, notified meetings, soul, audit log, message buffer)
@@ -235,6 +242,25 @@ When a decision is made during a session (explicitly agreed with James, or arisi
 34. **Identity memories are immutable.** Category `identity` in memory service: never expired, never deduplicated, never superseded. Core facts about who Clawd is, who it serves, how it works. Protected in `memory_store.py`.
 35. **All EVO servers run 24/7.** No sleep/wake timers. Clawd is in group chats across timezones and must be responsive at all hours. `llama-sleep.timer` and `llama-wake.timer` are disabled. GPU clock pinning (`power_dpm_force_performance_level=manual`) remains active.
 
+### LQuorum Working Memory
+36. **Passive keyword scanning warms working memory.** All group messages are scanned against a keyword map (18 topics). Matching topics are loaded from `data/lquorum-knowledge.json` into a working memory cache with hitCount tracking. No LLM call needed — pure keyword matching.
+37. **Direct queries use `warmFromQuery()` with no length filter.** When someone asks a question, the full message is scanned against all topic keywords. Short messages are not filtered out for direct queries (unlike passive scanning which ignores very short messages).
+38. **Working memory decays after 15 minutes.** Topics expire from working memory after 15 min of inactivity, extended for high hitCount. Knowledge is injected into context as recalled group discussion memory, not raw data — Clawd treats it as "I remember the group discussing X" not "according to the knowledge base."
+
+### Image & Document Handling
+39. **EVO VL handles images locally.** `forceClaude: false` for images. EVO Qwen3-VL-30B-A3B processes images on-device. No tools sent for vision queries. Claude is fallback only. Follow-up questions within 5 min reuse the last image per chat.
+40. **Documents summarised via EVO before Claude.** PDFs and Word docs parsed on Pi (pdf-parse, mammoth), then summarised via EVO 30B. Claude receives the summary (85% token reduction), not raw text. Raw text cached for follow-ups. `documentWithCaptionMessage` caption extracted correctly.
+
+### Web Search & Response Quality
+41. **SearXNG for web search.** Docker on EVO port 8888. Free, self-hosted, no API key. `web_search` tool uses SearXNG. Knowledge rule in prompt forces web search before any factual response.
+42. **Classifier silence via `[SILENT]` marker.** When Clawd is mentioned but not addressed, Claude produces `[SILENT]` which is filtered in index.js. No more "This message isn't for me" responses.
+43. **max_tokens 4x for substantive responses.** Bumped from 2x to 4x the estimated response length (4000 tokens default) to prevent truncation.
+44. **No emojis.** Global rule in prompt.js: never use emojis in any response.
+45. **Professional group filtering.** Personal categories (travel, task, email) blocked in professional groups. Personal memory categories filtered from context in professional group chats.
+46. **buildContext includes current message.** Fixed bug where triggerText was dropped when message buffer existed. Now includes `[Current message]` section.
+47. **Startup message only on version change.** "Back online." message suppressed — only sends on version bumps.
+48. **Google OAuth dead flag.** `googleAuthDead` flag in widgets.js stops retry spam when OAuth token is invalid_grant.
+
 ## Response Pipeline — Who Generates What
 
 This is how messages flow. Do not change the routing logic without understanding this.
@@ -244,9 +270,10 @@ This is how messages flow. Do not change the routing logic without understanding
 | Model | Location | Port | Role |
 |-------|----------|------|------|
 | **Qwen3-0.6B** | EVO X2 | 8081 | Engagement gating (YES/NO) + message classification |
-| **Qwen3-30B-A3B** | EVO X2 | 8080 | User-facing responses for simple/read-safe queries |
-| **Claude Sonnet 4.6** | Cloud API | — | User-facing responses for complex/write/email/image queries |
+| **Qwen3-VL-30B-A3B** | EVO X2 | 8080 | User-facing responses, vision/image understanding, document summarisation |
+| **Claude Sonnet 4.6** | Cloud API | — | User-facing responses for complex/write/email queries (fallback for images) |
 | **Memory Service** | EVO X2 | 5100 | Dream storage, memory search, context injection |
+| **SearXNG** | EVO X2 | 8888 | Self-hosted web search (Docker, no API key) |
 
 ### Message Flow
 
@@ -273,16 +300,30 @@ Response generation
     │   └─ EVO 30B (port 8080) generates response with tools
     │       └─ If EVO fails → falls back to Claude
     │
-    └─ forceClaude = true (email, planning, multi-step, images, writes)
+    └─ forceClaude = true (email, planning, multi-step, writes)
         └─ Claude API generates response with tools
+
+Image handling
+    └─ EVO VL (port 8080) handles images locally (no tools for vision queries)
+        └─ If EVO fails → falls back to Claude vision
+        └─ Follow-up questions within 5 min reuse last image per chat
+
+Document handling (PDFs, DOCX)
+    └─ Parsed on Pi (pdf-parse, mammoth) → summarised via EVO 30B
+        └─ Claude receives summary (~85% token reduction)
+        └─ Raw text cached for follow-up questions
 
 Memory injection (before either model responds)
     └─ Search EVO memory service for relevant memories + dream summaries
         → Injected as ~500-800 tokens into system prompt
+    └─ LQuorum working memory: passively warmed topics from keyword scanning
+        → Injected as recalled group discussion context
 ```
 
 ### Key Rules
-- **EVO 30B generates real user-facing responses** — not just classification. For simple queries, Claude is never called.
+- **EVO VL 30B generates real user-facing responses** — not just classification. For simple queries, Claude is never called.
 - **Claude handles all writes** — email, calendar mutation, soul changes. EVO only reads.
-- **Images always go to Claude** — EVO has no vision capability.
+- **Images go to EVO VL first** — Qwen3-VL-30B-A3B handles vision locally. Claude is fallback only.
+- **Documents summarised via EVO** before sending to Claude — 85% token reduction.
+- **Web search uses SearXNG** on EVO (port 8888) — free, self-hosted, no API key.
 - **If EVO is offline, everything falls back to Claude** — more expensive but never broken.

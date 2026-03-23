@@ -42,7 +42,7 @@ const CATEGORY_TOOLS = {
   ]),
   [CATEGORY.PLANNING]: null, // null = all tools
   [CATEGORY.CONVERSATIONAL]: new Set(), // empty = no tools
-  [CATEGORY.GENERAL_KNOWLEDGE]: new Set(['web_search']),
+  [CATEGORY.GENERAL_KNOWLEDGE]: new Set(['web_search', 'web_fetch']),
   [CATEGORY.SYSTEM]: new Set(['system_status', 'memory_search']),
 };
 
@@ -311,14 +311,14 @@ export async function classifyByLLM(text) {
 // Returns a rich routing decision object
 
 export async function classifyMessage(text, hasImage, isGroup = false) {
-  // Images always go to Claude with full context (planning)
+  // Images — EVO VL model handles locally when available, Claude as fallback
   if (hasImage) {
     logger.info({ category: CATEGORY.PLANNING, source: 'image' }, 'message classified');
     return {
       category: CATEGORY.PLANNING,
       source: 'image',
-      forceClaude: true,
-      reason: 'image input requires Claude vision',
+      forceClaude: false,
+      reason: 'image input — EVO VL model preferred',
     };
   }
 

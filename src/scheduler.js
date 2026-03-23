@@ -9,7 +9,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { getDueReminders, markReminded, getActiveTodos } from './tools/todo.js';
 import { getWidgetData } from './widgets.js';
-import { checkEvoHealth, getEvoStatus, getMemoryStats, extractFromConversation, isEvoOnline, syncCache } from './memory.js';
+import { checkEvoHealth, getEvoStatus, getMemoryStats, extractFromConversation, isEvoOnline, syncCache, cleanDocumentCache } from './memory.js';
 import { keepEvoWarm } from './evo-llm.js';
 import { runImprovementCycle } from './self-improve/cycle.js';
 import { refreshSystemKnowledge } from './system-knowledge.js';
@@ -96,8 +96,8 @@ async function runScheduler() {
     await checkSystemKnowledgeRefresh();
     await checkDailyBackup();
     if (config.evoMemoryEnabled) {
-      // Sync cache every 30 minutes
-      if (isEvoOnline() && lastCacheSyncMinute !== null) {
+      // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
+      if (isEvoOnline()) {
         const { minutes } = getLondonTime();
         if (minutes % 30 === 0 && lastCacheSyncMinute !== minutes) {
           lastCacheSyncMinute = minutes;
@@ -456,4 +456,9 @@ async function checkDailyBackup() {
   if (count > 0) {
     logger.info({ date: todayStr, files: count }, 'daily backup complete');
   }
+
+  // Clean old document cache files (7-day TTL)
+  try {
+    cleanDocumentCache(7);
+  } catch {}
 }

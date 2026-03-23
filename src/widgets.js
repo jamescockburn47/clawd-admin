@@ -9,6 +9,19 @@ import { CircuitBreaker } from './circuit-breaker.js';
 
 const googleBreaker = new CircuitBreaker('google', { threshold: 3, resetTimeout: 120000 });
 
+// Track permanent Google auth failures — stop retrying until restart
+let googleAuthDead = false;
+function checkAuthDead(err) {
+  if (err.message?.includes('invalid_grant') || err.message?.includes('Token has been expired or revoked')) {
+    if (!googleAuthDead) {
+      logger.error('Google OAuth token expired (invalid_grant). All Google API calls disabled until token is refreshed and service restarted.');
+      googleAuthDead = true;
+    }
+    return true;
+  }
+  return false;
+}
+
 let authClient = null;
 
 function getAuth() {

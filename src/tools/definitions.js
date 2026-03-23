@@ -350,6 +350,20 @@ export const TOOL_DEFINITIONS = [
       required: ['query'],
     },
   },
+  {
+    name: 'web_fetch',
+    description: 'Fetch and read the content of a URL. Use when someone shares a link and you need to read it, or after web_search when you need the full page content. Returns plain text (HTML tags stripped). Max 4000 chars.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'The full URL to fetch.',
+        },
+      },
+      required: ['url'],
+    },
+  },
 
   // === TODOS & REMINDERS ===
   {
@@ -419,43 +433,70 @@ export const TOOL_DEFINITIONS = [
   // === SOUL SYSTEM (Self-Recode) ===
   {
     name: 'soul_read',
-    description: 'Read current soul sections — your learned preferences, personality adjustments, and context. Always safe to call.',
+    description: 'Read your soul — what you have learned from interactions. Sections: people (facts about individuals), patterns (observed habits), lessons (incidents that changed behaviour), boundaries (social rules from feedback). Always safe to call.',
     input_schema: {
       type: 'object',
       properties: {
         section: {
           type: 'string',
-          description: 'Optional: specific section to read (personality, preferences, context, custom). Omit to read all.',
+          description: 'Optional: specific section (people, patterns, lessons, boundaries). Omit to read all.',
         },
       },
       required: [],
     },
   },
   {
-    name: 'soul_propose',
-    description: 'Propose a change to one of your soul sections. This stages the change for James to review — it does NOT apply it. Show James the diff and wait for his explicit approval before calling soul_confirm. NEVER chain soul_propose and soul_confirm in the same turn.',
+    name: 'soul_learn',
+    description: 'Add a learned entry to your soul. Use when you notice something about a person, a pattern in how James works, or a lesson from an interaction. This writes directly — no confirmation needed.',
     input_schema: {
       type: 'object',
       properties: {
         section: {
           type: 'string',
-          description: 'Section to modify: personality, preferences, context, or custom.',
+          description: 'Section: people, patterns, lessons, or boundaries.',
         },
-        content: {
+        text: {
           type: 'string',
-          description: 'New content for the section (max 500 chars).',
+          description: 'What you learned (max 200 chars). Be specific and concise.',
         },
-        reason: {
+      },
+      required: ['section', 'text'],
+    },
+  },
+  {
+    name: 'soul_forget',
+    description: 'Remove a learned entry from your soul by section and index number. Owner-only.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        section: {
           type: 'string',
-          description: 'Why you want to make this change.',
+          description: 'Section: people, patterns, lessons, or boundaries.',
         },
+        index: {
+          type: 'number',
+          description: 'Entry number to remove (1-based, as shown by soul_read).',
+        },
+      },
+      required: ['section', 'index'],
+    },
+  },
+  {
+    name: 'soul_propose',
+    description: 'Legacy — now redirects to soul_learn. Use soul_learn directly.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        section: { type: 'string' },
+        content: { type: 'string' },
+        reason: { type: 'string' },
       },
       required: ['section', 'content', 'reason'],
     },
   },
   {
     name: 'soul_confirm',
-    description: 'Apply the pending soul change. ONLY call this after James has explicitly approved (e.g., "yes", "approve", "go ahead"). NEVER call without explicit confirmation.',
+    description: 'Legacy — no longer needed. The soul system now uses soul_learn (direct) and dream observations (threshold-based).',
     input_schema: {
       type: 'object',
       properties: {},

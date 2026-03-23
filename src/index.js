@@ -6,22 +6,28 @@ import { execSync, exec } from 'child_process';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 import config from './config.js';
 import logger from './logger.js';
 import { shouldRespond } from './trigger.js';
 import { pushMessage, buildContext, getRecentMessages, loadBuffers, saveBuffers, flushBufferTimer } from './buffer.js';
 import { getClawdResponse, getUsageStats, flushUsage } from './claude.js';
+import { summariseDocument, parseDocumentWithDocling } from './evo-llm.js';
 import { getWidgetData, startWidgetRefresh, stopWidgetRefresh, addSSEClient, broadcastSSE, forceRefresh } from './widgets.js';
 import { getSoulData, resetSoul } from './tools/soul.js';
+import { setSendOwnerDM } from './tools/handler.js';
 import { getAllTodos, getActiveTodos, flushTodos } from './tools/todo.js';
 import { todoComplete, todoAdd } from './tools/todo.js';
 import { initScheduler } from './scheduler.js';
 import { getAuditLog, flushAudit } from './audit.js';
-import { checkEvoHealth as checkEvoLlmHealth } from './evo-llm.js';
-import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, updateMemory, deleteMemory, logConversation, checkEvoHealth, getLastHealthData } from './memory.js';
+import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, updateMemory, deleteMemory, logConversation, checkEvoHealth, getLastHealthData, storeDocument } from './memory.js';
 import { seedSystemKnowledge } from './system-knowledge.js';
 import { logInteraction, handleReaction, isCorrection, logFeedback, getQualitySummary, getRecentFeedback } from './interaction-log.js';
 import { isMuteTrigger, activateMute, isMuted, clearMute, shouldEngage, detectNegativeSignal } from './engagement.js';
+import { scanMessage, getWorkingMemoryState } from './lquorum-rag.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,11 +56,35 @@ function extractText(message) {
     || msg.imageMessage?.caption
     || msg.videoMessage?.caption
     || msg.documentMessage?.caption
+    || msg.documentWithCaptionMessage?.message?.documentMessage?.caption
     || '';
 }
 
 function hasImageMsg(message) {
   return !!message.message?.imageMessage;
+}
+
+function getDocumentInfo(message) {
+  const doc = message.message?.documentMessage
+    || message.message?.documentWithCaptionMessage?.message?.documentMessage;
+  if (!doc) return null;
+  return {
+    mimetype: doc.mimetype || 'application/octet-stream',
+    fileName: doc.fileName || 'unknown',
+  };
+}
+
+// Text-based mimetypes we can read and inject into context
+const TEXT_MIMETYPES = new Set([
+  'text/plain', 'text/markdown', 'text/csv', 'text/html',
+  'application/json', 'text/x-python', 'text/javascript',
+  'application/xml', 'text/xml',
+]);
+
+function isTextDocument(mimetype) {
+  if (TEXT_MIMETYPES.has(mimetype)) return true;
+  if (mimetype.startsWith('text/')) return true;
+  return false;
 }
 
 function isReplyToBot(message, botJid) {
@@ -63,6 +93,10 @@ function isReplyToBot(message, botJid) {
 }
 
 const MAX_MESSAGE_LENGTH = 3000;
+
+// Store last image/document per chat for follow-up questions (5 min TTL)
+const lastImageByChat = new Map();
+const lastDocByChat = new Map();
 
 function splitMessage(text) {
   if (text.length <= MAX_MESSAGE_LENGTH) return [text];
@@ -138,11 +172,12 @@ async function handleMessage(sock, message, botJid) {
     const senderName = message.pushName || 'Unknown';
     const text = extractText(message);
     const msgHasImage = hasImageMsg(message);
+    const docInfo = getDocumentInfo(message);
 
-    logger.info({ sender: senderName, text: text || (msgHasImage ? '[photo]' : '[empty]') }, 'message received');
+    logger.info({ sender: senderName, text: text || (msgHasImage ? '[photo]' : docInfo ? `[file: ${docInfo.fileName}]` : '[empty]') }, 'message received');
     lastActivityTimestamp = Date.now();
 
-    if (!text && !msgHasImage) return;
+    if (!text && !msgHasImage && !docInfo) return;
 
     pushMessage(chatJid, {
       senderName,
@@ -150,6 +185,9 @@ async function handleMessage(sock, message, botJid) {
       hasImage: msgHasImage,
       isBot: false,
     });
+
+    // Scan for lquorum topics — updates working memory for all group messages
+    if (isGroup && text) scanMessage(text);
 
     if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
       if (text) broadcastSSE('message', { sender: senderName, text, timestamp: Date.now() });
@@ -160,7 +198,7 @@ async function handleMessage(sock, message, botJid) {
 
     const trigger = shouldRespond({
       text,
-      hasImage: msgHasImage,
+      hasImage: msgHasImage || !!docInfo,
       isFromMe: message.key.fromMe,
       isGroup,
       senderJid,
@@ -260,6 +298,79 @@ async function handleMessage(sock, message, botJid) {
       }
     }
 
+    // Download document if present and bot should respond
+    if (docInfo && !imageData) {
+      try {
+        const buffer = await downloadMediaMessage(message, 'buffer', {});
+        let textContent = null;
+
+        if (isTextDocument(docInfo.mimetype)) {
+          textContent = buffer.toString('utf-8');
+        } else if (docInfo.mimetype === 'application/pdf') {
+          // Try Granite-Docling for structured parsing, fall back to pdf-parse
+          const doclingResult = await parseDocumentWithDocling(buffer, docInfo.fileName).catch(() => null);
+          if (doclingResult) {
+            textContent = doclingResult;
+            logger.info({ fileName: docInfo.fileName, chars: doclingResult.length }, 'PDF parsed via Granite-Docling');
+          } else {
+            const pdf = await pdfParse(buffer);
+            textContent = pdf.text;
+            logger.info({ fileName: docInfo.fileName, pages: pdf.numpages }, 'PDF parsed via pdf-parse (Docling fallback)');
+          }
+        } else if (docInfo.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+          const result = await mammoth.extractRawText({ buffer });
+          textContent = result.value;
+          logger.info({ fileName: docInfo.fileName }, 'DOCX parsed');
+        }
+
+        if (textContent) {
+          // If no caption, prompt natural engagement with the document
+          if (!messageText.trim()) {
+            messageText = `[Document shared: ${docInfo.fileName} — respond naturally. Engage with the content in context of the conversation. Do not just summarise unless asked.]`;
+          }
+
+          // Summarise via EVO to save Claude tokens, fall back to truncated raw
+          let docContext;
+          let docSummary = null;
+          const evoUp = await checkEvoHealth();
+          if (evoUp && textContent.length > 1000) {
+            docSummary = await summariseDocument(textContent.slice(0, 12000), docInfo.fileName);
+            if (docSummary) {
+              docContext = `--- Summary of ${docInfo.fileName} (${textContent.length} chars original, summarised locally) ---\n${docSummary}\n--- End of summary ---`;
+            }
+          }
+          if (!docContext) {
+            // EVO down or doc too short to bother summarising — use raw (truncated)
+            const maxChars = 4000;
+            const truncated = textContent.length > maxChars
+              ? textContent.slice(0, maxChars) + `\n\n[... truncated, ${textContent.length} chars total]`
+              : textContent;
+            docContext = `--- Attached file: ${docInfo.fileName} ---\n${truncated}\n--- End of file ---`;
+          }
+
+          // Cache raw text for follow-up questions
+          lastDocByChat.set(chatJid, { raw: textContent, fileName: docInfo.fileName, timestamp: Date.now() });
+
+          // Store document in memory service for long-term retrieval + dream mode (fire-and-forget)
+          storeDocument({
+            fileName: docInfo.fileName,
+            rawText: textContent,
+            summary: docSummary || textContent.slice(0, 2000),
+            sender: senderName,
+            chatJid,
+          }).catch(err => logger.warn({ err: err.message, fileName: docInfo.fileName }, 'document memory storage failed'));
+
+          messageText = `${messageText}\n\n${docContext}`;
+          logger.info({ fileName: docInfo.fileName, mime: docInfo.mimetype, chars: textContent.length, summarised: !!docSummary }, 'document content injected');
+        } else {
+          messageText = `${messageText}\n\n[Attached file: ${docInfo.fileName} (${docInfo.mimetype}) — unsupported format, cannot read contents]`;
+          logger.info({ fileName: docInfo.fileName, mime: docInfo.mimetype }, 'unsupported document format');
+        }
+      } catch (err) {
+        logger.warn({ err: err.message, fileName: docInfo.fileName }, 'document download/parse failed');
+      }
+    }
+
     // Detect correction of previous response (implicit negative feedback)
     if (isCorrection(messageText)) {
       logFeedback({
@@ -271,11 +382,33 @@ async function handleMessage(sock, message, botJid) {
       });
     }
 
+    // If image sent with no caption, let the model respond naturally in context
+    if (imageData && !messageText.trim()) {
+      messageText = '[Photo shared — respond naturally as part of the conversation. React to what you see, relate it to the discussion if relevant. Do not just label or identify objects.]';
+    }
+
+    // Store last image per chat for follow-up questions
+    if (imageData) {
+      lastImageByChat.set(chatJid, { data: imageData, timestamp: Date.now() });
+    }
+
+    // If asking about "the image" / "the photo" with no image, check for recent image
+    if (!imageData && /\b(the\s+)?(image|photo|picture|pic|screenshot)\b/i.test(messageText)) {
+      const lastImg = lastImageByChat.get(chatJid);
+      if (lastImg && (Date.now() - lastImg.timestamp) < 5 * 60 * 1000) {
+        imageData = lastImg.data;
+        logger.info({ chatJid, ageMs: Date.now() - lastImg.timestamp }, 'reusing recent image for follow-up');
+      }
+    }
+
     const context = buildContext(chatJid, messageText);
     const responseStart = Date.now();
     const response = await getClawdResponse(context, trigger.mode, senderJid, imageData, chatJid);
     const responseLatency = Date.now() - responseStart;
-    if (!response) return;
+    if (!response || !response.trim() || response.trim() === '[SILENT]') {
+      if (response?.trim() === '[SILENT]') logger.debug({ chat: chatJid }, 'Claude chose silence');
+      return;
+    }
 
     await simulateTyping(sock, chatJid, response.length);
 
@@ -383,6 +516,13 @@ async function startBot() {
       globalThis._clawdWhatsAppConnected = true;
       logger.info({ name: sock.user?.name, jid: botJid }, 'WhatsApp connected');
 
+      // Wire up owner DM callback for soul proposals
+      if (config.ownerJid) {
+        setSendOwnerDM(async (text) => {
+          await sock.sendMessage(config.ownerJid, { text });
+        });
+      }
+
       sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (type !== 'notify') return;
         for (const msg of messages) {
@@ -412,7 +552,7 @@ async function startBot() {
             const versionPath = join(__dirname, '..', 'version.json');
             const lastVersionPath = join(config.authStatePath, 'last_version.txt');
 
-            let message = 'Back online.';
+            let message = null;
 
             if (existsSync(versionPath)) {
               const { version, notes } = JSON.parse(readFileSync(versionPath, 'utf-8'));
@@ -424,7 +564,8 @@ async function startBot() {
               }
             }
 
-            await sendProactiveMessage(config.ownerJid, message);
+            // Only notify on version changes, not every restart
+            if (message) await sendProactiveMessage(config.ownerJid, message);
 
             // Seed system knowledge into EVO memory (fire-and-forget)
             if (config.evoMemoryEnabled) {
@@ -537,6 +678,11 @@ createServer(async (req, res) => {
     return jsonResponse(res, 200, getUsageStats());
   }
 
+  if (path === '/api/working-memory') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    return jsonResponse(res, 200, getWorkingMemoryState());
+  }
+
   // --- Dashboard endpoints (auth required) ---
 
   if (path === '/dashboard') {
@@ -582,6 +728,25 @@ createServer(async (req, res) => {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     await resetSoul();
     return jsonResponse(res, 200, { ok: true, message: 'Soul reset to defaults' });
+  }
+
+  // Dream mode observation endpoint
+  if (req.method === 'POST' && path === '/api/soul/observe') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const { addObservation } = await import('./tools/soul.js');
+      const body = JSON.parse(await readBody(req));
+      // Accept single observation or array
+      const observations = Array.isArray(body) ? body : [body];
+      const results = [];
+      for (const obs of observations) {
+        const result = await addObservation(obs);
+        results.push(result);
+      }
+      return jsonResponse(res, 200, { ok: true, results });
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
   }
 
   if (path === '/api/todos') {

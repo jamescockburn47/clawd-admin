@@ -3,7 +3,7 @@
 // Auto-refreshes nightly at 2 AM to keep self-knowledge current
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { storeMemory, searchMemory, isEvoOnline, deleteMemory, listMemories } from './memory.js';
+import { storeMemory, searchMemory, isEvoOnline, deleteMemory, listMemories, syncCache } from './memory.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -172,6 +172,41 @@ function generateKnowledgeEntries() {
     tags: ['data', 'persistence', 'json', 'storage'],
   });
 
+  // Subsystem entries — any field with a .summary that isn't already handled above
+  const handledKeys = new Set([
+    'identity', 'architecture', 'messageFlow', 'tools', 'scheduler',
+    'voicePipeline', 'soulSystem', 'memorySystem', 'henryWeekends',
+    'guardrails', 'users', 'selfImprovement', 'techStack',
+    'circuitBreakers', 'dataPersistence', 'lquorum', 'version', 'lastUpdated',
+  ]);
+  for (const [key, val] of Object.entries(doc)) {
+    if (handledKeys.has(key)) continue;
+    if (val && typeof val === 'object' && val.summary) {
+      entries.push({
+        fact: val.summary,
+        tags: [key.replace(/([A-Z])/g, '_$1').toLowerCase(), 'subsystem'],
+      });
+      // Also add any additional string fields beyond summary
+      for (const [subKey, subVal] of Object.entries(val)) {
+        if (subKey === 'summary' || typeof subVal !== 'string') continue;
+        entries.push({
+          fact: subVal,
+          tags: [key.replace(/([A-Z])/g, '_$1').toLowerCase(), subKey, 'subsystem'],
+        });
+      }
+    }
+  }
+
+  // LQuorum knowledge — single overview entry
+  // Full depth is handled by conversational working memory (src/lquorum-rag.js)
+  if (doc.lquorum) {
+    entries.push({
+      fact: `LQuorum community knowledge covers 18 legal AI topics from 40+ lawyers across 12 jurisdictions. Topics include RAG/hallucinations, document processing, DOCX problems, data security, platform reviews, local models, vibe coding, contract review AI, and more. Full knowledge is available through conversational working memory when these topics are discussed.`,
+      tags: ['lquorum', 'legal-ai', 'community', 'knowledge'],
+    });
+    logger.info('LQuorum overview entry generated (full depth via working memory)');
+  }
+
   return entries;
 }
 
@@ -179,32 +214,45 @@ function generateKnowledgeEntries() {
 function generateFallbackEntries() {
   return [
     {
-      fact: 'Clawd is a distributed WhatsApp admin assistant running on 3 devices: Raspberry Pi 5 (brain, Node.js), EVO X2 NucBox (voice + local AI, Ollama), and a Rust native dashboard on the Pi touchscreen.',
+      fact: 'Clawd is a distributed WhatsApp admin assistant: Raspberry Pi 5 runs Node.js (Baileys, HTTP API, scheduler). EVO X2 runs llama-server (OpenAI-compatible, tools + classifier), memory service (port 5100), Whisper + voice listener, and optional Ollama for embeddings. The Pi touchscreen runs a Rust (egui) dashboard against localhost:3000.',
       tags: ['architecture', 'overview'],
     },
   ];
 }
 
 // Seed system knowledge into EVO memory service
+// Uses wipe-and-reseed to prevent stale duplicates accumulating
 export async function seedSystemKnowledge() {
   if (!config.evoMemoryEnabled || !isEvoOnline()) {
     logger.info('EVO offline — skipping system knowledge seed');
     return { seeded: 0, skipped: true };
   }
 
+  // Wipe ALL old system knowledge entries (any source, any category that matches)
+  let deleted = 0;
+  try {
+    const allMemories = await listMemories();
+    const staleEntries = allMemories.filter(m =>
+      m.source === KNOWLEDGE_SOURCE
+      || m.source === 'system_knowledge_seed'
+      || (m.category === KNOWLEDGE_CATEGORY && m.source !== 'dream_mode' && m.source !== 'conversation')
+    );
+    for (const entry of staleEntries) {
+      try {
+        await deleteMemory(entry.id);
+        deleted++;
+      } catch {}
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'failed to clean old system knowledge');
+  }
+
+  // Re-seed fresh from current system-knowledge.json
   const entries = generateKnowledgeEntries();
   let seeded = 0;
-  let skipped = 0;
 
   for (const entry of entries) {
     try {
-      // Check if a similar memory already exists (avoid duplicates)
-      const existing = await searchMemory(entry.fact.slice(0, 50), KNOWLEDGE_CATEGORY, 1);
-      if (existing.length > 0 && existing[0].score > 0.85) {
-        skipped++;
-        continue;
-      }
-
       await storeMemory(entry.fact, KNOWLEDGE_CATEGORY, entry.tags, 1.0, KNOWLEDGE_SOURCE);
       seeded++;
     } catch (err) {
@@ -212,8 +260,11 @@ export async function seedSystemKnowledge() {
     }
   }
 
-  logger.info({ seeded, skipped, total: entries.length }, 'system knowledge seeded');
-  return { seeded, skipped };
+  // Force cache sync so Pi immediately has fresh data
+  try { await syncCache(); } catch {}
+
+  logger.info({ deleted, seeded, total: entries.length }, 'system knowledge seeded');
+  return { deleted, seeded };
 }
 
 // Nightly full refresh — wipes old system knowledge entries and re-seeds from current state
@@ -227,12 +278,12 @@ export async function refreshSystemKnowledge() {
   const startTime = Date.now();
 
   try {
-    // 1. Find and delete all existing system_knowledge entries
+    // 1. Find and delete all existing system knowledge entries (broad filter — catches all sources)
     const allMemories = await listMemories();
     const systemEntries = allMemories.filter(m =>
-      m.source === KNOWLEDGE_SOURCE || (m.category === KNOWLEDGE_CATEGORY && (m.tags || []).some(t =>
-        ['architecture', 'overview', 'pipeline', 'router', 'tools', 'scheduler', 'voice', 'soul', 'memory', 'guardrails', 'version', 'tech', 'identity'].includes(t)
-      ))
+      m.source === KNOWLEDGE_SOURCE
+      || m.source === 'system_knowledge_seed'
+      || (m.category === KNOWLEDGE_CATEGORY && m.source !== 'dream_mode' && m.source !== 'conversation')
     );
 
     let deleted = 0;
@@ -274,6 +325,9 @@ export async function refreshSystemKnowledge() {
         logger.warn({ err: err.message, tags: entry.tags }, 'failed to seed refreshed knowledge');
       }
     }
+
+    // Force cache sync so Pi immediately has fresh data
+    try { await syncCache(); } catch {}
 
     const elapsed = Date.now() - startTime;
     logger.info({ deleted, seeded, elapsed }, 'system knowledge refreshed');

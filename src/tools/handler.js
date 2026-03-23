@@ -4,13 +4,14 @@ import { gmailSearch, gmailRead, gmailDraft, gmailConfirmSend } from './gmail.js
 import { searchTrains, searchAccommodation } from './travel.js';
 import { trainDepartures, trainFares } from './darwin.js';
 import { hotelSearch } from './amadeus.js';
-import { webSearch } from './search.js';
-import { soulRead, soulPropose, soulConfirm } from './soul.js';
+import { webSearch, webFetch } from './search.js';
+import { soulRead, soulPropose, soulConfirm, soulLearn, soulForget } from './soul.js';
 import { todoAdd, todoList, todoComplete, todoRemove, todoUpdate, getAllTodos } from './todo.js';
 import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
 import { broadcastSSE, getSSEClientCount } from '../widgets.js';
 import { logAudit } from '../audit.js';
 import { getRoutingStats } from '../router-telemetry.js';
+import config from '../config.js';
 import logger from '../logger.js';
 
 // Voice listener heartbeat tracking
@@ -36,7 +37,10 @@ const TOOL_MAP = {
   search_trains: searchTrains,
   search_accommodation: searchAccommodation,
   web_search: webSearch,
+  web_fetch: webFetch,
   soul_read: soulRead,
+  soul_learn: soulLearn,
+  soul_forget: soulForget,
   soul_propose: soulPropose,
   soul_confirm: soulConfirm,
   todo_add: todoAdd,
@@ -116,7 +120,7 @@ const TOOL_MAP = {
       `**EVO X2**: ${evoStatus}`,
       `**Voice listener**: ${voiceStatus}`,
       `**Dashboard**: ${sseClients} SSE client(s) connected`,
-      `**Models**: Claude Sonnet 4.6 (API), qwen3.5:35b (EVO tools), qwen3:0.6b (classifier)`,
+      `**Models**: Claude ${config.claudeModel} (cloud), ${config.evoMainModelLabel}, ${config.evoClassifierLabel}`,
       `**Routing today**: ${routerLine}`,
     ].join('\n');
   },
@@ -128,10 +132,28 @@ function summariseInput(input) {
   return str.length > 200 ? str.slice(0, 200) + '...' : str;
 }
 
-export async function executeTool(toolName, toolInput, senderJid) {
+// DM callback — set by index.js so soul proposals can be routed to owner DM
+let _sendOwnerDM = null;
+export function setSendOwnerDM(fn) { _sendOwnerDM = fn; }
+
+export async function executeTool(toolName, toolInput, senderJid, chatJid) {
   const handler = TOOL_MAP[toolName];
   if (!handler) {
     return `Unknown tool: ${toolName}`;
+  }
+
+  const isGroup = chatJid && chatJid.endsWith('@g.us');
+
+  // Soul proposals from groups must be redirected to owner DM
+  if (toolName === 'soul_propose' && isGroup && _sendOwnerDM) {
+    const result = await handler(toolInput);
+    await _sendOwnerDM(`*Soul update proposed (from group):*\n\n${result}\n\nReply "confirm soul" to apply, or ignore to reject.`);
+    return 'Proposal sent to James via DM for review. Soul changes require owner confirmation.';
+  }
+
+  // Soul confirm only works from owner DM, not groups
+  if (toolName === 'soul_confirm' && isGroup) {
+    return 'Soul confirmations must happen in DM with James, not in group chats.';
   }
 
   try {

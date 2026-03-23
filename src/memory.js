@@ -3,7 +3,7 @@
  * Handles health monitoring, search, store, queue, cache, and fallback.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs';
 import { join } from 'path';
 import config from './config.js';
 import logger from './logger.js';
@@ -374,6 +374,26 @@ export async function getRelevantMemories(messageText) {
 
   const results = await searchMemory(messageText, null, 8);
 
+  // If message references a document, also search document chunks specifically
+  const docPattern = /\b(document|doc|file|pdf|report|analysis|the\s+\w+\.(?:md|pdf|docx|csv))\b/i;
+  if (docPattern.test(messageText)) {
+    try {
+      const docResults = await searchMemory(messageText, 'document_chunk', 4);
+      const docSummaries = await searchMemory(messageText, 'document', 2);
+      // Merge, deduplicate by id
+      const existingIds = new Set(results.map(r => (r.memory || r).id));
+      for (const r of [...docResults, ...docSummaries]) {
+        const id = (r.memory || r).id;
+        if (id && !existingIds.has(id)) {
+          results.push(r);
+          existingIds.add(id);
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'document memory search failed');
+    }
+  }
+
   // Filter weak matches (embedding + keyword hybrid scores; threshold tuned for recall)
   return results
     .filter((r) => (r.score ?? 0) >= 0.12)
@@ -416,6 +436,146 @@ export function formatMemoriesForPrompt(memories) {
   return `\n\n## What you remember\n${lines.join('\n')}`;
 }
 
+
+// --- Document storage ---
+
+const DOC_LOG_DIR = join(process.cwd(), 'data', 'document-logs');
+const DOC_CACHE_DIR = join(process.cwd(), 'data', 'document-cache');
+
+// Ensure dirs exist
+for (const dir of [DOC_LOG_DIR, DOC_CACHE_DIR]) {
+  if (!existsSync(dir)) { mkdirSync(dir, { recursive: true }); }
+}
+
+/**
+ * Store a parsed document in the memory service for long-term retrieval.
+ * Creates: summary entry, chunked raw text entries, and an index entry.
+ * Also writes a document log entry for dream mode and caches raw text.
+ */
+export async function storeDocument({ fileName, rawText, summary, sender, chatJid }) {
+  const date = new Date().toISOString().split('T')[0];
+  const baseTags = [fileName.replace(/\s+/g, '_'), date, sender || 'unknown'];
+
+  // 1. Store summary as quick-recall entry
+  try {
+    await storeMemory(
+      `Document "${fileName}" (${rawText.length} chars, from ${sender || 'unknown'}): ${summary}`,
+      'document',
+      [...baseTags, 'summary'],
+      0.9,
+      'document_intake',
+    );
+  } catch (err) {
+    logger.warn({ err: err.message, fileName }, 'failed to store document summary');
+  }
+
+  // 2. Chunk raw text and store each chunk
+  const chunks = chunkText(rawText, 2000);
+  let storedChunks = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    try {
+      await storeMemory(
+        `[${fileName} chunk ${i + 1}/${chunks.length}] ${chunks[i]}`,
+        'document_chunk',
+        [...baseTags, `chunk_${i}`],
+        0.85,
+        'document_intake',
+      );
+      storedChunks++;
+    } catch (err) {
+      logger.warn({ err: err.message, fileName, chunk: i }, 'failed to store document chunk');
+    }
+  }
+
+  // 3. Store index entry (registry of all docs Clawd has read)
+  try {
+    await storeMemory(
+      `Document index: "${fileName}", ${rawText.length} chars, ${chunks.length} chunks, from ${sender || 'unknown'} on ${date}. Summary: ${summary.slice(0, 200)}`,
+      'document_index',
+      [...baseTags, 'index'],
+      1.0,
+      'document_intake',
+    );
+  } catch (err) {
+    logger.warn({ err: err.message, fileName }, 'failed to store document index');
+  }
+
+  // 4. Write document log for dream mode
+  try {
+    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const rawPath = join(DOC_CACHE_DIR, `${date}_${safeName}`);
+    writeFileSync(rawPath, rawText);
+
+    const logFile = join(DOC_LOG_DIR, `${date}.jsonl`);
+    const logEntry = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      fileName,
+      sender: sender || 'unknown',
+      chatJid: chatJid || 'unknown',
+      charCount: rawText.length,
+      summary: summary.slice(0, 1000),
+      rawTextPath: rawPath,
+    });
+    appendFileSync(logFile, logEntry + '\n');
+  } catch (err) {
+    logger.warn({ err: err.message, fileName }, 'failed to write document log');
+  }
+
+  logger.info({ fileName, chunks: storedChunks, totalChunks: chunks.length }, 'document stored in memory');
+  return { storedChunks, totalChunks: chunks.length };
+}
+
+function chunkText(text, maxChars = 2000) {
+  const chunks = [];
+  const paragraphs = text.split(/\n\n+/);
+  let current = '';
+
+  for (const para of paragraphs) {
+    if (current.length + para.length + 2 > maxChars && current.length > 0) {
+      chunks.push(current.trim());
+      current = para;
+    } else {
+      current += (current ? '\n\n' : '') + para;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+
+  // Handle case where a single paragraph exceeds maxChars
+  const result = [];
+  for (const chunk of chunks) {
+    if (chunk.length <= maxChars) {
+      result.push(chunk);
+    } else {
+      for (let i = 0; i < chunk.length; i += maxChars) {
+        result.push(chunk.slice(i, i + maxChars));
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Clean up old document cache files (older than 7 days).
+ */
+export function cleanDocumentCache(maxAgeDays = 7) {
+  try {
+    const now = Date.now();
+    const maxAge = maxAgeDays * 24 * 60 * 60 * 1000;
+    const files = readdirSync(DOC_CACHE_DIR);
+    let cleaned = 0;
+    for (const f of files) {
+      const filepath = join(DOC_CACHE_DIR, f);
+      const stat = statSync(filepath);
+      if (now - stat.mtimeMs > maxAge) {
+        unlinkSync(filepath);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) logger.info({ cleaned }, 'document cache cleaned');
+  } catch (err) {
+    logger.warn({ err: err.message }, 'document cache cleanup failed');
+  }
+}
 
 // --- Queue system ---
 

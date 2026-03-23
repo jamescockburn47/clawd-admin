@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import config from './config.js';
-import { getSystemPrompt } from './prompt.js';
+import { getSystemPrompt, isProfessionalGroup } from './prompt.js';
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
 import { executeTool } from './tools/handler.js';
 import { getEvoToolResponse, checkEvoHealth } from './evo-llm.js';
@@ -10,6 +10,7 @@ import { classifyMessage, getToolsForCategory, needsMemories, mustUseClaude, CAT
 import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline, getDreamMemories, getIdentityMemories } from './memory.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { logRouting } from './router-telemetry.js';
+import { getWorkingKnowledge, warmFromQuery } from './lquorum-rag.js';
 import { getLiveSystemSnapshot } from './system-knowledge.js';
 import logger from './logger.js';
 
@@ -144,14 +145,12 @@ function getAvailableTools(isOwner = true) {
   const hasGoogle = config.googleClientId && config.googleRefreshToken;
   const hasDarwin = !!config.darwinToken;
   const hasAmadeus = config.amadeusClientId && config.amadeusClientSecret;
-  const hasBrave = !!config.braveApiKey;
-
   return TOOL_DEFINITIONS.filter((t) => {
     if (!isOwner && OWNER_ONLY_TOOLS.has(t.name)) return false;
     if (t.name.startsWith('calendar_') || t.name.startsWith('gmail_')) return hasGoogle;
     if (t.name === 'train_departures') return hasDarwin;
     if (t.name === 'hotel_search') return hasAmadeus;
-    if (t.name === 'web_search') return hasBrave;
+    // web_search always available via SearXNG (self-hosted, no key needed)
     return true;
   });
 }
@@ -179,20 +178,27 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
   const categoryTools = getToolsForCategory(category, tools);
 
   // Conditional memory fetch
+  const professional = isProfessionalGroup(chatJid);
+  const PERSONAL_MEMORY_CATEGORIES = new Set(['henry', 'travel', 'accommodation', 'schedule']);
+
   let memoryFragment = '';
   if (config.evoMemoryEnabled && needsMemories(category)) {
     try {
-      const memories = await getRelevantMemories(context);
+      let memories = await getRelevantMemories(context);
+      // Filter personal memories in professional groups
+      if (professional) {
+        memories = memories.filter(m => !PERSONAL_MEMORY_CATEGORIES.has(m.category));
+      }
       memoryFragment = formatMemoriesForPrompt(memories);
       if (memories.length > 0) {
-        logger.info({ count: memories.length, category }, 'memories injected');
+        logger.info({ count: memories.length, category, filtered: professional }, 'memories injected');
       }
     } catch (err) {
       logger.warn({ err: err.message }, 'memory fetch failed');
     }
   }
 
-  // Always inject identity memories (voice, style, core facts)
+  // Identity memories — always inject (these are about Clawd, not personal)
   if (config.evoMemoryEnabled) {
     try {
       const identityMems = await getIdentityMemories();
@@ -205,8 +211,8 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
-  // Inject dream memories for group context
-  if (config.evoMemoryEnabled && config.dreamModeEnabled) {
+  // Dream memories — skip in professional groups (may contain personal content)
+  if (config.evoMemoryEnabled && config.dreamModeEnabled && !professional) {
     try {
       const dreams = await getDreamMemories('', 2);
       if (dreams.length > 0) {
@@ -219,6 +225,15 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
+  // Inject lquorum working memory (pre-staged topic knowledge)
+  // Warm working memory from the direct query (no length filter)
+  warmFromQuery(context);
+  const lquorumContext = getWorkingKnowledge();
+  if (lquorumContext) {
+    memoryFragment += '\n\n' + lquorumContext;
+    logger.info({ topics: lquorumContext.split('###').length - 1 }, 'lquorum working knowledge injected');
+  }
+
   // For SYSTEM queries: inject live status snapshot alongside stored knowledge
   if (category === CATEGORY.SYSTEM) {
     try {
@@ -229,13 +244,13 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
-  // Try EVO X2 for non-forced-Claude categories
-  if (!forceClaude && config.evoToolEnabled && mode !== 'random' && !imageData) {
+  // Try EVO X2 for non-forced-Claude categories (now supports images via VL model)
+  if (!forceClaude && config.evoToolEnabled && mode !== 'random') {
     try {
       const evoAvailable = await checkEvoHealth();
       if (evoAvailable) {
         const evoStart = Date.now();
-        const evoResponse = await getEvoToolResponse(context, categoryTools, senderJid, memoryFragment, category);
+        const evoResponse = await getEvoToolResponse(context, categoryTools, senderJid, memoryFragment, category, imageData);
         if (evoResponse) {
           logRouting({
             category, confidence: null, model: 'local',
@@ -273,36 +288,15 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
 
     const isGroup = chatJid ? chatJid.endsWith('@g.us') : false;
     const system = [
-      { type: 'text', text: getSystemPrompt(mode, isOwner, isGroup) + memoryFragment, cache_control: { type: 'ephemeral' } },
+      { type: 'text', text: getSystemPrompt(mode, isOwner, isGroup, category, chatJid) + memoryFragment, cache_control: { type: 'ephemeral' } },
     ];
 
     // Build user message content — supports text + optional image
+    // If we're here with an image, EVO VL already failed/was offline — send direct to Claude
     const userContent = [];
     if (imageData) {
-      // Try EVO X2 local vision first to save Claude vision tokens
-      if (config.evoMemoryEnabled && isEvoOnline()) {
-        try {
-          const imgBuffer = Buffer.from(imageData.source.data, 'base64');
-          const prompt = context || 'Describe this image in detail. Extract any text, numbers, names, dates visible.';
-          const result = await analyseImage(imgBuffer, prompt);
-          if (result && result.description) {
-            // Use local analysis as text instead of sending image to Claude
-            userContent.push({ type: 'text', text: `The user sent a photo. Here is a detailed description of what the photo contains (analysed locally):\n\n${result.description}` });
-            logger.info({ chars: result.description.length }, 'image analysed locally via EVO X2');
-          } else {
-            // Local analysis returned null — fall back to Claude vision
-            userContent.push(imageData);
-            logger.info('EVO X2 image analysis returned null, falling back to Claude vision');
-          }
-        } catch (err) {
-          // EVO X2 failed — fall back to Claude vision
-          userContent.push(imageData);
-          logger.warn({ err: err.message }, 'EVO X2 image analysis failed, falling back to Claude vision');
-        }
-      } else {
-        // EVO offline or disabled — use Claude vision
-        userContent.push(imageData);
-      }
+      userContent.push(imageData);
+      logger.info('image sent to Claude vision (EVO VL unavailable or failed)');
     }
     userContent.push({ type: 'text', text: context });
 
@@ -311,7 +305,7 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     let response = await claudeBreaker.call(
       () => client.messages.create({
         model: config.claudeModel,
-        max_tokens: config.maxResponseTokens,
+        max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
         system,
         messages,
         ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
@@ -349,7 +343,7 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       const MAX_TOOL_RESULT = 1500;
       for (const toolUse of toolUseBlocks) {
         logger.info({ tool: toolUse.name, input: toolUse.input }, 'tool call');
-        let result = await executeTool(toolUse.name, toolUse.input, senderJid);
+        let result = await executeTool(toolUse.name, toolUse.input, senderJid, chatJid);
         logger.info({ tool: toolUse.name, chars: result.length }, 'tool result');
         if (result.length > MAX_TOOL_RESULT) {
           result = result.slice(0, MAX_TOOL_RESULT) + '\n[...truncated]';
@@ -366,7 +360,7 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       response = await claudeBreaker.call(
         () => client.messages.create({
           model: config.claudeModel,
-          max_tokens: config.maxResponseTokens,
+          max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
           system,
           messages,
           ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),

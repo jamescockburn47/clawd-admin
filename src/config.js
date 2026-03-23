@@ -67,6 +67,12 @@ const config = {
   // EVO X2 Memory Service (prefer direct Ethernet from Pi when available)
   evoMemoryUrl: process.env.EVO_MEMORY_URL || 'http://10.0.0.2:5100',
   evoMemoryEnabled: process.env.EVO_MEMORY_ENABLED !== 'false',
+
+  // Group type classification — gates personal content from professional groups
+  // Format: comma-separated JID:type pairs. Types: personal, professional
+  // Groups not listed default to 'personal' (full access)
+  // Professional groups get NO personal info (travel, henry, todos, diary, family)
+  professionalGroups: (process.env.PROFESSIONAL_GROUPS || '').split(',').map(s => s.trim()).filter(Boolean),
 };
 
 export default config;

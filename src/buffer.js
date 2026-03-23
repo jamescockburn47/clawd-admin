@@ -43,7 +43,7 @@ export function buildContext(chatJid, triggerText) {
     return `${name}: ${content}`;
   });
 
-  return `[Recent conversation]\n${lines.join('\n')}`;
+  return `[Recent conversation]\n${lines.join('\n')}\n\n[Current message]\n${triggerText}`;
 }
 
 export function botRecentlySpokeIn(chatJid) {
