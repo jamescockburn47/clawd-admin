@@ -2,22 +2,49 @@ use crate::models::*;
 use crate::state::SharedState;
 use reqwest::Client;
 
-const BASE_URL: &str = "http://localhost:3000";
-const TOKEN: &str = "VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM";
+fn base_url() -> String {
+    std::env::var("CLAWDBOT_URL").unwrap_or_else(|_| "http://localhost:3000".to_string())
+}
+
+fn dashboard_token() -> String {
+    std::env::var("DASHBOARD_TOKEN").unwrap_or_else(|_| {
+        "VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM".to_string()
+    })
+}
 
 fn auth_header() -> String {
-    format!("Bearer {}", TOKEN)
+    format!("Bearer {}", dashboard_token())
+}
+
+/// For in-app refresh calls (e.g. after todo complete) — matches `CLAWDBOT_URL` / `DASHBOARD_TOKEN` env.
+pub fn api_base_url() -> String {
+    base_url()
+}
+
+pub fn api_auth_header() -> String {
+    auth_header()
+}
+
+/// Map Pi panel hints to dashboard swipe targets (egui).
+fn map_panel_hint(raw: &str) -> Option<String> {
+    match raw {
+        "travel" => Some("sidegig".into()),
+        "weather" => None, // no dedicated column; header shows weather
+        "side_gig" | "side-gig" => Some("sidegig".into()),
+        other => Some(other.into()),
+    }
 }
 
 pub async fn fetch_initial_data(state: SharedState) {
     let client = Client::new();
+    let base = base_url();
 
     let (widgets_res, todos_res, soul_res, usage_res, status_res) = tokio::join!(
-        fetch_widgets(&client),
-        fetch_todos(&client),
-        fetch_soul(&client),
-        fetch_usage(&client),
-        fetch_status(&client),
+        fetch_widgets(&client, &base),
+        fetch_todos(&client, &base),
+        fetch_soul(&client, &base),
+        fetch_usage(&client, &base),
+        fetch_status(&client, &base),
     );
 
     if let Ok(mut s) = state.write() {
@@ -46,9 +73,9 @@ pub async fn fetch_initial_data(state: SharedState) {
     log::info!("Initial data fetch complete");
 }
 
-async fn fetch_widgets(client: &Client) -> Result<WidgetsResponse, String> {
+async fn fetch_widgets(client: &Client, base: &str) -> Result<WidgetsResponse, String> {
     client
-        .get(format!("{}/api/widgets", BASE_URL))
+        .get(format!("{}/api/widgets", base))
         .header("Authorization", auth_header())
         .send()
         .await
@@ -58,9 +85,9 @@ async fn fetch_widgets(client: &Client) -> Result<WidgetsResponse, String> {
         .map_err(|e| format!("widgets parse: {}", e))
 }
 
-async fn fetch_todos(client: &Client) -> Result<TodosResponse, String> {
+async fn fetch_todos(client: &Client, base: &str) -> Result<TodosResponse, String> {
     client
-        .get(format!("{}/api/todos", BASE_URL))
+        .get(format!("{}/api/todos", base))
         .header("Authorization", auth_header())
         .send()
         .await
@@ -70,9 +97,9 @@ async fn fetch_todos(client: &Client) -> Result<TodosResponse, String> {
         .map_err(|e| format!("todos parse: {}", e))
 }
 
-async fn fetch_soul(client: &Client) -> Result<SoulData, String> {
+async fn fetch_soul(client: &Client, base: &str) -> Result<SoulData, String> {
     client
-        .get(format!("{}/api/soul", BASE_URL))
+        .get(format!("{}/api/soul", base))
         .header("Authorization", auth_header())
         .send()
         .await
@@ -82,9 +109,9 @@ async fn fetch_soul(client: &Client) -> Result<SoulData, String> {
         .map_err(|e| format!("soul parse: {}", e))
 }
 
-async fn fetch_usage(client: &Client) -> Result<UsageResponse, String> {
+async fn fetch_usage(client: &Client, base: &str) -> Result<UsageResponse, String> {
     client
-        .get(format!("{}/api/usage", BASE_URL))
+        .get(format!("{}/api/usage", base))
         .header("Authorization", auth_header())
         .send()
         .await
@@ -94,10 +121,9 @@ async fn fetch_usage(client: &Client) -> Result<UsageResponse, String> {
         .map_err(|e| format!("usage parse: {}", e))
 }
 
-async fn fetch_status(client: &Client) -> Result<StatusResponse, String> {
+async fn fetch_status(client: &Client, base: &str) -> Result<StatusResponse, String> {
     client
-        .get(format!("{}/api/status", BASE_URL))
-        .header("Authorization", auth_header())
+        .get(format!("{}/api/status", base))
         .send()
         .await
         .map_err(|e| format!("status fetch: {}", e))?
@@ -108,9 +134,10 @@ async fn fetch_status(client: &Client) -> Result<StatusResponse, String> {
 
 pub async fn complete_todo(todo_id: &str) -> Result<(), String> {
     let client = Client::new();
+    let base = base_url();
     let body = serde_json::json!({ "id": todo_id });
     client
-        .post(format!("{}/api/todos/complete", BASE_URL))
+        .post(format!("{}/api/todos/complete", base))
         .header("Authorization", auth_header())
         .json(&body)
         .send()
@@ -131,7 +158,9 @@ pub async fn listen_sse(state: SharedState) {
 
 async fn connect_and_listen(state: &SharedState) -> Result<(), String> {
     let client = Client::new();
-    let url = format!("{}/api/events?token={}", BASE_URL, TOKEN);
+    let base = base_url();
+    let tok = dashboard_token();
+    let url = format!("{}/api/events?token={}", base, tok);
 
     let response = client
         .get(&url)
@@ -158,13 +187,11 @@ async fn connect_and_listen(state: &SharedState) -> Result<(), String> {
         let text = String::from_utf8_lossy(&chunk);
         buffer.push_str(&text);
 
-        // Process complete lines
         while let Some(newline_pos) = buffer.find('\n') {
             let line = buffer[..newline_pos].trim_end_matches('\r').to_string();
             buffer = buffer[newline_pos + 1..].to_string();
 
             if line.is_empty() {
-                // Empty line = end of event
                 if !current_data.is_empty() {
                     process_sse_event(state, &current_event, &current_data);
                 }
@@ -178,7 +205,7 @@ async fn connect_and_listen(state: &SharedState) -> Result<(), String> {
                 }
                 current_data.push_str(rest);
             } else if line.starts_with(':') {
-                // Comment, ignore
+                // Comment
             }
         }
     }
@@ -226,7 +253,6 @@ fn process_sse_event(state: &SharedState, event: &str, data: &str) {
             }
         }
         "message" => {
-            // Message events have sender + text
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
                 s.last_message_sender = v
                     .get("sender")
@@ -244,6 +270,40 @@ fn process_sse_event(state: &SharedState, event: &str, data: &str) {
         "voice" => {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(data) {
                 let evt = v.get("event").and_then(|e| e.as_str()).unwrap_or("").to_string();
+
+                // Multi-panel navigation from voice responses (Pi sends `panels` array)
+                if evt == "response" {
+                    // Navigate to the first relevant column only (avoid rapid multi-swipe)
+                    if let Some(arr) = v.get("panels").and_then(|p| p.as_array()) {
+                        'nav: for p in arr {
+                            if let Some(name) = p.as_str() {
+                                if let Some(mapped) = map_panel_hint(name) {
+                                    s.voice_queue.push((
+                                        "navigate".to_string(),
+                                        None,
+                                        None,
+                                        None,
+                                        Some(mapped),
+                                        None,
+                                    ));
+                                    break 'nav;
+                                }
+                            }
+                        }
+                    } else if let Some(single) = v.get("panel").and_then(|p| p.as_str()) {
+                        if let Some(mapped) = map_panel_hint(single) {
+                            s.voice_queue.push((
+                                "navigate".to_string(),
+                                None,
+                                None,
+                                None,
+                                Some(mapped),
+                                None,
+                            ));
+                        }
+                    }
+                }
+
                 let (text, response) = if evt == "response" {
                     (
                         v.get("command").and_then(|c| c.as_str()).map(String::from),
@@ -259,6 +319,12 @@ fn process_sse_event(state: &SharedState, event: &str, data: &str) {
                 let panel = v.get("panel").and_then(|p| p.as_str()).map(String::from);
                 let message = v.get("message").and_then(|m| m.as_str()).map(String::from);
                 log::debug!("SSE: voice event {:?}", evt);
+
+                // EVO ack after HTTP returns — no UI change needed
+                if evt == "result" {
+                    return;
+                }
+
                 s.voice_queue.push((evt, text, response, audio, panel, message));
             }
         }

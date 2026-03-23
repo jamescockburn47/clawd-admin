@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import config
 import ollama_client
 import whisper_service
+from command_router import route_voice_command_async
 from memory_store import MemoryStore
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -57,6 +58,10 @@ class ExtractRequest(BaseModel):
 class NoteRequest(BaseModel):
     text: str
     source: str = "manual_note"
+
+
+class RouteCommandRequest(BaseModel):
+    text: str
 
 
 # --- Health ---
@@ -334,6 +339,19 @@ async def maintain():
         "deduplicated": dedup_count,
         "total_after": len(store.memories),
     }
+
+
+# --- Voice command routing (EVO wake listener → Pi /api/voice-local) ---
+
+
+@app.post("/route-command")
+async def route_command(req: RouteCommandRequest):
+    """Classify transcribed voice text into a fast local action or Claude."""
+    t0 = time.perf_counter()
+    out = await route_voice_command_async(req.text)
+    result = dict(out)
+    result["latency_ms"] = int((time.perf_counter() - t0) * 1000)
+    return result
 
 
 if __name__ == "__main__":

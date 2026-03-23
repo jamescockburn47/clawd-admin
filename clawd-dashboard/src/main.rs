@@ -13,8 +13,8 @@ use state::{AppState, SharedState};
 use voice_overlay::{VoiceOverlay, VoiceState};
 
 // ── Swipe detection ─────────────────────────────────────────────────
-const SWIPE_THRESHOLD: f32 = 45.0; // min px to register swipe (snappier)
-const SWIPE_MAX_Y: f32 = 100.0; // max vertical drift before invalidating
+const SWIPE_THRESHOLD: f32 = 38.0; // min px — slightly easier on 10" touchscreen
+const SWIPE_MAX_Y: f32 = 110.0; // allow a bit more diagonal drift
 
 // ── Theme colors ────────────────────────────────────────────────────
 const BG: Color32 = Color32::from_rgb(10, 10, 15);
@@ -41,9 +41,11 @@ const FONT_SM: f32 = 11.5;
 const FONT_XS: f32 = 10.5;
 
 // ── Layout constants ───────────────────────────────────────────────
-const HEADER_H: f32 = 40.0;
-const LAST_MSG_H: f32 = 36.0;
-const CHAT_BAR_H: f32 = 48.0;
+const HEADER_H: f32 = 44.0;
+const LAST_MSG_H: f32 = 40.0;
+const CHAT_BAR_H: f32 = 56.0; // ~48dp+ comfort for bottom nav on kiosk
+const NAV_ARROW_MIN: f32 = 48.0; // touch target
+const PANEL_DOT_HIT: f32 = 14.0; // tappable dot cell
 
 // ── Panel labels ───────────────────────────────────────────────────
 const LEFT_PANELS: &[&str] = &["Henry", "Calendar"];
@@ -226,10 +228,11 @@ impl ClawdApp {
                 self.voice.set_listening(time);
             }
             "listening" => {
-                // "listening" = EVO is idle; dismiss overlay unless we're showing/waiting for a response
-                // Don't dismiss within 2.5s of "activated" — wake-only sends both back-to-back; user needs to see ack
+                // EVO idle mic — hide overlay unless user is mid-response or just woke (grace)
                 let grace_ok = self.last_activated_at.map_or(true, |t| time - t > 2.5);
-                if !self.voice.is_showing_response_or_processing() && grace_ok {
+                let showing = self.voice.is_showing_response_or_processing()
+                    || matches!(self.voice.state, VoiceState::Listening { .. });
+                if !showing && grace_ok {
                     self.voice.dismiss();
                 }
             }
@@ -341,14 +344,9 @@ impl ClawdApp {
                     Ok(()) => {
                         log::info!("Completed todo: {}", id);
                         let client = reqwest::Client::new();
-                        if let Ok(resp) = client
-                            .get("http://localhost:3000/api/todos")
-                            .header(
-                                "Authorization",
-                                "Bearer VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM",
-                            )
-                            .send()
-                            .await
+                        let url = format!("{}/api/todos", api::api_base_url());
+                        let auth = api::api_auth_header();
+                        if let Ok(resp) = client.get(url).header("Authorization", auth).send().await
                         {
                             if let Ok(todos) = resp.json::<models::TodosResponse>().await {
                                 if let Ok(mut s) = state.write() {
@@ -484,100 +482,157 @@ impl ClawdApp {
             let left_w = total_w * 0.5;
             let center_w = total_w * 0.25;
 
+            let arrow = |s: &'static str| {
+                RichText::new(s).size(FONT_TITLE).color(ACCENT_LIGHT)
+            };
+            let arrow_dim = |s: &'static str| RichText::new(s).size(FONT_TITLE).color(BORDER_LIGHT);
+
             // Left navigation
             ui.allocate_ui(Vec2::new(left_w, CHAT_BAR_H), |ui| {
                 ui.horizontal_centered(|ui| {
-                    // Prev arrow
                     if self.left_panel > 0 {
-                        if ui.add(egui::Button::new(
-                            RichText::new("◀").size(FONT_SM).color(ACCENT_LIGHT),
-                        ).frame(false)).clicked() {
+                        if ui
+                            .add_sized(
+                                Vec2::new(NAV_ARROW_MIN, NAV_ARROW_MIN),
+                                egui::Button::new(arrow("◀")).frame(false),
+                            )
+                            .clicked()
+                        {
                             self.left_panel -= 1;
                         }
                     } else {
-                        ui.label(RichText::new("◀").size(FONT_SM).color(BORDER_LIGHT));
+                        ui.add_sized(
+                            Vec2::new(NAV_ARROW_MIN, NAV_ARROW_MIN),
+                            egui::Label::new(arrow_dim("◀")),
+                        );
                     }
 
                     ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::TopDown), |ui| {
                         ui.vertical_centered(|ui| {
                             ui.label(
                                 RichText::new(LEFT_PANELS[self.left_panel])
-                                    .size(FONT_SM)
-                                    .color(TEXT_DIM),
+                                    .size(FONT_BODY)
+                                    .color(TEXT)
+                                    .strong(),
                             );
-                            // Nav dots
+                            ui.add_space(2.0);
+                            // Tappable dots — jump to panel
                             ui.horizontal(|ui| {
-                                ui.add_space(ui.available_width() / 2.0 - 8.0);
+                                let stride = PANEL_DOT_HIT * LEFT_PANELS.len() as f32;
+                                ui.add_space((ui.available_width() - stride).max(0.0) * 0.5);
                                 for i in 0..LEFT_PANELS.len() {
-                                    let dot_color = if i == self.left_panel { ACCENT } else { BORDER };
-                                    let (r, _) = ui.allocate_exact_size(Vec2::splat(5.0), egui::Sense::hover());
-                                    ui.painter().circle_filled(r.center(), 2.5, dot_color);
+                                    let active = i == self.left_panel;
+                                    let (_, resp) =
+                                        ui.allocate_exact_size(Vec2::splat(PANEL_DOT_HIT), egui::Sense::click());
+                                    let r = resp.rect;
+                                    ui.painter().circle_filled(
+                                        r.center(),
+                                        if active { 4.0 } else { 2.5 },
+                                        if active { ACCENT } else { BORDER },
+                                    );
+                                    if resp.clicked() {
+                                        self.left_panel = i;
+                                    }
                                 }
                             });
                         });
                     });
 
-                    // Next arrow
                     if self.left_panel < LEFT_PANELS.len() - 1 {
-                        if ui.add(egui::Button::new(
-                            RichText::new("▶").size(FONT_SM).color(ACCENT_LIGHT),
-                        ).frame(false)).clicked() {
+                        if ui
+                            .add_sized(
+                                Vec2::new(NAV_ARROW_MIN, NAV_ARROW_MIN),
+                                egui::Button::new(arrow("▶")).frame(false),
+                            )
+                            .clicked()
+                        {
                             self.left_panel += 1;
                         }
                     } else {
-                        ui.label(RichText::new("▶").size(FONT_SM).color(BORDER_LIGHT));
+                        ui.add_sized(
+                            Vec2::new(NAV_ARROW_MIN, NAV_ARROW_MIN),
+                            egui::Label::new(arrow_dim("▶")),
+                        );
                     }
                 });
             });
 
-            // Center label
+            // Center — todos + hint
             ui.allocate_ui(Vec2::new(center_w, CHAT_BAR_H), |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
-                    ui.label(RichText::new("TODOS").size(FONT_SM).color(TEXT_DIM));
+                    ui.add_space(4.0);
+                    ui.label(RichText::new("TODOS").size(FONT_BODY).color(ACCENT2).strong());
+                    ui.label(
+                        RichText::new("Tap ☐ to complete · swipe columns for more")
+                            .size(FONT_XS)
+                            .color(TEXT_DIM),
+                    );
                 });
             });
 
             // Right navigation
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Next arrow (drawn first because RTL)
                 if self.right_panel < RIGHT_PANELS.len() - 1 {
-                    if ui.add(egui::Button::new(
-                        RichText::new("▶").size(FONT_SM).color(ACCENT_LIGHT),
-                    ).frame(false)).clicked() {
+                    if ui
+                        .add_sized(
+                            Vec2::new(NAV_ARROW_MIN, NAV_ARROW_MIN),
+                            egui::Button::new(arrow("▶")).frame(false),
+                        )
+                        .clicked()
+                    {
                         self.right_panel += 1;
                     }
                 } else {
-                    ui.label(RichText::new("▶").size(FONT_SM).color(BORDER_LIGHT));
+                    ui.add_sized(
+                        Vec2::new(NAV_ARROW_MIN, NAV_ARROW_MIN),
+                        egui::Label::new(arrow_dim("▶")),
+                    );
                 }
 
                 ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                    ui.add_space(8.0);
+                    ui.add_space(4.0);
                     ui.label(
                         RichText::new(RIGHT_PANELS[self.right_panel])
-                            .size(FONT_SM)
-                            .color(TEXT_DIM),
+                            .size(FONT_BODY)
+                            .color(TEXT)
+                            .strong(),
                     );
+                    ui.add_space(2.0);
                     ui.horizontal(|ui| {
-                        let dots_w = RIGHT_PANELS.len() as f32 * 11.0;
-                        ui.add_space((ui.available_width() - dots_w).max(0.0) / 2.0);
+                        let stride = PANEL_DOT_HIT * RIGHT_PANELS.len() as f32;
+                        ui.add_space((ui.available_width() - stride).max(0.0) * 0.5);
                         for i in 0..RIGHT_PANELS.len() {
-                            let dot_color = if i == self.right_panel { ACCENT } else { BORDER };
-                            let (r, _) = ui.allocate_exact_size(Vec2::splat(5.0), egui::Sense::hover());
-                            ui.painter().circle_filled(r.center(), 2.5, dot_color);
+                            let active = i == self.right_panel;
+                            let (_, resp) =
+                                ui.allocate_exact_size(Vec2::splat(PANEL_DOT_HIT), egui::Sense::click());
+                            let r = resp.rect;
+                            ui.painter().circle_filled(
+                                r.center(),
+                                if active { 4.0 } else { 2.5 },
+                                if active { ACCENT } else { BORDER },
+                            );
+                            if resp.clicked() {
+                                self.right_panel = i;
+                            }
                         }
                     });
                 });
 
-                // Prev arrow
                 if self.right_panel > 0 {
-                    if ui.add(egui::Button::new(
-                        RichText::new("◀").size(FONT_SM).color(ACCENT_LIGHT),
-                    ).frame(false)).clicked() {
+                    if ui
+                        .add_sized(
+                            Vec2::new(NAV_ARROW_MIN, NAV_ARROW_MIN),
+                            egui::Button::new(arrow("◀")).frame(false),
+                        )
+                        .clicked()
+                    {
                         self.right_panel -= 1;
                     }
                 } else {
-                    ui.label(RichText::new("◀").size(FONT_SM).color(BORDER_LIGHT));
+                    ui.add_sized(
+                        Vec2::new(NAV_ARROW_MIN, NAV_ARROW_MIN),
+                        egui::Label::new(arrow_dim("◀")),
+                    );
                 }
             });
         });
@@ -1147,64 +1202,56 @@ impl ClawdApp {
     // ── Help / commands panel ─────────────────────────────────────
 
     fn draw_help_panel(ui: &mut egui::Ui) {
-        section_title(ui, "COMMANDS");
+        section_title(ui, "HELP");
 
         let sections: &[(&str, &[&str])] = &[
-            ("VOICE (say \"Claude, ...\")", &[
-                "Show me my emails / calendar / todos",
-                "Add a todo [text]",
-                "Complete [todo text]",
+            ("VOICE — say “Clawd” / “Claude”", &[
+                "Show my emails / calendar / todos",
+                "Add a todo … / Remind me to …",
+                "Complete [todo words]",
                 "What's on my calendar",
-                "Book a meeting [details]",
-                "Am I free [day/time]",
-                "Email [person] about [topic]",
-                "Trains from [A] to [B]",
-                "Hotels near [place]",
-                "Search for [query]",
-                "Remember [note]",
-                "Refresh",
-                "How are you running? (status)",
-                "Thank you (acknowledged)",
+                "Remember [note] · Refresh",
+                "How are you running? (system status)",
             ]),
-            ("VOICE CONVERSATION", &[
-                "After Claude responds, speak",
-                "  your reply without wake word",
-                "  (10s follow-up window)",
-                "Say just \"Claude\" to start,",
-                "  then give your command",
+            ("AFTER CLAWD SPEAKS", &[
+                "Short follow-up without wake word",
+                "(listen window on EVO after each reply)",
             ]),
             ("WHATSAPP", &[
-                "All voice commands + images",
-                "Send photos for vision analysis",
-                "Draft/send emails (with confirm)",
-                "Soul/personality changes",
-                "Morning briefing (auto 07:00)",
-                "Todo reminders (auto)",
+                "Same ideas + photos for vision",
+                "Email: draft first, then confirm send",
+                "07:00 briefing · todo reminders",
             ]),
-            ("DASHBOARD", &[
-                "Swipe left/right: switch panels",
-                "Tap todo: mark complete",
-                "Left: Henry | Calendar",
-                "Centre: Todos | Weather",
-                "Right: Side Gig | Email | Soul",
-                "       | Admin | Help",
+            ("THIS SCREEN (1024×600)", &[
+                "Bottom bar: ◀ ▶ = pages · dots = jump",
+                "Swipe left/right column to change page",
+                "Centre: tap checkbox to complete todo",
+                "Weather + clock in header",
             ]),
         ];
 
-        for (title, commands) in sections {
-            ui.add_space(4.0);
-            ui.label(RichText::new(*title).size(FONT_SM).color(ACCENT).strong());
-            ui.add_space(2.0);
-            for cmd in *commands {
-                ui.label(RichText::new(*cmd).size(FONT_SM).color(TEXT_DIM));
-            }
-        }
+        egui::ScrollArea::vertical()
+            .id_salt("help_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for (title, commands) in sections {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(*title).size(FONT_SM).color(ACCENT2).strong());
+                    ui.add_space(4.0);
+                    for cmd in *commands {
+                        ui.label(RichText::new(*cmd).size(FONT_BODY).color(TEXT_DIM));
+                        ui.add_space(2.0);
+                    }
+                }
+            });
     }
 
     // ── Voice overlay ──────────────────────────────────────────────
 
     fn draw_voice_overlay(&self, ctx: &egui::Context) {
         let time = self.time();
+        let screen_w = ctx.screen_rect().width();
+        let card_w = (screen_w * 0.88).clamp(280.0, 560.0);
 
         match &self.voice.state {
             VoiceState::Hidden => {}
@@ -1216,58 +1263,62 @@ impl ClawdApp {
                     .title_bar(false)
                     .resizable(false)
                     .collapsible(false)
-                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -90.0))
-                    .fixed_size(Vec2::new(180.0, 32.0))
+                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -96.0))
+                    .fixed_size(Vec2::new(card_w * 0.55, 42.0))
                     .frame(egui::Frame::none()
                         .fill(SURFACE)
                         .stroke(Stroke::new(1.0, ACCENT))
                         .rounding(egui::Rounding::same(16.0))
-                        .inner_margin(egui::Margin::symmetric(12.0, 6.0)))
+                        .inner_margin(egui::Margin::symmetric(14.0, 8.0)))
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
                             // Pulsing dot
-                            let dot_r = 4.0 + pulse * 2.0;
-                            let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(14.0), egui::Sense::hover());
+                            let dot_r = 5.0 + pulse * 2.5;
+                            let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(18.0), egui::Sense::hover());
                             ui.painter().circle_filled(
                                 dot_rect.center(),
                                 dot_r,
                                 Color32::from_rgba_premultiplied(108, 92, 231, (180.0 + pulse * 75.0) as u8),
                             );
-                            ui.label(RichText::new("How can I help?").size(FONT_BODY).color(ACCENT_LIGHT));
+                            ui.label(
+                                RichText::new("Listening — speak now")
+                                    .size(FONT_BODY)
+                                    .color(ACCENT_LIGHT),
+                            );
                         });
                     });
             }
 
             VoiceState::Processing { transcript, start } => {
                 let elapsed = time - start;
-                let display_text: String = if transcript.len() > 55 {
-                    format!("\"{}...\"", &transcript[..52])
+                let display_text: String = if transcript.len() > 72 {
+                    format!("“{}…”", &transcript[..69])
                 } else {
-                    format!("\"{}\"", transcript)
+                    format!("“{}”", transcript)
                 };
                 egui::Window::new("voice_processing")
                     .title_bar(false)
                     .resizable(false)
                     .collapsible(false)
-                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -90.0))
-                    .fixed_size(Vec2::new(420.0, 44.0))
+                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -96.0))
+                    .fixed_size(Vec2::new(card_w, 52.0))
                     .frame(egui::Frame::none()
                         .fill(SURFACE)
                         .stroke(Stroke::new(1.0, ACCENT))
                         .rounding(egui::Rounding::same(8.0))
-                        .inner_margin(egui::Margin::symmetric(12.0, 6.0)))
+                        .inner_margin(egui::Margin::symmetric(14.0, 8.0)))
                     .show(ctx, |ui| {
-                        ui.label(RichText::new(&display_text).size(FONT_SM).color(TEXT_DIM));
+                        ui.label(RichText::new(&display_text).size(FONT_BODY).color(TEXT));
                         ui.horizontal(|ui| {
                             for i in 0..3 {
                                 let bounce = ((elapsed * 3.0 + i as f64 * 0.3).sin() * 3.0).max(0.0) as f32;
-                                let (r, _) = ui.allocate_exact_size(Vec2::new(8.0, 10.0), egui::Sense::hover());
+                                let (r, _) = ui.allocate_exact_size(Vec2::new(8.0, 12.0), egui::Sense::hover());
                                 ui.painter().circle_filled(
                                     egui::pos2(r.center().x, r.max.y - bounce),
-                                    2.5, ACCENT,
+                                    3.0, ACCENT,
                                 );
                             }
-                            ui.label(RichText::new("Working on it...").size(FONT_XS).color(TEXT_DIM));
+                            ui.label(RichText::new("Working…").size(FONT_SM).color(TEXT_DIM));
                         });
                     });
             }
@@ -1279,22 +1330,28 @@ impl ClawdApp {
                     .title_bar(false)
                     .resizable(false)
                     .collapsible(false)
-                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -90.0))
-                    .min_width(340.0)
-                    .max_width(500.0)
-                    .max_height(200.0)
+                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -96.0))
+                    .min_width(card_w * 0.85)
+                    .max_width(card_w)
+                    .max_height((ctx.screen_rect().height() * 0.38).clamp(160.0, 240.0))
                     .frame(egui::Frame::none()
                         .fill(SURFACE)
                         .stroke(Stroke::new(1.5, ACCENT))
                         .rounding(egui::Rounding::same(8.0))
-                        .inner_margin(egui::Margin::symmetric(14.0, 10.0)))
+                        .inner_margin(egui::Margin::symmetric(16.0, 12.0)))
                     .show(ctx, |ui| {
+                        ui.label(
+                            RichText::new("Tap outside to dismiss")
+                                .size(FONT_XS)
+                                .color(TEXT_DIM),
+                        );
+                        ui.add_space(4.0);
                         if !tx.is_empty() {
-                            ui.label(RichText::new(format!("\"{}\"", tx)).size(FONT_XS).color(ACCENT2));
-                            ui.add_space(4.0);
+                            ui.label(RichText::new(format!("You: “{}”", tx)).size(FONT_SM).color(ACCENT2));
+                            ui.add_space(6.0);
                         }
                         egui::ScrollArea::vertical()
-                            .max_height(150.0)
+                            .max_height((ctx.screen_rect().height() * 0.28).clamp(120.0, 200.0))
                             .show(ui, |ui| {
                                 ui.label(RichText::new(rx).size(FONT_BODY).color(TEXT));
                             });
@@ -1307,15 +1364,16 @@ impl ClawdApp {
                     .title_bar(false)
                     .resizable(false)
                     .collapsible(false)
-                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -90.0))
+                    .anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0.0, -96.0))
+                    .max_width(card_w * 0.9)
                     .auto_sized()
                     .frame(egui::Frame::none()
                         .fill(SURFACE2)
                         .stroke(Stroke::new(1.0, BORDER))
                         .rounding(egui::Rounding::same(16.0))
-                        .inner_margin(egui::Margin::symmetric(16.0, 6.0)))
+                        .inner_margin(egui::Margin::symmetric(18.0, 10.0)))
                     .show(ctx, |ui| {
-                        ui.label(RichText::new(msg).size(FONT_SM).color(TEXT));
+                        ui.label(RichText::new(msg).size(FONT_BODY).color(TEXT));
                     });
             }
         }
@@ -1470,8 +1528,13 @@ impl eframe::App for ClawdApp {
 // ── Helper functions ───────────────────────────────────────────────
 
 fn section_title(ui: &mut egui::Ui, title: &str) {
-    ui.label(RichText::new(title).size(FONT_SM).color(TEXT_DIM));
-    ui.add_space(6.0);
+    ui.label(
+        RichText::new(title)
+            .size(FONT_TITLE)
+            .color(ACCENT)
+            .strong(),
+    );
+    ui.add_space(8.0);
 }
 
 fn draw_status_badge(ui: &mut egui::Ui, label: &str, booked: bool) {
