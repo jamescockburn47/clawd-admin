@@ -21,10 +21,10 @@ These are agreed decisions. Do not revisit, reverse, or work around them. If a d
 10. **Dashboard is Rust/egui native app.** Not Chromium, not HTML. Source in `clawd-dashboard/src/`.
 11. **Fix general before specific.** When a bug affects one action (e.g. calendar_list has no TTS), fix the general case (all actions must have TTS fallback) not just the specific action.
 
-### Evolution Pipeline (PLANNED — not yet built)
-12. **Overnight Claude Code CLI session** — runs after 22:00 llama shutdown. Works in a git branch, never main. Reads health report + interaction logs + feedback. Writes evolution-report.md. James reviews in morning.
-13. **Data collection layers needed first**: interaction logging (JSONL), WhatsApp reaction feedback, correction detection, development journal entries.
-14. **Local model does analysis only** — log crunching, pattern detection, health reports. Code mutation requires Claude-level reasoning.
+### Evolution Pipeline (DEPLOYED — 2026-03-25)
+12. **Claude Code CLI on EVO** — v2.1.81 at `~/.local/bin/claude`. Runs headless via `-p "instruction" --dangerously-skip-permissions`. Works in git branches, never main. Repo at `~/clawdbot-claude-code/`.
+13. **Data collection layers complete**: interaction logging (JSONL), WhatsApp reaction feedback, correction detection, self-improvement cycle logs, dream mode diary + facts + insights + verbatim.
+14. **Local model does analysis only** — log crunching, pattern detection, health reports. Code mutation uses Claude Code CLI (cloud API) for Claude-level reasoning.
 
 ## Research Protocol — MANDATORY
 
@@ -52,7 +52,7 @@ These have been verified through testing. Do not waste time re-investigating:
 - **SearXNG runs on EVO** in Docker (port 8888). Free, self-hosted web search — no API key required. Replaces Brave Search for `web_search` tool.
 - **Document parsing on Pi** uses `pdf-parse` (PDFs) and `mammoth` (DOCX/Word). Documents are summarised via EVO before sending to Claude (85% token reduction). Raw text cached for follow-up questions.
 - **Bot code uses `evo-llm.js`** (OpenAI-compatible API via direct ethernet `http://10.0.0.2:8080`). Legacy `ollama.js` was removed from the tree.
-- **Orpheus-3B TTS**: Needs `--special` flag on llama-server. Prompt format: `<|audio|>voice: text<|eot_id|>`. Uses `/v1/completions` endpoint. Outputs SNAC audio tokens decoded with Python `snac` library.
+- **Orpheus-3B TTS**: `llama-server-tts` service IS running on port 8082 (not disabled). Needs `--special` flag. Prompt format: `<|audio|>voice: text<|eot_id|>`. Uses `/v1/completions` endpoint. Outputs SNAC audio tokens decoded with Python `snac` library. Piper TTS is used for all voice output (faster); Orpheus is available but not called by default.
 - **Optimised llama-server flags**: `--flash-attn on --mlock --no-mmap --cont-batching --batch-size 1024 --ubatch-size 512 --cache-type-k q8_0 --cache-type-v q8_0`. Requires `LimitMEMLOCK=infinity` in systemd unit.
 - **SSH to EVO via direct link**: `ssh james@10.0.0.2` from Pi. Host key already in Pi's `known_hosts` for 10.0.0.2.
 - **lemonade-sdk** provides prebuilt llama.cpp ROCm binaries for gfx1151 with all patches: https://github.com/lemonade-sdk/llamacpp-rocm/releases
@@ -61,9 +61,9 @@ These have been verified through testing. Do not waste time re-investigating:
 
 | Key | Value |
 |-----|-------|
-| **Pi IP** | `192.168.1.211` (may change — check `known_hosts` or ping sweep if unreachable) |
+| **Pi IP** | `192.168.1.211` LAN / `100.104.92.87` Tailscale (hostname: `cnc`) |
 | **Pi user** | `pi` (NOT `james`) |
-| **EVO X2 IP** | `192.168.1.230` WiFi / `10.0.0.2` direct ethernet (prefer direct) |
+| **EVO X2 IP** | `10.0.0.2` direct ethernet (prefer) / `192.168.1.230` WiFi / `100.90.66.54` Tailscale |
 | **EVO user** | `james` (NOT `pi`) |
 | **EVO main LLM** | `http://10.0.0.2:8080` — Qwen3-VL-30B-A3B Q4_K_M (llama-server, Vulkan, vision-capable, `-c 32768`) |
 | **EVO SearXNG** | `http://10.0.0.2:8888` — Docker, free web search (no API key) |
@@ -85,6 +85,9 @@ These have been verified through testing. Do not waste time re-investigating:
 | **Pi display** | 10.1" touchscreen, 1024x600 |
 | **Model** | `claude-sonnet-4-6` |
 | **Node** | v20+, ESM modules, `node --env-file=.env src/index.js` |
+| **EVO Claude Code** | `~/.local/bin/claude` v2.1.81 (native install, headless via `-p`) |
+| **EVO clawdbot repo** | `~/clawdbot-claude-code/` (git repo, branch `main`) |
+| **Evolution tasks** | `data/evolution-tasks.json` (task queue for self-coding) |
 
 ## Session Protocol — MANDATORY
 
@@ -177,7 +180,7 @@ WhatsApp admin assistant bot ("Clawd") running on a Raspberry Pi 5 with a 10.1" 
 - **AI (cloud)**: `@anthropic-ai/sdk` — Claude Sonnet 4.6
 - **AI (local)**: llama.cpp (Vulkan) on EVO X2 — Qwen3-VL-30B-A3B Q4_K_M (main, vision-capable, 32K ctx), Qwen3-0.6B Q8_0 (classifier), Orpheus-3B Q8_0 (TTS, currently disabled — too slow)
 - **Google**: `googleapis` — Calendar v3, Gmail v1
-- **Weather**: OpenWeatherMap free tier (current conditions for configurable locations)
+- **Weather**: Open-Meteo (free, no API key, current conditions + forecast)
 - **Travel**: Darwin (live trains), BR Fares (ticket prices), Amadeus (hotels)
 - **Search**: SearXNG (self-hosted on EVO, Docker, port 8888, no API key)
 - **Document parsing**: pdf-parse (PDFs), mammoth (DOCX/Word) — on Pi
@@ -202,9 +205,8 @@ See `src/config.js` for all env vars. Key ones:
 - `EVO_LLM_URL` — EVO X2 main LLM URL (default `http://10.0.0.2:8080`)
 - `EVO_CLASSIFIER_URL` — EVO X2 classifier URL (default `http://10.0.0.2:8081`)
 - `EVO_TOOL_ENABLED` — `true`/`false` (default `true`)
-- `WEATHER_API_KEY` — OpenWeatherMap API key
 - `WEATHER_ENABLED` — `true`/`false` (default `true`)
-- `WEATHER_LOCATIONS` — comma-separated locations (default `London,York`)
+- `WEATHER_LOCATIONS` — comma-separated locations (default `London,York`). Uses Open-Meteo (free, no API key).
 - `BRIEFING_ENABLED` — `true`/`false` (default `true`)
 - `BRIEFING_TIME` — HH:MM in London timezone (default `07:00`)
 - `LOG_LEVEL` — Pino log level (default `info`)
@@ -260,6 +262,28 @@ When a decision is made during a session (explicitly agreed with James, or arisi
 46. **buildContext includes current message.** Fixed bug where triggerText was dropped when message buffer existed. Now includes `[Current message]` section.
 47. **Startup message only on version change.** "Back online." message suppressed — only sends on version bumps.
 48. **Google OAuth dead flag.** `googleAuthDead` flag in widgets.js stops retry spam when OAuth token is invalid_grant.
+
+### Engagement & Response Quality (2026-03-24)
+49. **Engagement BOT_NAMES excludes 'claude'.** `engagement.js` regex matches only `clawd|clawdbot`. General discussion about "Claude" (the AI) no longer triggers the engagement classifier. `trigger.js` already excluded it.
+50. **LQuorum topics NOT injected into classifier.** The 0.6B classifier prompt no longer includes "Clawd has knowledge on X" — a small model is influenced by topic hints regardless of disclaimers. The classifier gates purely on whether Clawd is being addressed.
+51. **Keywords run before complexity detection in router.** Keyword rules fire first — specific matches (overnight report, calendar, etc.) beat generic "long message" complexity classification. Prevents misrouting of known tool commands.
+52. **Message deduplication.** `index.js` tracks last 200 message IDs. Baileys can deliver the same message via `messages.upsert` multiple times — duplicates are now silently dropped.
+53. **Opus critique stripping uses --- divider.** If Opus's self-critique output contains `---` in the first 500 chars, everything before it is meta-commentary and gets stripped. Catches all preamble patterns without maintaining a regex denylist.
+54. **Anti-slop writing rules in system prompt.** Banned phrases (hedging, filler, business jargon, approval filler), banned structures (binary contrasts, dramatic fragmentation, rhetorical questions), substance rule (every sentence must add new information). Prose over bullets unless genuinely discrete items.
+
+### Dream Mode Housekeeping (2026-03-24)
+55. **Dream orientation phase (Phase 0).** Before generating any diary, dream_mode.py fetches existing memories for the group. Injected as "What I already know" in the dream prompt. Prevents duplicate fact extraction.
+56. **Pre-store dedup + contradiction detection.** Each extracted fact is checked against existing memories before storage. Similarity > 0.85 with high text overlap = skip (duplicate). Same topic but different content = supersede (contradiction).
+57. **Stale memory pruning (Phase 5).** After diary generation, runs `/maintain` (expire + dedup) plus date-based staleness check. Machine-extracted memories older than 30 days with low access count are pruned. Protected categories (identity, person, legal, preference) exempt.
+58. **Verbatim excerpt storage.** Dream prompt includes `[VERBATIM]` section — exact quotes worth preserving word-for-word. Stored with 0.95 confidence, category `general`, tagged `verbatim`. Enables precise recall alongside lossy diary summaries.
+
+### Evolution Pipeline (2026-03-25)
+59. **Self-coding via Claude Code CLI on EVO.** Claude Code v2.1.81 installed at `~/.local/bin/claude` on EVO. Repo at `~/clawdbot-claude-code/`. API key in `~/.bashrc`. All changes in git branches (never main).
+60. **evolution_task WhatsApp tool.** Owner-only tool creates coding tasks. Tasks queued in `data/evolution-tasks.json`. Scheduler picks up pending tasks (max 3/day, 1/hour, 1 concurrent).
+61. **DM approval required for all code changes.** Claude Code runs on EVO in a git branch. Diff sent to James via WhatsApp DM. "Reply approve/reject." No auto-deploy — ever.
+62. **Deploy flow: merge → rsync → restart → health check.** On approve: merge branch to main on EVO, rsync changed files to Pi, restart clawdbot, verify service active after 5s. On health check failure: auto-revert commit, re-rsync, restart.
+63. **Dream mode can create evolution tasks.** HTTP endpoint `POST /api/evolution/task` allows dream_mode.py to queue coding tasks when overnight analysis identifies a weakness.
+64. **Tailscale on all machines.** Pi (100.104.92.87, `cnc`), EVO (100.90.66.54, `james-nucbox-evo-x2`). Enables SSH from anywhere without LAN. `--ssh` flag enabled for Tailscale SSH.
 
 ## Response Pipeline — Who Generates What
 

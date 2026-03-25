@@ -1,7 +1,7 @@
 // Group engagement gate — mute system, negative signal detection, engagement classifier
 import config from './config.js';
 import { classifyViaEvo } from './evo-llm.js';
-import { getWarmTopicTitles } from './lquorum-rag.js';
+
 import { getRecentMessages } from './buffer.js';
 import logger from './logger.js';
 
@@ -9,7 +9,7 @@ import logger from './logger.js';
 
 const mutes = new Map(); // groupJid → muteExpiresAt (epoch ms)
 
-const BOT_NAMES = /\b(clawd|clawdbot|claude)\b/i;
+const BOT_NAMES = /\b(clawd|clawdbot)\b/i;
 const MUTE_KEYWORDS = /\b(shut\s*up|be\s*quiet|go\s*quiet|stay\s*out|stop\s*talking|silence|mute|hush)\b/i;
 
 /**
@@ -71,18 +71,21 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are deciding whether a WhatsApp bot called
 
 Respond with exactly one word: YES or NO.
 
-Respond YES when:
-- Someone directly addresses Clawd, asks Clawd a question, or mentions Clawd by name
-- Someone asks a factual question that Clawd can answer helpfully
-- The conversation has stalled and Clawd can add genuine value
-- Someone is struggling with something Clawd has expertise in
+DEFAULT IS NO. Only say YES when you are confident Clawd is being invited to participate.
+
+Respond YES ONLY when:
+- Someone directly addresses Clawd by name (clawd, clawdbot) and asks it something
+- Someone explicitly asks Clawd for help or input
+- Someone asks a question AND tags or names Clawd in the same message
 
 Respond NO when:
-- Humans are talking to each other and Clawd would be interrupting
-- The message is casual banter, reactions, or social chat between humans
-- Someone has recently told Clawd to be quiet or mocked its responses
-- The topic is personal/emotional and Clawd's input would feel intrusive
-- The message is very short (ok, lol, haha, yeah, etc.) with no question`;
+- Humans are talking to each other — even if Clawd could contribute
+- Someone asks a general question to the group (not specifically to Clawd)
+- The message is casual banter, reactions, or social chat
+- Someone mentions "claude" or "AI" in general discussion (not addressing the bot)
+- The topic is personal/emotional
+- The message is very short (ok, lol, haha, yeah, etc.)
+- You are unsure — when in doubt, say NO`;
 
 /**
  * Ask the EVO 0.6B classifier whether Clawd should engage in this group message.
@@ -102,13 +105,11 @@ export async function shouldEngage(groupJid, senderName, messageText) {
       return `${name}: ${m.text || '[media]'}`;
     });
 
-    // Enrich classifier with lquorum working memory signal
-    const warmTopics = getWarmTopicTitles();
-    let systemPrompt = CLASSIFIER_SYSTEM_PROMPT;
-    if (warmTopics.length > 0) {
-      systemPrompt += `\nClawd has specific community research on: ${warmTopics.join(', ')}. `
-        + `Consider responding YES if someone asks a question or expresses uncertainty about these topics.`;
-    }
+    // LQuorum warm topics deliberately NOT injected into classifier.
+    // A 0.6B model is influenced by "Clawd has knowledge on X" regardless of disclaimers.
+    // The classifier gates on invitation, not capability. Topic knowledge only affects
+    // response quality once the classifier has already said YES.
+    const systemPrompt = CLASSIFIER_SYSTEM_PROMPT;
 
     const prompt = contextLines.length > 0
       ? `Recent conversation:\n${contextLines.join('\n')}\n\nLatest message from ${senderName}: ${messageText}`

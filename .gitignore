@@ -7,8 +7,22 @@ node_modules/
 # Auth state (WhatsApp session)
 auth_state/
 
-# Soul data (user-specific runtime state)
+# Runtime data (user-specific, regenerated)
 data/soul*.json
+data/audit.json
+data/messages.json
+data/interactions.jsonl
+data/feedback.jsonl
+data/router-stats.jsonl
+data/memory-cache.json
+data/self-improve-log.jsonl
+data/evolution-tasks.json
+data/conversation-logs/
+data/document-cache/
+data/document-logs/
+data/memory-queue/
+data/backups/
+data/notified_meetings.json
 src/data/
 
 # Claude Code local settings
@@ -17,10 +31,21 @@ src/data/
 # OS files
 .DS_Store
 Thumbs.db
+nul
 
-# Temp
+# Temp files
 /tmp/
 *.log
+tmp_*.json
+_ping*.txt
+_step*.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# Screenshots (development artifacts)
+*.png
 
 # Rust build artifacts
 clawd-dashboard/target/

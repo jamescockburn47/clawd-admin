@@ -352,7 +352,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'web_fetch',
-    description: 'Fetch and read the content of a URL. Use when someone shares a link and you need to read it, or after web_search when you need the full page content. Returns plain text (HTML tags stripped). Max 4000 chars.',
+    description: 'Fetch and read the content of a URL. Use after web_search to read full page content, or when someone shares a link. Extracts main article content, preserves headings/lists/links as readable text. Max 8000 chars.',
     input_schema: {
       type: 'object',
       properties: {
@@ -483,7 +483,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'soul_propose',
-    description: 'Legacy — now redirects to soul_learn. Use soul_learn directly.',
+    description: 'Propose a soul update for James to review. Stores a pending change that must be confirmed via soul_confirm. Use when you observe something worth learning but want owner approval first. In groups, proposals are always sent to James via DM.',
     input_schema: {
       type: 'object',
       properties: {
@@ -496,7 +496,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'soul_confirm',
-    description: 'Legacy — no longer needed. The soul system now uses soul_learn (direct) and dream observations (threshold-based).',
+    description: 'Confirm and apply the pending soul proposal. Only works from owner DM. Call this after James has reviewed and approved a soul_propose.',
     input_schema: {
       type: 'object',
       properties: {},
@@ -570,6 +570,111 @@ export const TOOL_DEFINITIONS = [
     input_schema: {
       type: 'object',
       properties: {},
+    },
+  },
+
+  // === PROJECTS ===
+  {
+    name: 'project_list',
+    description: 'List all defined projects with their names, status, and one-liners.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'project_read',
+    description: 'Read a project\'s full details or a specific section. Use to recall project architecture, pitch points, next steps, etc. Available projects: atlas (ATLAS — litigation AI), clawd-agi (Clawd AGI — recursive self-improving intelligence).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Project ID (e.g., "atlas").',
+        },
+        section: {
+          type: 'string',
+          description: 'Optional: specific section to read (summary, architecture, keyDifferentiators, potentialPartners, nextSteps, foundingInsight, tags). Omit to read everything.',
+        },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'project_pitch',
+    description: 'Generate a pitch for a project tailored to a specific audience. Returns structured context for you to deliver a compelling pitch.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Project ID (e.g., "atlas").',
+        },
+        audience: {
+          type: 'string',
+          description: 'Who the pitch is for — e.g., "Shlomo Klapper (Learned Hand founder)", "VC investor", "BigLaw managing partner", "legal tech conference".',
+        },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'project_update',
+    description: 'Update a project field. Can update status, summary, oneLiner, foundingInsight directly, or append items to nextSteps, tags, or keyDifferentiators arrays.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Project ID.',
+        },
+        field: {
+          type: 'string',
+          description: 'Field to update: status, summary, oneLiner, foundingInsight, nextSteps, tags, keyDifferentiators.',
+        },
+        value: {
+          type: 'string',
+          description: 'The new value (for string fields) or item to append (for array fields).',
+        },
+      },
+      required: ['id', 'field', 'value'],
+    },
+  },
+
+  // === OVERNIGHT REPORT ===
+  {
+    name: 'overnight_report',
+    description: 'Regenerate and send the overnight intelligence report (diary summaries, facts, insights, soul observations, project deep think, self-improvement, system health). Sends via email and WhatsApp. Use when James asks to regenerate, resend, or review the overnight report.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: {
+          type: 'string',
+          description: 'Optional date to generate report for (YYYY-MM-DD). Defaults to yesterday.',
+        },
+      },
+      required: [],
+    },
+  },
+
+  // === EVOLUTION ===
+  {
+    name: 'evolution_task',
+    description: 'Create a coding task for autonomous execution. Clawd will run Claude Code CLI on EVO to make the change in a git branch, then send the diff to James for approval before deploying. Use when James asks to fix, change, add, or improve Clawd\'s own code.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        instruction: {
+          type: 'string',
+          description: 'What code change to make. Be specific about the file, function, or behaviour to change.',
+        },
+        priority: {
+          type: 'string',
+          enum: ['normal', 'high'],
+          description: 'Priority level. High = processed next, normal = queued.',
+        },
+      },
+      required: ['instruction'],
     },
   },
 ];

@@ -48,8 +48,8 @@ const NAV_ARROW_MIN: f32 = 48.0; // touch target
 const PANEL_DOT_HIT: f32 = 14.0; // tappable dot cell
 
 // ── Panel labels ───────────────────────────────────────────────────
-const LEFT_PANELS: &[&str] = &["Henry", "Calendar"];
-const RIGHT_PANELS: &[&str] = &["Side Gig", "Email", "Soul", "Admin", "Help"];
+const LEFT_PANELS: &[&str] = &["Calendar", "AI Chat"];
+const RIGHT_PANELS: &[&str] = &["Admin", "Soul", "Email", "Side Gig", "Help"];
 
 // ───────────────────────────────────────────────────────────────────
 
@@ -258,13 +258,12 @@ impl ClawdApp {
             "navigate" => {
                 if let Some(panel_name) = panel {
                     match panel_name.as_str() {
-                        "henry" => self.left_panel = 0,
-                        "calendar" => self.left_panel = 1,
-                        "todos" => {} // center, no switch needed
-                        "sidegig" | "side_gig" | "side-gig" => self.right_panel = 0,
-                        "email" => self.right_panel = 1,
-                        "soul" => self.right_panel = 2,
-                        "admin" => self.right_panel = 3,
+                        "henry" | "calendar" => self.left_panel = 0,
+                        "ai_chat" | "chat" | "messages" => self.left_panel = 1,
+                        "admin" => self.right_panel = 0,
+                        "soul" => self.right_panel = 1,
+                        "email" => self.right_panel = 2,
+                        "sidegig" | "side_gig" | "side-gig" => self.right_panel = 3,
                         "help" | "commands" => self.right_panel = 4,
                         _ => log::debug!("Unknown navigate panel: {}", panel_name),
                     }
@@ -638,132 +637,180 @@ impl ClawdApp {
         });
     }
 
-    // ── Henry Weekends panel ───────────────────────────────────────
+    // ── Calendar + Henry panel (merged) ──────────────────────────────
 
-    fn draw_henry_panel(&self, ui: &mut egui::Ui, state: &AppState) {
-        section_title(ui, "HENRY WEEKENDS");
+    fn draw_calendar_panel(&self, ui: &mut egui::Ui, state: &AppState) {
+        section_title(ui, "CALENDAR");
 
-        if state.henry_weekends.is_empty() {
-            ui.label(RichText::new("No upcoming weekends").size(FONT_BODY).color(TEXT_DIM));
-            return;
+        // Today's events first
+        if state.calendar.is_empty() {
+            ui.label(RichText::new("No upcoming events").size(FONT_BODY).color(TEXT_DIM));
+        } else {
+            let mut last_date = String::new();
+
+            for event in &state.calendar {
+                let event_date = extract_date(&event.start);
+
+                // Date header
+                if event_date != last_date && !event_date.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(&event_date)
+                            .size(FONT_TITLE)
+                            .color(TEXT)
+                            .strong(),
+                    );
+                    last_date = event_date;
+                }
+
+                ui.horizontal(|ui| {
+                    // Time
+                    let time_str = extract_time(&event.start);
+                    ui.label(
+                        RichText::new(&time_str)
+                            .size(FONT_BODY)
+                            .color(ACCENT2),
+                    );
+
+                    ui.add_space(4.0);
+
+                    // Summary + location
+                    ui.vertical(|ui| {
+                        ui.label(RichText::new(&event.summary).size(FONT_BODY).color(TEXT));
+                        if let Some(ref loc) = event.location {
+                            if !loc.is_empty() {
+                                ui.label(RichText::new(loc).size(FONT_SM).color(TEXT_DIM));
+                            }
+                        }
+                    });
+                });
+
+                ui.separator();
+            }
         }
 
-        for weekend in &state.henry_weekends {
-            let avail = ui.available_width();
+        // Henry weekends section (collapsible)
+        if !state.henry_weekends.is_empty() {
+            ui.add_space(12.0);
+            ui.label(RichText::new("HENRY WEEKENDS").size(FONT_SM).color(ORANGE).strong());
+            ui.add_space(4.0);
+
+            for weekend in &state.henry_weekends {
+                let avail = ui.available_width();
+                egui::Frame::none()
+                    .fill(SURFACE2)
+                    .stroke(Stroke::new(1.0, BORDER))
+                    .rounding(egui::Rounding::same(8.0))
+                    .inner_margin(egui::Margin::same(10.0))
+                    .show(ui, |ui| {
+                        ui.set_width(avail - 22.0);
+                        // Date range
+                        ui.label(
+                            RichText::new(format!("{} -- {}", weekend.start_date, weekend.end_date))
+                                .size(FONT_TITLE)
+                                .color(TEXT)
+                                .strong(),
+                        );
+
+                        // Pattern
+                        if let Some(ref pattern) = weekend.pattern {
+                            ui.label(RichText::new(pattern).size(FONT_BODY).color(TEXT_DIM));
+                        }
+
+                        ui.add_space(4.0);
+
+                        // Status badges
+                        ui.horizontal(|ui| {
+                            if weekend.needs_travel.unwrap_or(false) {
+                                let booked = weekend.travel_booked.unwrap_or(false);
+                                draw_status_badge(ui, "TRAVEL", booked);
+                            } else {
+                                draw_na_badge(ui, "TRAVEL");
+                            }
+
+                            ui.add_space(4.0);
+
+                            if weekend.needs_accommodation.unwrap_or(false) {
+                                let booked = weekend.accommodation_booked.unwrap_or(false);
+                                draw_status_badge(ui, "ACCOM", booked);
+                            } else {
+                                draw_na_badge(ui, "ACCOM");
+                            }
+                        });
+                    });
+
+                ui.add_space(6.0);
+            }
+
+            // Side gig meetings (AI/LQ chat section)
+            if !state.side_gig.is_empty() {
+                ui.add_space(8.0);
+                ui.label(RichText::new("AI / LEGALTECH").size(FONT_SM).color(BLUE).strong());
+                ui.add_space(4.0);
+
+                for meeting in &state.side_gig {
+                    ui.horizontal(|ui| {
+                        let time_str = extract_time(&meeting.start);
+                        if !time_str.is_empty() {
+                            ui.label(RichText::new(&time_str).size(FONT_SM).color(ACCENT2));
+                            ui.add_space(4.0);
+                        }
+                        ui.label(RichText::new(&meeting.summary).size(FONT_BODY).color(TEXT));
+                        if let Some(ref tags) = meeting.tags {
+                            for tag in tags {
+                                let (bg, fg) = match tag.to_uppercase().as_str() {
+                                    "AI" => (Color32::from_rgb(18, 40, 65), BLUE),
+                                    "LQ" => (Color32::from_rgb(18, 50, 28), GREEN),
+                                    _ => (SURFACE2, TEXT_DIM),
+                                };
+                                egui::Frame::none()
+                                    .fill(bg)
+                                    .stroke(Stroke::new(1.0, fg))
+                                    .rounding(egui::Rounding::same(4.0))
+                                    .inner_margin(egui::Margin::symmetric(4.0, 1.0))
+                                    .show(ui, |ui| {
+                                        ui.label(RichText::new(&tag.to_uppercase()).size(FONT_XS).color(fg).strong());
+                                    });
+                            }
+                        }
+                    });
+                    ui.separator();
+                }
+            }
+        }
+    }
+
+    // ── AI Chat panel (recent messages) ────────────────────────────
+
+    fn draw_chat_panel(&self, ui: &mut egui::Ui, state: &AppState) {
+        section_title(ui, "AI CHAT");
+
+        if state.last_message_text.is_empty() {
+            ui.label(RichText::new("No recent messages").size(FONT_BODY).color(TEXT_DIM));
+        } else {
             egui::Frame::none()
                 .fill(SURFACE2)
                 .stroke(Stroke::new(1.0, BORDER))
                 .rounding(egui::Rounding::same(8.0))
                 .inner_margin(egui::Margin::same(10.0))
                 .show(ui, |ui| {
-                    ui.set_width(avail - 22.0);
-                    // Date range
-                    ui.label(
-                        RichText::new(format!("{} -- {}", weekend.start_date, weekend.end_date))
-                            .size(FONT_TITLE)
-                            .color(TEXT)
-                            .strong(),
-                    );
-
-                    // Pattern
-                    if let Some(ref pattern) = weekend.pattern {
-                        ui.label(RichText::new(pattern).size(FONT_BODY).color(TEXT_DIM));
+                    if !state.last_message_sender.is_empty() {
+                        ui.label(
+                            RichText::new(format!("{}:", state.last_message_sender))
+                                .size(FONT_SM)
+                                .color(ACCENT2)
+                                .strong(),
+                        );
                     }
-
-                    ui.add_space(4.0);
-
-                    // Status badges
-                    ui.horizontal(|ui| {
-                        // Travel badge
-                        if weekend.needs_travel.unwrap_or(false) {
-                            let booked = weekend.travel_booked.unwrap_or(false);
-                            draw_status_badge(ui, "TRAVEL", booked);
-                            if let Some(ref price) = weekend.travel_price {
-                                ui.label(RichText::new(price).size(FONT_SM).color(TEXT_DIM));
-                            }
-                        } else {
-                            draw_na_badge(ui, "TRAVEL");
-                        }
-
-                        ui.add_space(4.0);
-
-                        // Accommodation badge
-                        if weekend.needs_accommodation.unwrap_or(false) {
-                            let booked = weekend.accommodation_booked.unwrap_or(false);
-                            draw_status_badge(ui, "ACCOM", booked);
-                        } else {
-                            draw_na_badge(ui, "ACCOM");
-                        }
-                    });
-
-                    // Accommodation details
-                    if weekend.accommodation_booked.unwrap_or(false) {
-                        if let Some(ref name) = weekend.accommodation_name {
-                            let text = if let Some(ref price) = weekend.accommodation_price {
-                                format!("{} ({})", name, price)
-                            } else {
-                                name.clone()
-                            };
-                            ui.label(RichText::new(&text).size(FONT_SM).color(TEXT_DIM));
-                        }
-                    }
+                    ui.label(RichText::new(&state.last_message_text).size(FONT_BODY).color(TEXT));
                 });
-
-            ui.add_space(6.0);
-        }
-    }
-
-    // ── Calendar panel ─────────────────────────────────────────────
-
-    fn draw_calendar_panel(&self, ui: &mut egui::Ui, state: &AppState) {
-        section_title(ui, "CALENDAR");
-
-        if state.calendar.is_empty() {
-            ui.label(RichText::new("No upcoming events").size(FONT_BODY).color(TEXT_DIM));
-            return;
         }
 
-        let mut last_date = String::new();
-
-        for event in &state.calendar {
-            let event_date = extract_date(&event.start);
-
-            // Date header
-            if event_date != last_date && !event_date.is_empty() {
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new(&event_date)
-                        .size(FONT_TITLE)
-                        .color(TEXT)
-                        .strong(),
-                );
-                last_date = event_date;
-            }
-
-            ui.horizontal(|ui| {
-                // Time
-                let time_str = extract_time(&event.start);
-                ui.label(
-                    RichText::new(&time_str)
-                        .size(FONT_BODY)
-                        .color(ACCENT2),
-                );
-
-                ui.add_space(4.0);
-
-                // Summary + location
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(&event.summary).size(FONT_BODY).color(TEXT));
-                    if let Some(ref loc) = event.location {
-                        if !loc.is_empty() {
-                            ui.label(RichText::new(loc).size(FONT_SM).color(TEXT_DIM));
-                        }
-                    }
-                });
-            });
-
-            ui.separator();
-        }
+        // API usage summary
+        ui.add_space(12.0);
+        let today_calls = state.usage.today.as_ref().and_then(|t| t.calls).unwrap_or(0);
+        let today_cost = state.usage.today.as_ref().and_then(|t| t.cost).unwrap_or(0.0);
+        ui.label(RichText::new(format!("Today: {} calls · ${:.2}", today_calls, today_cost)).size(FONT_SM).color(TEXT_DIM));
     }
 
     // ── Todos panel ────────────────────────────────────────────────
@@ -1059,7 +1106,7 @@ impl ClawdApp {
         }
     }
 
-    // ── Soul panel ─────────────────────────────────────────────────
+    // ── Soul panel (array-based) ────────────────────────────────────
 
     fn draw_soul_panel(&self, ui: &mut egui::Ui, state: &AppState) {
         section_title(ui, "SOUL");
@@ -1072,79 +1119,99 @@ impl ClawdApp {
             }
         };
 
-        let labels_and_values = [
-            ("Personality", sections.personality.as_deref()),
-            ("Preferences", sections.preferences.as_deref()),
-            ("Context", sections.context.as_deref()),
-            ("Custom", sections.custom.as_deref()),
+        let categories: &[(&str, &Vec<crate::models::SoulEntry>, Color32)] = &[
+            ("PEOPLE", &sections.people, ACCENT2),
+            ("PATTERNS", &sections.patterns, BLUE),
+            ("LESSONS", &sections.lessons, GREEN),
+            ("BOUNDARIES", &sections.boundaries, RED),
         ];
 
-        for (label, value) in &labels_and_values {
-            let text = match value {
-                Some(v) if !v.is_empty() => *v,
-                _ => continue,
-            };
-
-            ui.label(RichText::new(*label).size(FONT_SM).color(ACCENT));
-            ui.label(RichText::new(text).size(FONT_BODY).color(TEXT_DIM));
+        for (label, entries, color) in categories {
+            if entries.is_empty() {
+                continue;
+            }
+            ui.label(RichText::new(*label).size(FONT_SM).color(*color).strong());
+            ui.add_space(2.0);
+            for entry in *entries {
+                ui.horizontal(|ui| {
+                    let (dot_rect, _) = ui.allocate_exact_size(Vec2::new(6.0, 6.0), egui::Sense::hover());
+                    ui.painter().circle_filled(dot_rect.center(), 3.0, *color);
+                    ui.add_space(2.0);
+                    ui.label(RichText::new(&entry.text).size(FONT_BODY).color(TEXT_DIM));
+                });
+            }
             ui.add_space(6.0);
         }
     }
 
-    // ── Admin panel ────────────────────────────────────────────────
+    // ── Admin panel (full system health) ───────────────────────────
 
     fn draw_admin_panel(&self, ui: &mut egui::Ui, state: &AppState) {
         section_title(ui, "ADMIN");
 
-        // Status section
-        ui.label(RichText::new("STATUS").size(FONT_SM).color(ACCENT));
+        // SYSTEMS section — all subsystem statuses
+        ui.label(RichText::new("SYSTEMS").size(FONT_SM).color(ACCENT));
         ui.add_space(2.0);
 
-        // Determine EVO / Voice status — heartbeat within 90s means EVO is online
         let evo_online = self.voice.evo_online(self.time());
+        let h = &state.system_health;
 
-        let statuses = [
-            ("Pi", true, "Online"),
-            (
-                "WhatsApp",
-                state.connected,
-                if state.connected { "Connected" } else { "Disconnected" },
-            ),
-            (
-                "EVO X2",
-                evo_online,
-                if evo_online { "Reachable" } else { "No Signal" },
-            ),
-            (
-                "Voice",
-                evo_online,
-                if evo_online { "Active" } else { "Inactive" },
-            ),
-        ];
-
-        for (name, online, status_text) in &statuses {
+        // Helper closure for status rows
+        let draw_row = |ui: &mut egui::Ui, name: &str, online: bool, detail: &str| {
             ui.horizontal(|ui| {
-                // Status dot
-                let dot_color = if *online { GREEN } else { RED };
+                let dot_color = if online { GREEN } else { RED };
                 let (dot_rect, _) = ui.allocate_exact_size(Vec2::new(8.0, 8.0), egui::Sense::hover());
                 ui.painter().circle_filled(dot_rect.center(), 4.0, dot_color);
                 ui.add_space(4.0);
-                ui.label(RichText::new(*name).size(FONT_BODY).color(TEXT_BTN));
+                ui.label(RichText::new(name).size(FONT_BODY).color(TEXT_BTN));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let val_color = if *online { GREEN } else { RED };
-                    ui.label(RichText::new(*status_text).size(FONT_BODY).color(val_color));
+                    let val_color = if online { GREEN } else { TEXT_DIM };
+                    ui.label(RichText::new(detail).size(FONT_SM).color(val_color));
                 });
             });
-            ui.separator();
+        };
+
+        draw_row(ui, "Pi", true, "Online");
+        draw_row(ui, "WhatsApp", state.connected, if state.connected { "Connected" } else { "Disconnected" });
+        draw_row(ui, "EVO X2", evo_online, if evo_online { "Reachable" } else { "No Signal" });
+        draw_row(ui, "Voice", evo_online, if evo_online { "Active" } else { "Inactive" });
+
+        // Overnight subsystems
+        let diary_ok = h.diary.as_ref().and_then(|d| d.last_run.as_deref()).is_some();
+        let diary_detail = h.diary.as_ref()
+            .and_then(|d| d.last_run.as_deref())
+            .unwrap_or("never");
+        draw_row(ui, "Diary", diary_ok, diary_detail);
+
+        let si_ok = h.self_improve.as_ref().and_then(|s| s.last_run.as_deref()).is_some();
+        let si_detail = h.self_improve.as_ref()
+            .and_then(|s| s.last_run.as_deref())
+            .unwrap_or("never");
+        draw_row(ui, "Self-Improve", si_ok, si_detail);
+
+        let kr_ok = h.knowledge_refresh.as_ref().and_then(|k| k.last_run.as_deref()).is_some();
+        let kr_detail = h.knowledge_refresh.as_ref()
+            .and_then(|k| k.last_run.as_deref())
+            .unwrap_or("never");
+        draw_row(ui, "Knowledge", kr_ok, kr_detail);
+
+        let bk_detail = h.backup.as_ref()
+            .and_then(|b| b.last_run.as_deref())
+            .unwrap_or("never");
+        draw_row(ui, "Backup", bk_detail != "never", bk_detail);
+
+        // Memory stats
+        let total_mems = h.memory.as_ref().map(|m| m.total).unwrap_or(0);
+        if total_mems > 0 {
+            draw_row(ui, "Memories", true, &format!("{} total", total_mems));
         }
 
         ui.add_space(8.0);
 
-        // Stats section
+        // STATS section — compact 2x2 cards
         ui.label(RichText::new("STATS").size(FONT_SM).color(ACCENT));
         ui.add_space(4.0);
 
-        // 2x2 stat cards
         ui.horizontal(|ui| {
             let card_w = (ui.available_width() - 6.0) / 2.0;
             stat_card(
@@ -1168,27 +1235,6 @@ impl ClawdApp {
 
         ui.add_space(6.0);
 
-        ui.horizontal(|ui| {
-            let card_w = (ui.available_width() - 6.0) / 2.0;
-            let today_calls = state.usage.today.as_ref().and_then(|t| t.calls).unwrap_or(0);
-            stat_card(
-                ui,
-                card_w,
-                &format!("{}", today_calls),
-                "TODAY",
-            );
-            ui.add_space(6.0);
-            let total_calls = state.usage.total.as_ref().and_then(|t| t.calls).unwrap_or(0);
-            stat_card(
-                ui,
-                card_w,
-                &format!("{}", total_calls),
-                "TOTAL",
-            );
-        });
-
-        // Cost cards
-        ui.add_space(6.0);
         let today_cost = state.usage.today.as_ref().and_then(|t| t.cost).unwrap_or(0.0);
         let total_cost = state.usage.total.as_ref().and_then(|t| t.cost).unwrap_or(0.0);
         ui.horizontal(|ui| {
@@ -1444,8 +1490,8 @@ impl eframe::App for ClawdApp {
                     .id_salt("left_scroll")
                     .show(ui, |ui| {
                         match self.left_panel {
-                            0 => self.draw_henry_panel(ui, &state),
-                            1 => self.draw_calendar_panel(ui, &state),
+                            0 => self.draw_calendar_panel(ui, &state),
+                            1 => self.draw_chat_panel(ui, &state),
                             _ => {}
                         }
                     });
@@ -1470,10 +1516,10 @@ impl eframe::App for ClawdApp {
                     .id_salt("right_scroll")
                     .show(ui, |ui| {
                         match self.right_panel {
-                            0 => self.draw_sidegig_panel(ui, &state),
-                            1 => self.draw_email_panel(ui, &state),
-                            2 => self.draw_soul_panel(ui, &state),
-                            3 => self.draw_admin_panel(ui, &state),
+                            0 => self.draw_admin_panel(ui, &state),
+                            1 => self.draw_soul_panel(ui, &state),
+                            2 => self.draw_email_panel(ui, &state),
+                            3 => self.draw_sidegig_panel(ui, &state),
                             4 => Self::draw_help_panel(ui),
                             _ => {}
                         }

@@ -100,19 +100,31 @@ pub struct WeatherData {
     pub current: Option<serde_json::Value>,
 }
 
+// Soul now uses array-based sections: people, patterns, lessons, boundaries
 #[derive(Deserialize, Clone, Default)]
 pub struct SoulData {
     pub soul: Option<SoulSections>,
-    pub pending: Option<serde_json::Value>,
-    pub history: Option<Vec<serde_json::Value>>,
+    pub observations: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize, Clone, Default)]
+pub struct SoulEntry {
+    pub text: String,
+    pub source: Option<String>,
+    #[serde(rename = "addedAt")]
+    pub added_at: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Default)]
 pub struct SoulSections {
-    pub personality: Option<String>,
-    pub preferences: Option<String>,
-    pub context: Option<String>,
-    pub custom: Option<String>,
+    #[serde(default)]
+    pub people: Vec<SoulEntry>,
+    #[serde(default)]
+    pub patterns: Vec<SoulEntry>,
+    #[serde(default)]
+    pub lessons: Vec<SoulEntry>,
+    #[serde(default)]
+    pub boundaries: Vec<SoulEntry>,
 }
 
 #[derive(Deserialize, Clone, Default)]
@@ -151,4 +163,44 @@ pub struct StatusResponse {
     pub uptime: Option<f64>,
     #[serde(rename = "memoryMB")]
     pub memory_mb: Option<f64>,
+}
+
+// System health — from /api/system-health
+#[derive(Deserialize, Clone, Default)]
+pub struct SubsystemStatus {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(rename = "lastRun")]
+    pub last_run: Option<String>,
+    #[serde(default)]
+    pub online: Option<bool>,
+    #[serde(rename = "queueDepth")]
+    pub queue_depth: Option<u32>,
+    #[serde(default)]
+    pub connected: Option<bool>,
+}
+
+#[derive(Deserialize, Clone, Default)]
+pub struct MemoryHealth {
+    #[serde(default)]
+    pub total: u32,
+    #[serde(default)]
+    pub categories: serde_json::Value,
+}
+
+#[derive(Deserialize, Clone, Default)]
+pub struct SystemHealthResponse {
+    pub whatsapp: Option<SubsystemStatus>,
+    pub evo: Option<SubsystemStatus>,
+    pub briefing: Option<SubsystemStatus>,
+    pub diary: Option<SubsystemStatus>,
+    #[serde(rename = "selfImprove")]
+    pub self_improve: Option<SubsystemStatus>,
+    #[serde(rename = "knowledgeRefresh")]
+    pub knowledge_refresh: Option<SubsystemStatus>,
+    pub backup: Option<SubsystemStatus>,
+    pub memory: Option<MemoryHealth>,
+    pub uptime: Option<u64>,
+    #[serde(rename = "memoryMB")]
+    pub memory_mb: Option<u64>,
 }

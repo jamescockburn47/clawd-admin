@@ -1,0 +1,25 @@
+[Unit]
+Description=Clawd Dream Mode — Overnight Diary
+After=clawdbot-memory.service llama-server-main.service
+Wants=clawdbot-memory.service llama-server-main.service
+
+[Service]
+Type=oneshot
+User=james
+Environment=EVO_LLM_URL=http://localhost:8080
+Environment=EVO_MEMORY_URL=http://localhost:5100
+Environment=PI_URL=http://10.0.0.1:3000
+Environment=DASHBOARD_TOKEN=VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM
+Environment=PI_LOG_DIR=/home/james/clawdbot-logs/conversation-logs
+
+# Step 1: Sync conversation logs from Pi
+ExecStartPre=/usr/bin/mkdir -p /home/james/clawdbot-logs/conversation-logs /home/james/clawdbot-logs/document-logs
+ExecStartPre=/usr/bin/rsync -az --timeout=30 pi@10.0.0.1:/home/pi/clawdbot/data/conversation-logs/ /home/james/clawdbot-logs/conversation-logs/
+-ExecStartPre=/usr/bin/rsync -az --timeout=30 pi@10.0.0.1:/home/pi/clawdbot/data/document-logs/ /home/james/clawdbot-logs/document-logs/
+
+# Step 2: Run diary generation
+ExecStart=/home/james/clawdbot-memory/venv/bin/python3 /home/james/clawdbot-memory/dream_mode.py --log-dir /home/james/clawdbot-logs/conversation-logs --doc-log-dir /home/james/clawdbot-logs/document-logs
+
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal

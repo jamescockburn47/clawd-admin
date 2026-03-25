@@ -425,6 +425,36 @@ export async function getIdentityMemories() {
   }
 }
 
+// Fetch overnight insights for morning briefing — yesterday's diary insight extractions
+export async function getOvernightInsights(dateStr) {
+  if (!evoOnline) return [];
+  try {
+    const results = await searchMemory(`diary_insight ${dateStr}`, 'insight', 8);
+    const byDate = (results || [])
+      .map(r => r.memory || r)
+      .filter(m => m && (m.tags || []).includes(dateStr));
+    return byDate;
+  } catch (err) {
+    logger.warn({ err: err.message }, 'overnight insight fetch failed');
+    return [];
+  }
+}
+
+// Fetch topic-matching insights for live conversation context (same pattern as working memory)
+export async function getInsightMemories(query, limit = 3) {
+  if (!evoOnline) return [];
+  try {
+    const results = await searchMemory(query, 'insight', limit);
+    return (results || [])
+      .filter(r => (r.score ?? 0) >= 0.20)
+      .map(r => r.memory || r)
+      .filter(Boolean);
+  } catch (err) {
+    logger.warn({ err: err.message }, 'insight memory fetch failed');
+    return [];
+  }
+}
+
 export function formatMemoriesForPrompt(memories) {
   if (!memories || memories.length === 0) return '';
 

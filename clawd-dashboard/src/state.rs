@@ -15,6 +15,7 @@ pub struct AppState {
     pub connected: bool,
     pub last_message_sender: String,
     pub last_message_text: String,
+    pub system_health: SystemHealthResponse,
     /// Queue of voice events — each entry holds (event, text, response, audio, panel, message)
     pub voice_queue: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)>,
 }

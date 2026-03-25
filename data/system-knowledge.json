@@ -31,8 +31,8 @@
         "name": "Rust Dashboard",
         "location": "Runs on Pi display",
         "framework": "eframe/egui native GUI (NOT Chromium/HTML)",
-        "layout": "3-column: Left (Henry weekends + calendar), Centre (todos), Right (side gig, email, soul, admin). Header: weather + usage. Bottom: last message + chat input + voice button.",
-        "connectivity": "HTTP calls to Pi port 3000 + SSE event stream for real-time updates"
+        "layout": "3-column: Left (Calendar with Henry weekends + AI/LQ meetings inline, AI Chat showing recent messages + API cost), Centre (Todos & Reminders), Right (Admin with full system health — Pi/WhatsApp/EVO/Voice/Diary/Self-Improve/Knowledge/Backup/Memories statuses + stat cards, Soul with people/patterns/lessons/boundaries, Email, Side Gig, Help). Header: weather + usage. Bottom: panel navigation dots.",
+        "connectivity": "HTTP calls to Pi port 3000 + SSE event stream for real-time updates. Fetches system health from /api/system-health endpoint."
       }
     ]
   },
@@ -66,20 +66,22 @@
     "email": ["gmail_search (search inbox)", "gmail_read (read full email)", "gmail_draft (create draft — always draft first, never send directly)", "gmail_confirm_send (send draft — owner-only, requires explicit approval)"],
     "travel": ["train_departures (National Rail Darwin live board — CRS codes: KGX, YRK, LDS, EDB, DAR)", "train_fares (BR Fares ticket pricing)", "hotel_search (Amadeus real-time prices)", "search_trains (LNER/Trainline/National Rail booking links, supports multi-leg trips)", "search_accommodation (Booking.com/Airbnb/Cottages.com booking links)"],
     "todos": ["todo_add (add item with optional due date, reminder, priority)", "todo_list (list active/completed items)", "todo_complete (mark done)", "todo_remove (delete)", "todo_update (modify)"],
-    "soul": ["soul_read (read learned entries)", "soul_learn (add entry directly — no confirmation needed)", "soul_forget (remove entry by index — owner only)"],
+    "soul": ["soul_read (read learned entries)", "soul_learn (add entry directly — no confirmation needed)", "soul_forget (remove entry by index — owner only)", "soul_propose (propose a soul update for review — in groups this sends a DM to James)", "soul_confirm (confirm and apply the pending soul proposal — owner DM only)"],
     "memory": ["memory_search (vector search on EVO, 8 results)", "memory_update (correct memory)", "memory_delete (remove memory)"],
-    "other": ["web_search (SearXNG — self-hosted on EVO, free, no API key)", "system_status (live metrics: uptime, memory, WhatsApp, EVO health, voice heartbeat, routing stats)"]
+    "other": ["web_search (SearXNG — self-hosted on EVO, free, no API key — ALWAYS available in ALL categories, not just general knowledge)", "web_fetch (fetch and read a URL — extracts main article content, preserves headings/links/lists, max 8000 chars)", "system_status (live metrics: uptime, memory, WhatsApp, EVO health, voice heartbeat, routing stats)"],
+    "projects": ["project_list (list all defined projects)", "project_read (read full project details or specific section — architecture, differentiators, partners, next steps)", "project_pitch (generate tailored pitch for a specific audience)", "project_update (update project status, summary, or append next steps/tags)"]
   },
   "scheduler": {
     "interval": "60 seconds",
     "tasks": [
       "Todo reminders — sends WhatsApp at configured reminder time",
       "Side gig meeting alerts — 30 minutes before meetings tagged 'Side Gig'",
-      "Morning briefing at 07:00 — weather, calendar, todos, Henry status (zero Claude API calls)",
+      "Morning briefing at 07:00 — weather, calendar, todos, Henry status, memory stats, overnight diary insights (surfaces up to 4 non-obvious insights from last night's diary) — zero Claude API calls",
       "Self-improvement cycle at 01:00 — probes keyword classifier, proposes new rules, validates against eval suite",
       "Overnight extraction at 02:00 — extracts facts from yesterday's conversation logs into EVO memory",
       "System knowledge refresh at 02:00 — regenerates self-knowledge entries in EVO memory from live codebase state",
       "Daily backup at 03:00 — todos, soul, soul_history (7-day retention)",
+      "Project Deep Think at 23:00 — multi-model strategic analysis on active projects using Claude Opus 4.6, GPT 5.4, and extended thinking mode. Runs web research via SearXNG to surface SOTA innovations, then feeds everything to premium models for deep analysis. Stores insights in memory and sends summary to James",
       "Weekly memory review on Sundays at 20:00 — memory stats summary via WhatsApp",
       "Widget cache refresh every 5 minutes — Henry weekends, side gig, emails, calendar, weather",
       "EVO model warm-keeping every 10 minutes — prevents llama.cpp from evicting model from VRAM",
@@ -98,7 +100,7 @@
     "summary": "I can read PDFs and Word documents shared via WhatsApp. PDFs are parsed using Granite-Docling-258M (a dedicated document understanding model on EVO port 8084) which renders each page and extracts structured markdown with headings, tables, and reading order preserved. Word documents use mammoth for text extraction. After parsing, the full text is summarised locally via EVO (port 8080) before involving Claude — cutting token costs by about 71%. Documents are stored permanently in my vector memory: a summary entry for quick recall, chunked raw text for detailed retrieval, and an index entry as a registry of everything I've read. Raw text is also logged for my overnight diary to reflect on. Follow-up questions within 5 minutes reuse the cached raw text; after that, document chunks are retrieved from the vector DB."
   },
   "webSearch": {
-    "summary": "I search the web using a self-hosted SearXNG instance on the EVO. It's free with no API key needed. I'm instructed to search before answering factual questions rather than relying on potentially stale training data."
+    "summary": "I search the web using a self-hosted SearXNG instance on the EVO. It's free with no API key needed. I'm instructed to search before answering factual questions rather than relying on potentially stale training data. Web search (web_search + web_fetch) tools are available in EVERY routing category — not just general knowledge. This means I can always search regardless of how the router classifies the message. The web_fetch tool now extracts article content intelligently: headings, links, list items are preserved as structured text. Max 8000 characters per page."
   },
   "silenceSystem": {
     "summary": "When I'm mentioned in a group but the message isn't actually directed at me, I produce a [SILENT] marker instead of responding. This prevents those annoying 'this message isn't for me' replies. The marker gets filtered out before anything is sent."
@@ -119,9 +121,11 @@
   },
   "dreamMode": {
     "summary": "My overnight diary runs at 22:05 on the EVO X2. My local model reviews the day's conversations AND documents from my first-person perspective and writes an experience diary — not just a summary, but reflections, insights, cross-references between documents and conversations, and things I notice with time to think that didn't come up in chat. Diary entries are stored as memories (category: diary) and injected into my context the next day.",
-    "diaryStructure": "Each diary entry has sections: WHAT HAPPENED TODAY, HOW I DID, PEOPLE, DOCUMENTS I REVIEWED (reflecting on documents shared that day — what was interesting, how it connects to conversations), INSIGHTS (cross-references and overnight reflections), UNFINISHED THREADS. Plus a [FACTS] section that extracts concrete durable facts (stored as long-term general memories) and a [SOUL] section for personality observations.",
+    "diaryStructure": "Each diary entry has sections: WHAT HAPPENED TODAY, HOW I DID, PEOPLE, DOCUMENTS I REVIEWED, INSIGHTS, UNFINISHED THREADS. Plus structured extraction sections: [FACTS] (concrete durable knowledge stored as general memories), [INSIGHTS] (non-obvious cross-references and patterns with topic tags — stored as insight memories for future retrieval), and [SOUL] (personality observations with severity tags).",
+    "insightExtraction": "The diary now extracts structured insights — each with an insight text, topic tags (for semantic matching), and connections to related conversations/documents. These are stored in the memory service as category 'insight'. When a future conversation touches a related topic, prior insights surface automatically and are injected into context as 'Prior insights'. This gives me genuine cross-conversation learning.",
+    "morningBriefingInsights": "The morning briefing includes an 'Overnight Insights' section that surfaces up to 4 non-trivial insights from last night's diary. This gives James a quick view of what connections and patterns I noticed overnight.",
     "soulConnection": "The diary outputs structured observations with severity tags (routine, corrective, critical). These are posted to my observation buffer. Routine observations need 3 occurrences across different days to promote to my soul. Corrective need 2. Critical promote immediately. This means I don't change personality from one bad day — I change when patterns repeat.",
-    "documentReflection": "Documents shared during the day are logged with their summaries and raw text. The diary prompt includes these, so I can reflect overnight on document content — making connections to conversations, noting things worth remembering long-term, and extracting facts that become permanent memories. This gives me a genuine advantage over cloud-only bots: accumulated knowledge and cross-document insight over time."
+    "documentReflection": "Documents shared during the day are logged with their summaries and raw text. The diary prompt includes these, so I can reflect overnight on document content — making connections to conversations, noting things worth remembering long-term, and extracting facts that become permanent memories."
   },
   "henryWeekends": {
     "summary": "James visits his son Henry near York. Route: London Kings Cross ↔ York (LNER, ~1h50). Patterns: Fri-Sun (2 train legs, 2 nights), Sat-Sun (2 legs, 1 night), 4-trip (4 legs, complex multi-leg), driving (no train). Accommodation: North York Moors villages (Helmsley, Pickering, Kirkbymoorside) or coast (Whitby, Robin Hood's Bay). Dashboard shows travel/accommodation booking status badges (green=booked, red=missing)."
@@ -191,5 +195,8 @@
       "Legal Quants: What It Is and What It Might Become"
     ]
   },
-  "version": "2.1.0"
+  "systemHealthApi": {
+    "summary": "The /api/system-health endpoint provides a consolidated view of all subsystem statuses. It reports on WhatsApp connection, EVO reachability, briefing/diary/self-improve/knowledge-refresh/backup last-run times, memory statistics (total count + category breakdown), system uptime, and memory usage. The dashboard's Admin panel fetches this on startup and displays it as a real-time status grid with green/red indicators."
+  },
+  "version": "2.2.0"
 }

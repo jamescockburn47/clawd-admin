@@ -1,0 +1,135 @@
+# Clawdbot — Cursor Deployment Guide
+
+## READ FIRST
+Read `CLAUDE.md` and `architecture.md` for full system context.
+
+## Cursor agent — SSH and timeouts (mandatory)
+
+- **Same machine as Claude Code:** This workspace has the SSH key at `C:\Users\James\.ssh\id_ed25519` and normal LAN access. **Do not assume SSH is blocked** or that deploy “can’t work from the sandbox” — run the commands and use real exit output.
+- **Run `ssh` / `scp` directly** in the integrated terminal (one command per invocation is fine). Prefer the **copy-paste blocks below** over PowerShell wrapper scripts unless you are batching many files in one script the user asked for.
+- **`cargo build --release`** on the Pi typically takes **~1m45s** and can run longer. When using a tool with a wait budget, allow **at least 5 minutes (300000 ms)** for that step, **or split deploy:** finish SCP + `systemctl restart` first, then run **only** `ssh ... "source ~/.cargo/env; cd ~/clawd-dashboard && cargo build --release"` in a **separate** command with a long timeout.
+- If a combined pipeline times out, **split into separate terminal steps** (Node deploy → dashboard SCP → cargo build → relaunch → EVO hop) instead of giving up.
+
+## SSH Key
+All SSH/SCP commands use: `-i C:/Users/James/.ssh/id_ed25519`
+
+## Targets
+
+| Target | Host | User | Path |
+|--------|------|------|------|
+| Pi (bot backend) | `192.168.1.211` | `pi` | `~/clawdbot/` |
+| Pi (dashboard) | `192.168.1.211` | `pi` | `~/clawd-dashboard/` |
+| EVO X2 (voice + memory API) | via Pi hop | `james` | `~/clawdbot-memory/` |
+
+## Deploy Node.js (bot backend) to Pi
+
+```bash
+# 1. Copy changed file(s)
+scp -i C:/Users/James/.ssh/id_ed25519 src/<file>.js pi@192.168.1.211:~/clawdbot/src/<file>.js
+
+# 2. Restart service
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "sudo systemctl restart clawdbot"
+
+# 3. Verify
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "journalctl -u clawdbot --no-pager -n 10"
+```
+
+For files in subdirectories:
+```bash
+scp -i C:/Users/James/.ssh/id_ed25519 src/tools/handler.js pi@192.168.1.211:~/clawdbot/src/tools/handler.js
+```
+
+## Deploy Dashboard (Rust) to Pi
+
+```bash
+# 1. Copy source (include api.rs if changed)
+scp -i C:/Users/James/.ssh/id_ed25519 clawd-dashboard/src/main.rs clawd-dashboard/src/api.rs pi@192.168.1.211:~/clawd-dashboard/src/
+
+# 2. Build on Pi — allow ~2–5+ minutes; run as its own command if your runner has a short default timeout
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "source ~/.cargo/env; cd ~/clawd-dashboard && cargo build --release"
+
+# 3. Relaunch
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "pkill clawd-dashboard 2>/dev/null; sleep 2; export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; nohup /home/pi/clawd-dashboard/target/release/clawd-dashboard > /tmp/clawd-dashboard.log 2>&1 &"
+
+# 4. Verify
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "sleep 2 && tail -5 /tmp/clawd-dashboard.log"
+```
+
+## Deploy Memory Service (FastAPI on EVO) — includes `POST /route-command`
+
+Voice routing calls `http://localhost:5100/route-command` on EVO; code lives in `memory-service/`.
+
+```bash
+# 1. Stage on Pi
+scp -i C:/Users/James/.ssh/id_ed25519 memory-service/main.py memory-service/command_router.py pi@192.168.1.211:/tmp/
+
+# 2. Pi → EVO (same tree as voice_listener)
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "scp /tmp/main.py /tmp/command_router.py james@192.168.1.230:~/clawdbot-memory/"
+
+# 3. Restart memory API (unit name from voice service: After=clawdbot-memory.service)
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "ssh james@192.168.1.230 'sudo systemctl restart clawdbot-memory'"
+
+# 4. Verify
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "ssh james@192.168.1.230 'curl -s -o /dev/null -w \"%{http_code}\" -X POST http://127.0.0.1:5100/route-command -H \"Content-Type: application/json\" -d \"{\\\"text\\\":\\\"show calendar\\\"}\"'"
+```
+
+## Deploy Voice Listener to EVO X2 (via Pi hop)
+
+The EVO X2 is not directly reachable from this machine. SSH hop through Pi.
+
+```bash
+# 1. Copy to Pi as staging
+scp -i C:/Users/James/.ssh/id_ed25519 evo-voice/voice_listener.py pi@192.168.1.211:/tmp/voice_listener.py
+
+# 2. Pi copies to EVO
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "scp /tmp/voice_listener.py james@192.168.1.230:~/clawdbot-memory/voice_listener.py"
+
+# 3. Restart voice service on EVO
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "ssh james@192.168.1.230 'sudo systemctl restart clawdbot-voice'"
+
+# 4. Verify
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "ssh james@192.168.1.230 'journalctl -u clawdbot-voice -n 10 --no-pager'"
+```
+
+## Deploy EVO systemd services (rare)
+
+```bash
+# Copy service file to Pi, then to EVO
+scp -i C:/Users/James/.ssh/id_ed25519 evo-voice/clawdbot-voice.service pi@192.168.1.211:/tmp/clawdbot-voice.service
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "scp /tmp/clawdbot-voice.service james@192.168.1.230:/tmp/ && ssh james@192.168.1.230 'sudo cp /tmp/clawdbot-voice.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart clawdbot-voice'"
+```
+
+## Check Logs
+
+```bash
+# Pi bot
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "journalctl -u clawdbot --no-pager -n 50"
+
+# Pi dashboard
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "tail -50 /tmp/clawd-dashboard.log"
+
+# EVO voice listener
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "ssh james@192.168.1.230 'journalctl -u clawdbot-voice -n 50 --no-pager'"
+
+# EVO llama servers
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "ssh james@192.168.1.230 'systemctl status llama-server-main llama-server-classifier llama-server-tts --no-pager'"
+```
+
+## Take Pi Screenshot
+
+```bash
+ssh -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211 "export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0; grim /tmp/screenshot.png"
+scp -i C:/Users/James/.ssh/id_ed25519 pi@192.168.1.211:/tmp/screenshot.png screenshot.png
+```
+
+## Important Rules
+- NEVER use `git status -uall` (can OOM on large repos)
+- Pi user is `pi`, NOT `james`
+- EVO user is `james`, NOT `pi`
+- Pi project path is `~/clawdbot/` (NOT `~/clawdbot-claude-code/`)
+- SCP overwrites, doesn't merge — send individual files, not directories
+- After deploying Node.js files, ALWAYS restart: `sudo systemctl restart clawdbot`
+- Dashboard is a Rust/egui native app, NOT HTML/Chromium
+- Direct ethernet between Pi and EVO: Pi=10.0.0.1, EVO=10.0.0.2 (0.4ms latency)
+- Bot code uses `src/evo-llm.js` for EVO communication (OpenAI-compatible API)
+- After changing **both** `memory-service/main.py` and `command_router.py`, redeploy both files and restart `clawdbot-memory` on EVO

@@ -1,13 +1,23 @@
 {
-  "version": "2.2.0",
+  "version": "2.3.0",
   "notes": [
-    "Memory: conversational working memory — passively listens to group discussions, recalls LQuorum community knowledge (18 topics, 40+ lawyers, 12 jurisdictions) when relevant topics come up",
-    "Memory: working memory pre-stages knowledge with zero retrieval latency, decays after 15-30 min",
-    "Memory: engagement classifier enriched with has_relevant_knowledge signal for genuine gap-filling",
-    "Knowledge: web search enabled by default for all factual questions — training data explicitly off-limits",
-    "Knowledge: LQuorum memories framed as recalled group discussions, not authoritative facts",
-    "Knowledge: bulk LQuorum memory seeding replaced with single overview entry + working memory",
-    "Style: no emojis — ever",
-    "Self-awareness: Clawd now knows about its working memory system and can explain it naturally"
+    "Engagement: removed 'claude' from BOT_NAMES regex — general AI discussion no longer triggers classifier",
+    "Engagement: removed LQuorum topic injection from classifier prompt — 0.6B model no longer biased by topic hints",
+    "Routing: keyword rules now fire before complexity detection — prevents misrouting of known commands like 'overnight report'",
+    "Dedup: message deduplication via 200-entry ID ring buffer — prevents double-responses from Baileys",
+    "Quality: Opus critique stripping hardened — uses --- divider detection instead of fragile regex denylist",
+    "Quality: comprehensive anti-slop rules in system prompt — banned phrases, banned structures, substance requirements",
+    "Quality: Opus gate prompt aligned with anti-slop rules — structural, language, and substance slop categories",
+    "Dream: orientation phase — reads existing memories before generating diary (prevents duplicate extraction)",
+    "Dream: pre-store dedup + contradiction detection — skips duplicates, supersedes stale facts",
+    "Dream: stale memory pruning — machine-extracted memories older than 30 days with low access pruned nightly",
+    "Dream: verbatim excerpt storage — exact quotes preserved alongside lossy diary summaries",
+    "Evolution: Claude Code CLI installed on EVO (v2.1.81) — headless self-coding in git branches",
+    "Evolution: evolution_task WhatsApp tool — owner creates coding tasks via chat",
+    "Evolution: DM approval flow — diff sent to owner, must approve before deploy",
+    "Evolution: auto-deploy with health check and rollback on failure",
+    "Evolution: HTTP endpoint for dream mode to create coding tasks autonomously",
+    "Infra: Tailscale on Pi + EVO — SSH from anywhere without LAN",
+    "Docs: comprehensive README, updated CLAUDE.md (16 new design decisions), updated architecture.md (full file tree, data files, EVO services)"
   ]
 }

@@ -39,12 +39,13 @@ pub async fn fetch_initial_data(state: SharedState) {
     let client = Client::new();
     let base = base_url();
 
-    let (widgets_res, todos_res, soul_res, usage_res, status_res) = tokio::join!(
+    let (widgets_res, todos_res, soul_res, usage_res, status_res, health_res) = tokio::join!(
         fetch_widgets(&client, &base),
         fetch_todos(&client, &base),
         fetch_soul(&client, &base),
         fetch_usage(&client, &base),
         fetch_status(&client, &base),
+        fetch_system_health(&client, &base),
     );
 
     if let Ok(mut s) = state.write() {
@@ -67,6 +68,9 @@ pub async fn fetch_initial_data(state: SharedState) {
         if let Ok(st) = status_res {
             s.connected = st.connected;
             s.status = st;
+        }
+        if let Ok(h) = health_res {
+            s.system_health = h;
         }
     }
 
@@ -130,6 +134,18 @@ async fn fetch_status(client: &Client, base: &str) -> Result<StatusResponse, Str
         .json::<StatusResponse>()
         .await
         .map_err(|e| format!("status parse: {}", e))
+}
+
+async fn fetch_system_health(client: &Client, base: &str) -> Result<SystemHealthResponse, String> {
+    client
+        .get(format!("{}/api/system-health", base))
+        .header("Authorization", auth_header())
+        .send()
+        .await
+        .map_err(|e| format!("system-health fetch: {}", e))?
+        .json::<SystemHealthResponse>()
+        .await
+        .map_err(|e| format!("system-health parse: {}", e))
 }
 
 pub async fn complete_todo(todo_id: &str) -> Result<(), String> {

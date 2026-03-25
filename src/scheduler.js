@@ -9,10 +9,14 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { getDueReminders, markReminded, getActiveTodos } from './tools/todo.js';
 import { getWidgetData } from './widgets.js';
-import { checkEvoHealth, getEvoStatus, getMemoryStats, extractFromConversation, isEvoOnline, syncCache, cleanDocumentCache } from './memory.js';
+import { checkEvoHealth, getEvoStatus, getMemoryStats, extractFromConversation, isEvoOnline, syncCache, cleanDocumentCache, getOvernightInsights } from './memory.js';
 import { keepEvoWarm } from './evo-llm.js';
 import { runImprovementCycle } from './self-improve/cycle.js';
 import { refreshSystemKnowledge } from './system-knowledge.js';
+import { runProjectDeepThink } from './project-thinker.js';
+import { sendOvernightReport } from './overnight-report.js';
+import { getNextPending, updateTask, canRunTask, formatApprovalMessage } from './evolution.js';
+import { executeEvolutionTask } from './evolution-executor.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -81,6 +85,22 @@ export function initScheduler(sendMessage) {
   logger.info('scheduler started (60s interval)');
 }
 
+// Expose subsystem status for dashboard admin panel
+export function getSystemHealth() {
+  const evo = getEvoStatus();
+  return {
+    whatsapp: { connected: !!sendFn },
+    evo: { online: evo.online, queueDepth: evo.queueDepth || 0 },
+    briefing: { enabled: !!config.briefingEnabled, lastRun: lastBriefingDate },
+    diary: { enabled: !!config.dreamModeEnabled, lastRun: lastExtractionDate },
+    selfImprove: { enabled: !!config.evoToolEnabled, lastRun: lastSelfImproveDate },
+    knowledgeRefresh: { enabled: !!config.evoMemoryEnabled, lastRun: lastKnowledgeRefreshDate },
+    projectDeepThink: { enabled: true, lastRun: lastProjectThinkDate },
+    overnightReport: { enabled: true, lastRun: lastReportDate },
+    backup: { lastRun: lastBackupDate },
+  };
+}
+
 async function runScheduler() {
   try {
     // Check EVO health first — briefing and other tasks read cached status
@@ -94,6 +114,9 @@ async function runScheduler() {
     await checkOvernightExtraction();
     await checkSelfImprovement();
     await checkSystemKnowledgeRefresh();
+    await checkProjectDeepThink();
+    await checkOvernightReport();
+    await checkEvolutionTasks();
     await checkDailyBackup();
     if (config.evoMemoryEnabled) {
       // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
@@ -268,6 +291,23 @@ async function checkMorningBriefing() {
       sections.push(memLine);
     }
 
+    // Overnight insights (from last night's diary)
+    if (config.evoMemoryEnabled && isEvoOnline()) {
+      try {
+        const yesterday = new Date(todayStr + 'T12:00:00');
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yStr = yesterday.toISOString().split('T')[0];
+
+        const insights = await getOvernightInsights(yStr);
+        if (insights.length > 0) {
+          const lines = insights
+            .slice(0, 4)
+            .map(m => `  - ${m.fact || m.text || m.content || '?'}`);
+          sections.push(`*Overnight insights*\n${lines.join('\n')}`);
+        }
+      } catch {}
+    }
+
     const briefing = sections.join('\n\n');
     await sendFn(briefing);
     logger.info('morning briefing sent');
@@ -413,6 +453,72 @@ async function checkSystemKnowledgeRefresh() {
   }
 }
 
+// --- Overnight report email (runs at 5:30 AM) ---
+let lastReportDate = null;
+
+async function checkOvernightReport() {
+  const { todayStr, hours, minutes } = getLondonTime();
+
+  if (lastReportDate === todayStr) return;
+  if (hours !== 5 || minutes < 30) return;
+
+  lastReportDate = todayStr;
+
+  try {
+    logger.info('overnight-report: starting');
+    await sendOvernightReport(sendFn);
+  } catch (err) {
+    logger.error({ err: err.message }, 'overnight-report: failed');
+  }
+}
+
+// --- Evolution tasks (checks every minute for pending coding tasks) ---
+
+async function checkEvolutionTasks() {
+  const task = getNextPending();
+  if (!task) return;
+
+  const { allowed, reason } = canRunTask();
+  if (!allowed) {
+    logger.debug({ taskId: task.id, reason }, 'evolution: rate limited');
+    return;
+  }
+
+  updateTask(task.id, { status: 'running' });
+  logger.info({ taskId: task.id, instruction: task.instruction.slice(0, 100) }, 'evolution: executing task');
+
+  try {
+    const result = await executeEvolutionTask(task);
+    updateTask(task.id, {
+      status: 'awaiting_approval',
+      diff_summary: result.summary,
+      diff_detail: result.diff,
+      files_changed: result.files,
+      branch: result.branch,
+    });
+
+    // Send approval DM to James
+    if (sendFn && config.ownerJid) {
+      const msg = formatApprovalMessage(task);
+      const sent = await sendFn(msg);
+      // Store the message ID for reply correlation
+      if (sent?.key?.id) {
+        updateTask(task.id, { approval_message_id: sent.key.id });
+      }
+    }
+
+    logger.info({ taskId: task.id, files: result.files }, 'evolution: awaiting approval');
+  } catch (err) {
+    updateTask(task.id, { status: 'failed', result: err.message });
+    logger.error({ taskId: task.id, err: err.message }, 'evolution: task failed');
+
+    // Notify James of failure
+    if (sendFn && config.ownerJid) {
+      await sendFn(`Evolution task failed (${task.id}): ${err.message}`).catch(() => {});
+    }
+  }
+}
+
 // --- Daily backup (runs at 3 AM) ---
 let lastBackupDate = null;
 
@@ -461,4 +567,23 @@ async function checkDailyBackup() {
   try {
     cleanDocumentCache(7);
   } catch {}
+}
+
+// --- Project Deep Think (runs at 11 PM) ---
+let lastProjectThinkDate = null;
+
+async function checkProjectDeepThink() {
+  const { todayStr, hours } = getLondonTime();
+
+  if (lastProjectThinkDate === todayStr) return;
+  if (hours !== 23) return;
+
+  lastProjectThinkDate = todayStr;
+
+  try {
+    logger.info('project-thinker: starting overnight deep think');
+    await runProjectDeepThink(sendFn);
+  } catch (err) {
+    logger.error({ err: err.message }, 'project-thinker: overnight cycle failed');
+  }
 }

@@ -7,7 +7,7 @@ import { TOOL_DEFINITIONS } from './tools/definitions.js';
 import { executeTool } from './tools/handler.js';
 import { getEvoToolResponse, checkEvoHealth } from './evo-llm.js';
 import { classifyMessage, getToolsForCategory, needsMemories, mustUseClaude, CATEGORY } from './router.js';
-import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline, getDreamMemories, getIdentityMemories } from './memory.js';
+import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline, getDreamMemories, getIdentityMemories, getInsightMemories, searchMemory } from './memory.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { logRouting } from './router-telemetry.js';
 import { getWorkingKnowledge, warmFromQuery } from './lquorum-rag.js';
@@ -15,6 +15,9 @@ import { getLiveSystemSnapshot } from './system-knowledge.js';
 import logger from './logger.js';
 
 const claudeBreaker = new CircuitBreaker('claude', { threshold: 3, resetTimeout: 30000 });
+
+let _lastToolsCalled = [];
+export function getLastToolsCalled() { return _lastToolsCalled; }
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
@@ -137,8 +140,9 @@ function checkDailyLimit() {
 // Tools restricted to owner only
 const OWNER_ONLY_TOOLS = new Set([
   'gmail_search', 'gmail_read', 'gmail_draft', 'gmail_confirm_send',
-  'soul_propose', 'soul_confirm',
+  'soul_propose', 'soul_confirm', 'soul_learn', 'soul_forget',
   'calendar_create_event', 'calendar_update_event',
+  'evolution_task',
 ]);
 
 function getAvailableTools(isOwner = true) {
@@ -156,6 +160,8 @@ function getAvailableTools(isOwner = true) {
 }
 
 export async function getClawdResponse(context, mode, senderJid, imageData = null, chatJid = null) {
+  _lastToolsCalled = [];
+
   if (!checkDailyLimit()) {
     logger.warn({ limit: config.dailyCallLimit }, 'daily limit reached');
     return null;
@@ -214,11 +220,21 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
   // Dream memories — skip in professional groups (may contain personal content)
   if (config.evoMemoryEnabled && config.dreamModeEnabled && !professional) {
     try {
-      const dreams = await getDreamMemories('', 2);
-      if (dreams.length > 0) {
-        const dreamLines = dreams.map(d => `- ${d.fact}`).join('\n');
-        memoryFragment += `\n\n## Recent experiences (dream summaries)\n${dreamLines}`;
-        logger.info({ count: dreams.length }, 'dream memories injected');
+      // If user explicitly asked about dreams/diary, do a deeper fetch
+      const isDreamQuery = /\b(dream|diary|dreamt|dreamed|last night|overnight)\b/i.test(context);
+      const dreamLimit = isDreamQuery ? 5 : 2;
+      // Use yesterday's date as search hint for better recall
+      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const dreamQuery = isDreamQuery ? `dream diary ${yesterday}` : 'dream summary recent';
+      const dreams = await searchMemory(dreamQuery, 'dream', dreamLimit);
+      const dreamMems = dreams.map(r => r.memory || r).filter(Boolean);
+      if (dreamMems.length > 0) {
+        const dreamLines = dreamMems.map(d => `- ${d.fact}`).join('\n');
+        const header = isDreamQuery
+          ? '## My diary entries (dream mode summaries)'
+          : '## Recent experiences (dream summaries)';
+        memoryFragment += `\n\n${header}\n${dreamLines}`;
+        logger.info({ count: dreamMems.length, explicit: isDreamQuery }, 'dream memories injected');
       }
     } catch (err) {
       logger.warn({ err: err.message }, 'dream memory injection failed');
@@ -232,6 +248,20 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
   if (lquorumContext) {
     memoryFragment += '\n\n' + lquorumContext;
     logger.info({ topics: lquorumContext.split('###').length - 1 }, 'lquorum working knowledge injected');
+  }
+
+  // Insight memories — topic-matched diary insights for conversational context
+  if (config.evoMemoryEnabled && !professional) {
+    try {
+      const insights = await getInsightMemories(context, 3);
+      if (insights.length > 0) {
+        const insightLines = insights.map(m => `- ${m.fact}`).join('\n');
+        memoryFragment += `\n\n## Prior insights\n${insightLines}`;
+        logger.info({ count: insights.length }, 'diary insights injected');
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'insight memory injection failed');
+    }
   }
 
   // For SYSTEM queries: inject live status snapshot alongside stored knowledge
@@ -286,7 +316,6 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       i === claudeTools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t,
     );
 
-    const isGroup = chatJid ? chatJid.endsWith('@g.us') : false;
     const system = [
       { type: 'text', text: getSystemPrompt(mode, isOwner, isGroup, category, chatJid) + memoryFragment, cache_control: { type: 'ephemeral' } },
     ];
@@ -343,6 +372,7 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       const MAX_TOOL_RESULT = 1500;
       for (const toolUse of toolUseBlocks) {
         logger.info({ tool: toolUse.name, input: toolUse.input }, 'tool call');
+        _lastToolsCalled.push(toolUse.name);
         let result = await executeTool(toolUse.name, toolUse.input, senderJid, chatJid);
         logger.info({ tool: toolUse.name, chars: result.length }, 'tool result');
         if (result.length > MAX_TOOL_RESULT) {
@@ -374,9 +404,107 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
 
     const textBlocks = response.content.filter((b) => b.type === 'text');
-    const text = textBlocks.map((b) => b.text).join('\n');
+    let text = textBlocks.map((b) => b.text).join('\n');
 
     if (!text) return null;
+
+    // --- Self-critique pass (Opus 4.6) ---
+    // Fires selectively on high-value responses where quality matters.
+    // Not every message — only strategic/project/planning content that's substantial.
+    const shouldCritique = (
+      category === CATEGORY.PLANNING
+      && text.length > 200
+      && !text.startsWith('Learned:')      // skip soul confirmations
+      && !text.startsWith('Updated ')      // skip project updates
+      && !text.startsWith('No pending')    // skip mechanical responses
+    );
+
+    if (shouldCritique) {
+      try {
+        const critiqueModel = process.env.CRITIQUE_MODEL || 'claude-opus-4-6';
+        logger.info({ category, responseLen: text.length, model: critiqueModel }, 'self-critique: reviewing response');
+
+        const critiqueResponse = await client.messages.create({
+          model: critiqueModel,
+          max_tokens: config.maxResponseTokens * 4,
+          system: `You are a ruthless quality gate. You review Clawd's draft responses before they're sent to a WhatsApp group of sharp, critical people who will instantly spot AI slop.
+
+REJECT and rewrite if ANY of these are present:
+
+STRUCTURAL SLOP:
+- 4+ bullet points or numbered items. Condense to the 2-3 that matter and explain them in prose.
+- "8 things" / "5 phases" / "10 gaps" — identify the ONE that matters and explain why.
+- Inventorying: "Here's what exists: [list]" — never insightful. Instead: what most people miss and why.
+- Binary contrasts: "It's not X. It's Y." — state the point directly.
+- Dramatic fragments: "[Noun]. That's it." — write a real sentence.
+- Rhetorical questions answered immediately — delete the question, keep the answer.
+
+LANGUAGE SLOP:
+- Any of: "Here's the thing", "It's worth noting", "Let me be clear", "Moreover", "Furthermore", "Indeed", "At the end of the day", "Full stop.", "Great question!", "Absolutely!"
+- Adverbs: really, just, literally, genuinely, honestly, simply, actually, deeply, truly, fundamentally, inherently, inevitably
+- Business jargon: navigate, lean into, landscape, game-changer, double down, deep dive, leverage, unlock, harness, supercharge, robust, seamless
+- Em dash overuse — max one per message
+- False agency: "the data tells us" — name the person
+
+SUBSTANCE SLOP:
+- Truisms: "communication is key", "quality matters", "there are no easy answers"
+- Sentences that restate what was already said or what's obvious from context
+- Generic answers that would be equally true of any similar question
+- Paragraphs that fail the "so what?" test — if a reader could say "okay, and?" it's too shallow
+
+Every sentence must add information the reader did not already have. Density over length. Reasoning over coverage.
+
+OUTPUT RULES:
+- If the draft passes all checks, return [APPROVED] at the start.
+- If rewriting, output ONLY the replacement text. No preamble, no critique, no explanation, no tags. The reader must never know a review happened.
+- Default to rewriting. Be very hard to impress.`,
+          messages: [{ role: 'user', content: `DRAFT RESPONSE TO REVIEW:\n\n${text}` }],
+        });
+
+        trackTokens(critiqueResponse);
+        let critiqueText = critiqueResponse.content
+          .filter(b => b.type === 'text')
+          .map(b => b.text)
+          .join('\n')
+          .trim();
+
+        if (critiqueText.startsWith('[APPROVED]')) {
+          logger.info('self-critique: approved as-is');
+        } else if (critiqueText.length > 50) {
+          // Post-process: strip any leaked critique artifacts.
+          // Strategy: if there's a --- separator in the first 500 chars, everything
+          // before it is meta-commentary (critique preamble). Take everything after.
+          const earlyDivider = critiqueText.slice(0, 500).match(/\n---\s*\n/);
+          if (earlyDivider) {
+            const afterDivider = critiqueText.slice(earlyDivider.index + earlyDivider[0].length).trim();
+            if (afterDivider.length > 50) {
+              critiqueText = afterDivider;
+            }
+          }
+
+          // Strip leading meta-commentary that doesn't use --- divider
+          critiqueText = critiqueText
+            .replace(/^\*?REWRITE:?\*?\s*\n*/i, '')
+            .replace(/^(?:This is|Let me|I'll|Here's the|The draft).+?\.\s*\n+/i, '')
+            .trim();
+
+          // Strip trailing meta-commentary and tags
+          critiqueText = critiqueText
+            .replace(/\n+---\s*\n+[\s\S]*$/i, '')
+            .replace(/\s*\[(?:REWRITTEN|REVISED|APPROVED)\]\s*$/i, '')
+            .replace(/\s*---\s*$/i, '')
+            .trim();
+
+          if (critiqueText.length > 50) {
+            text = critiqueText;
+            logger.info({ originalLen: text.length, revisedLen: critiqueText.length }, 'self-critique: response refined by Opus');
+          }
+        }
+      } catch (err) {
+        // Critique failed — send the original (don't block the response)
+        logger.warn({ err: err.message }, 'self-critique: failed, sending original');
+      }
+    }
 
     logRouting({
       category, confidence: null, model: 'claude',

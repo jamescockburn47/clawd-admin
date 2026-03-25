@@ -1,5 +1,8 @@
 import config from './config.js';
-const BOT_NAMES = ['clawd', 'clawdbot', 'claude', 'assistant'];
+
+// Only respond in groups when directly addressed.
+// 'claude' and 'assistant' deliberately excluded — too broad, matches general AI discussion.
+const BOT_NAMES = ['clawd', 'clawdbot'];
 
 export function shouldRespond({ text, hasImage, isFromMe, isGroup, senderJid, botJid, groupJid, mentionedJids }) {
   // Never respond to own messages
@@ -24,8 +27,8 @@ export function shouldRespond({ text, hasImage, isFromMe, isGroup, senderJid, bo
 
   const lowerText = (text || '').toLowerCase();
 
-  // Group chats: @mention or prefix only
-  // 1. @mention via JID
+  // Group chats: ONLY respond when directly addressed
+  // 1. @mention via JID (WhatsApp tag)
   if (mentionedJids && mentionedJids.includes(botJid)) {
     return { respond: true, mode: 'direct' };
   }
@@ -35,12 +38,13 @@ export function shouldRespond({ text, hasImage, isFromMe, isGroup, senderJid, bo
     return { respond: true, mode: 'direct' };
   }
 
-  // 3. Bot name mentioned in text (acts like an informal @mention)
+  // 3. Bot name mentioned in text (informal address)
   for (const name of BOT_NAMES) {
     if (lowerText.includes(name)) {
       return { respond: true, mode: 'direct' };
     }
   }
 
-  return { respond: true, mode: 'passive' };
+  // Not addressed → silent. No passive mode, no classifier needed.
+  return { respond: false };
 }

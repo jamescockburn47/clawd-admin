@@ -156,6 +156,16 @@ clawdbot/
 ├── evo-voice/               # Voice listener (runs on EVO X2, NOT Pi)
 │   ├── voice_listener.py   # Main voice pipeline (mic→whisper→wake→classify→route)
 │   └── clawdbot-voice.service # systemd unit file
+├── evo-memory/              # Memory service + dream mode (runs on EVO X2)
+│   ├── main.py             # FastAPI server (port 5100) — CRUD, search, embed, extract
+│   ├── memory_store.py     # In-memory store + JSON persistence + dedup + TTL
+│   ├── config.py           # Memory service configuration
+│   ├── ollama_client.py    # llama.cpp embedding/extraction client (legacy name)
+│   ├── command_router.py   # Voice command routing (tier 1 regex, tier 2 classifier)
+│   ├── seed_identity.py    # Identity memory seeding (10 core facts, immutable)
+│   ├── dream_mode.py       # Overnight diary generation + fact/insight/verbatim extraction
+│   ├── style_calibration.py # Weekly style calibration from reaction data
+│   └── whisper_service.py  # Whisper transcription service
 ├── public/
 │   └── dashboard.html       # Legacy HTML dashboard (superseded by Rust app)
 ├── src/
@@ -178,10 +188,16 @@ clawdbot/
 │   ├── router-telemetry.js  # Routing decision telemetry (JSONL stats)
 │   ├── system-knowledge.js  # Seeds architecture knowledge into EVO memory service
 │   ├── lquorum-rag.js       # LQuorum working memory — passive keyword scanning, topic warming, decay
+│   ├── engagement.js       # Group engagement classifier + mute system + negative signal detection
+│   ├── overnight-report.js # Overnight intelligence report (dream + projects + self-improve)
+│   ├── project-thinker.js  # Nightly project deep think (Opus 4.6 + extended thinking)
+│   ├── evolution.js         # Evolution task store (queue, approval, rate limiting)
+│   ├── evolution-executor.js # Claude Code CLI orchestration on EVO via SSH
 │   ├── self-improve/
 │   │   └── cycle.js         # Autonomous overnight self-improvement for router keyword rules
 │   └── tools/
-│       ├── definitions.js   # Tool JSON schemas for Claude (all tool definitions)
+│       ├── definitions.js   # Tool JSON schemas for Claude (58 tools)
+│       ├── projects.js      # Project CRUD (list, read, pitch, update)
 │       ├── handler.js        # Tool dispatch + audit logging + SSE broadcast
 │       ├── calendar.js       # Google Calendar CRUD (with exclusive end date fix)
 │       ├── gmail.js          # Gmail search/read/draft/confirm-send
@@ -194,12 +210,27 @@ clawdbot/
 ├── data/                    # Runtime data (gitignored)
 │   ├── todos.json           # Persistent todo items
 │   ├── notified_meetings.json # Dedupe for meeting reminders
-│   ├── soul.json            # Soul personality sections + history
+│   ├── soul.json            # Soul personality sections
+│   ├── soul_history.json    # Soul change history
+│   ├── soul_observations.json # Accumulated soul observations
+│   ├── soul_pending.json    # Pending soul proposals
 │   ├── audit.json           # Tool execution audit log (last 1000 entries)
 │   ├── messages.json        # Persisted owner DM context buffer
-│   ├── interactions.jsonl   # Conversation-level interaction log (evolution pipeline)
+│   ├── interactions.jsonl   # Conversation-level interaction log
+│   ├── feedback.jsonl       # WhatsApp reaction + correction feedback
 │   ├── router-stats.jsonl   # Routing decision telemetry
 │   ├── system-knowledge.json # Structured self-knowledge for EVO memory
+│   ├── projects.json        # Project definitions + deep think results
+│   ├── lquorum-knowledge.json # LQuorum 18-topic knowledge base (246KB)
+│   ├── memory-cache.json    # EVO memory service local cache
+│   ├── learned-rules.json   # Self-improvement: learned router keyword rules
+│   ├── learned-eval-labels.json # Self-improvement: expanded eval test set
+│   ├── self-improve-log.jsonl # Self-improvement cycle logs
+│   ├── evolution-tasks.json # Evolution pipeline task queue
+│   ├── conversation-logs/   # Daily JSONL per group (feeds dream mode)
+│   ├── document-cache/      # Parsed document text cache
+│   ├── document-logs/       # Document processing logs (feeds dream mode)
+│   ├── memory-queue/        # Offline memory queue (audio/, images/, text/)
 │   └── backups/             # Daily backups (last 7 days)
 │       └── YYYY-MM-DD/      # todos.json, soul.json, soul_history.json
 ├── auth_state/              # WhatsApp session + usage.json (gitignored, critical)
@@ -494,6 +525,7 @@ WantedBy=multi-user.target
 | POST | `/api/voice-local` | Bearer token | Locally-routed voice command (action + params) |
 | POST | `/api/desktop-mode` | None | Kill kiosk Chromium to expose Pi desktop |
 | POST | `/api/send` | None | Proactive message send (jid + message) |
+| POST | `/api/evolution/task` | Token | Create evolution coding task (from dream mode or API) |
 
 ### Infrastructure Components
 
@@ -506,6 +538,8 @@ WantedBy=multi-user.target
 | **Interaction Log** | `src/interaction-log.js` | Conversation-level logging + feedback correlation |
 | **System Knowledge** | `src/system-knowledge.js` | Seeds architecture docs into EVO memory service |
 | **Self-Improve Cycle** | `src/self-improve/cycle.js` | Overnight autonomous router keyword rule improvement |
+| **Evolution Store** | `src/evolution.js` | Coding task queue, approval flow, rate limiting |
+| **Evolution Executor** | `src/evolution-executor.js` | Runs Claude Code CLI on EVO, manages git branches, deploy + rollback |
 | **Memory Client** | `src/memory.js` | EVO X2 memory service (store/search/list/delete) |
 | **LQuorum Working Memory** | `src/lquorum-rag.js` | Passive keyword scanning, topic warming, decay (18 topics, 15 min TTL) |
 | **Weather** | `src/weather.js` | Open-Meteo weather forecasts (free, no API key) |
@@ -513,6 +547,27 @@ WantedBy=multi-user.target
 | **Circuit Breaker** | `src/circuit-breaker.js` | Protects Google/Claude/Weather API calls |
 | **Buffer Persistence** | `src/buffer.js` | Owner DM context survives restarts |
 | **Graceful Shutdown** | `src/index.js` | Flushes usage, todos, audit, buffers on SIGTERM |
+
+### Evolution Pipeline (Self-Coding)
+
+Clawd can modify its own code via Claude Code CLI running headless on EVO X2.
+
+```
+Trigger (WhatsApp or dream mode)
+    → Task queued in data/evolution-tasks.json
+    → Scheduler picks up (max 3/day, 1/hour, 1 concurrent)
+    → Pi SSHes to EVO, syncs codebase, creates git branch
+    → Claude Code CLI runs headless: claude -p "instruction" --dangerously-skip-permissions
+    → Git diff captured, sent to James via WhatsApp DM
+    → James replies "approve" → merge + rsync to Pi + restart + health check
+    → James replies "reject" → branch deleted, logged
+```
+
+**Safety:** Owner-only tool, git branches (never main), DM approval required, auto-rollback on health check failure.
+
+**Files:** `src/evolution.js` (task store), `src/evolution-executor.js` (CLI orchestration), `data/evolution-tasks.json` (queue).
+
+**Dream integration:** `dream_mode.py` can POST to `/api/evolution/task` to create coding tasks from overnight analysis.
 
 ### EVO X2 Local Model
 

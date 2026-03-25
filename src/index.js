@@ -14,20 +14,22 @@ import config from './config.js';
 import logger from './logger.js';
 import { shouldRespond } from './trigger.js';
 import { pushMessage, buildContext, getRecentMessages, loadBuffers, saveBuffers, flushBufferTimer } from './buffer.js';
-import { getClawdResponse, getUsageStats, flushUsage } from './claude.js';
-import { summariseDocument, parseDocumentWithDocling } from './evo-llm.js';
+import { getClawdResponse, getUsageStats, flushUsage, getLastToolsCalled } from './claude.js';
+import { summariseDocument, parseDocumentWithDocling, checkEvoHealth as checkEvoLlmHealth } from './evo-llm.js';
 import { getWidgetData, startWidgetRefresh, stopWidgetRefresh, addSSEClient, broadcastSSE, forceRefresh } from './widgets.js';
 import { getSoulData, resetSoul } from './tools/soul.js';
-import { setSendOwnerDM } from './tools/handler.js';
+import { setSendOwnerDM, setSendWhatsApp } from './tools/handler.js';
 import { getAllTodos, getActiveTodos, flushTodos } from './tools/todo.js';
 import { todoComplete, todoAdd } from './tools/todo.js';
-import { initScheduler } from './scheduler.js';
+import { initScheduler, getSystemHealth } from './scheduler.js';
 import { getAuditLog, flushAudit } from './audit.js';
 import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, updateMemory, deleteMemory, logConversation, checkEvoHealth, getLastHealthData, storeDocument } from './memory.js';
 import { seedSystemKnowledge } from './system-knowledge.js';
 import { logInteraction, handleReaction, isCorrection, logFeedback, getQualitySummary, getRecentFeedback } from './interaction-log.js';
 import { isMuteTrigger, activateMute, isMuted, clearMute, shouldEngage, detectNegativeSignal } from './engagement.js';
 import { scanMessage, getWorkingMemoryState } from './lquorum-rag.js';
+import { getAwaitingApproval, updateTask } from './evolution.js';
+import { deployApprovedTask, rejectTask } from './evolution-executor.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -164,8 +166,30 @@ async function proposeSoulFromReaction(sock, signal, senderName, groupJid, messa
   }
 }
 
+// Dedup guard — Baileys can deliver the same message multiple times via messages.upsert
+const recentMessageIds = new Set();
+const DEDUP_MAX = 200;
+
+function isDuplicate(msgId) {
+  if (!msgId) return false;
+  if (recentMessageIds.has(msgId)) return true;
+  recentMessageIds.add(msgId);
+  // Keep set bounded
+  if (recentMessageIds.size > DEDUP_MAX) {
+    const first = recentMessageIds.values().next().value;
+    recentMessageIds.delete(first);
+  }
+  return false;
+}
+
 async function handleMessage(sock, message, botJid) {
   try {
+    const msgId = message.key.id;
+    if (isDuplicate(msgId)) {
+      logger.debug({ msgId }, 'duplicate message ignored');
+      return;
+    }
+
     const chatJid = message.key.remoteJid;
     const isGroup = chatJid?.endsWith('@g.us');
     const senderJid = message.key.participant || chatJid;
@@ -185,6 +209,39 @@ async function handleMessage(sock, message, botJid) {
       hasImage: msgHasImage,
       isBot: false,
     });
+
+    // Evolution approval check — owner DM replies to approval messages
+    if (!isGroup && (isOwnerChat(chatJid) || isOwnerJid(senderJid)) && text) {
+      const lower = text.toLowerCase().trim();
+      const isApproval = /^(approve|yes|deploy|merge|go ahead|do it|ship it)\b/i.test(lower);
+      const isRejection = /^(reject|no|discard|cancel|don't|nope)\b/i.test(lower);
+
+      if (isApproval || isRejection) {
+        const awaitingTasks = getAwaitingApproval();
+        if (awaitingTasks.length > 0) {
+          // Take the most recent awaiting task
+          const task = awaitingTasks[awaitingTasks.length - 1];
+
+          if (isApproval) {
+            updateTask(task.id, { status: 'approved' });
+            try {
+              await sock.sendMessage(chatJid, { text: `Deploying ${task.id}...` });
+              const result = await deployApprovedTask(task);
+              updateTask(task.id, { status: 'deployed', result: `Deployed ${result.files.length} file(s)` });
+              await sock.sendMessage(chatJid, { text: `Deployed. ${result.files.length} file(s) updated. Service healthy.` });
+            } catch (err) {
+              updateTask(task.id, { status: 'failed', result: err.message });
+              await sock.sendMessage(chatJid, { text: `Deploy failed: ${err.message}` });
+            }
+          } else {
+            await rejectTask(task);
+            updateTask(task.id, { status: 'rejected', result: `Rejected by James: ${text}` });
+            await sock.sendMessage(chatJid, { text: `Rejected and discarded (${task.id}).` });
+          }
+          return; // Don't process as a normal message
+        }
+      }
+    }
 
     // Scan for lquorum topics — updates working memory for all group messages
     if (isGroup && text) scanMessage(text);
@@ -212,9 +269,8 @@ async function handleMessage(sock, message, botJid) {
       trigger.mode = 'direct';
     }
 
-    if (!trigger.respond) return;
-
-    // Log ALL group messages to conversation-logs (not just Clawd's exchanges)
+    // Log ALL group messages to conversation-logs BEFORE the respond gate.
+    // Dream mode needs every message, not just ones Clawd responds to.
     if (isGroup && config.evoMemoryEnabled) {
       try {
         logConversation(chatJid, [
@@ -222,6 +278,8 @@ async function handleMessage(sock, message, botJid) {
         ]);
       } catch {}
     }
+
+    if (!trigger.respond) return;
 
     // --- Engagement gate for group passive messages ---
     if (trigger.mode === 'passive' && isGroup) {
@@ -437,7 +495,7 @@ async function handleMessage(sock, message, botJid) {
       source: 'whatsapp',
       input: { text: messageText, hadImage: !!imageData },
       routing: { mode: trigger.mode },
-      toolsCalled: [],
+      toolsCalled: getLastToolsCalled(),
       response: { text: response, chars: response.length },
       latencyMs: responseLatency,
       messageIds: sentMsgIds,
@@ -520,6 +578,9 @@ async function startBot() {
       if (config.ownerJid) {
         setSendOwnerDM(async (text) => {
           await sock.sendMessage(config.ownerJid, { text });
+        });
+        setSendWhatsApp(async (text) => {
+          await sendProactiveMessage(config.ownerJid, text);
         });
       }
 
@@ -696,6 +757,23 @@ createServer(async (req, res) => {
     return res.end('Dashboard not found');
   }
 
+  if (path === '/api/system-health') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const health = getSystemHealth();
+      // Add memory stats if EVO is online
+      try {
+        const memStats = await getMemoryStats();
+        health.memory = { total: memStats.total || 0, categories: memStats.categories || {} };
+      } catch { health.memory = { total: 0, categories: {} }; }
+      health.uptime = Math.round(process.uptime());
+      health.memoryMB = Math.round(process.memoryUsage().heapUsed / 1048576);
+      return jsonResponse(res, 200, health);
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
   if (path === '/api/widgets') {
     if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
     try {
@@ -762,6 +840,20 @@ createServer(async (req, res) => {
       const result = await todoComplete({ id });
       broadcastSSE('todos', { todos: getAllTodos() });
       return jsonResponse(res, 200, { ok: true, message: result, todos: getAllTodos() });
+    } catch (err) {
+      return jsonResponse(res, 500, { error: err.message });
+    }
+  }
+
+  // Evolution task endpoint — dream mode creates coding tasks
+  if (req.method === 'POST' && path === '/api/evolution/task') {
+    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
+    try {
+      const { createTask: createEvoTask } = await import('./evolution.js');
+      const body = JSON.parse(await readBody(req));
+      if (!body.instruction) return jsonResponse(res, 400, { error: 'instruction required' });
+      const task = createEvoTask(body.instruction, body.source || 'dream', body.priority || 'normal');
+      return jsonResponse(res, 200, { ok: true, task });
     } catch (err) {
       return jsonResponse(res, 500, { error: err.message });
     }
@@ -1000,7 +1092,7 @@ createServer(async (req, res) => {
           broadcastSSE('voice', { event: 'command', text: cmdText });
 
           const context = buildContext(jid, cmdText);
-          const response = await getClawdResponse(context, 'direct');
+          const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
 
           if (response) {
             pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
@@ -1055,7 +1147,7 @@ createServer(async (req, res) => {
       broadcastSSE('voice', { event: 'command', text });
 
       const context = buildContext(jid, text);
-      const response = await getClawdResponse(context, 'direct');
+      const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
 
       if (response) {
         pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
@@ -1079,7 +1171,7 @@ createServer(async (req, res) => {
           source: 'voice',
           input: { text, hadImage: false },
           routing: { mode: 'direct', source: source || 'wake_word' },
-          toolsCalled: [],
+          toolsCalled: getLastToolsCalled(),
           response: { text: response, chars: response.length },
           latencyMs: Date.now() - voiceStart,
           messageIds: [],
@@ -1148,7 +1240,7 @@ createServer(async (req, res) => {
       broadcastSSE('message', { sender: 'James', text: message, timestamp: Date.now() });
 
       const context = buildContext(jid, message);
-      const response = await getClawdResponse(context, 'direct');
+      const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
 
       if (response) {
         pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });

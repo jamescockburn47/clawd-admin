@@ -20,6 +20,11 @@ export const CATEGORY = {
 };
 
 // Tools available per category
+// NOTE: web_search and web_fetch are ALWAYS injected into every category
+// (see getToolsForCategory). This ensures Claude can ALWAYS search the web
+// when the prompt mandates it — no stale training data should ever leak.
+const WEB_TOOLS = new Set(['web_search', 'web_fetch']);
+
 const CATEGORY_TOOLS = {
   [CATEGORY.CALENDAR]: new Set([
     'calendar_list_events', 'calendar_create_event',
@@ -35,15 +40,16 @@ const CATEGORY_TOOLS = {
   ]),
   [CATEGORY.EMAIL]: new Set([
     'gmail_search', 'gmail_read', 'gmail_draft', 'gmail_confirm_send',
-    'soul_read', 'soul_propose', 'soul_confirm',
   ]),
   [CATEGORY.RECALL]: new Set([
     'memory_search', 'memory_update', 'memory_delete',
+    'project_list', 'project_read', 'project_pitch',
+    'overnight_report',
   ]),
   [CATEGORY.PLANNING]: null, // null = all tools
-  [CATEGORY.CONVERSATIONAL]: new Set(), // empty = no tools
+  [CATEGORY.CONVERSATIONAL]: new Set(), // web tools added dynamically below
   [CATEGORY.GENERAL_KNOWLEDGE]: new Set(['web_search', 'web_fetch']),
-  [CATEGORY.SYSTEM]: new Set(['system_status', 'memory_search']),
+  [CATEGORY.SYSTEM]: new Set(['system_status', 'memory_search', 'overnight_report']),
 };
 
 // --- Read/Write safety classification ---
@@ -51,6 +57,7 @@ const CATEGORY_TOOLS = {
 const READ_SAFE_TOOLS = new Set([
   'todo_list', 'calendar_list_events', 'calendar_find_free_time',
   'memory_search', 'system_status', 'soul_read',
+  'project_list', 'project_read', 'project_pitch',
 ]);
 
 // WRITE-DANGEROUS: must use Claude — hallucinated args cause real damage
@@ -93,13 +100,16 @@ const MEMORY_CATEGORIES = new Set([
 const CLAUDE_CATEGORIES = new Set([
   CATEGORY.EMAIL,
   CATEGORY.PLANNING,
+  CATEGORY.RECALL,
 ]);
 
 // Filter tool definitions for a given category
+// Always includes web_search + web_fetch so Claude can ALWAYS search
 export function getToolsForCategory(category, allTools) {
   const allowed = CATEGORY_TOOLS[category];
   if (allowed === null) return allTools; // planning = all tools
-  return allTools.filter((t) => allowed.has(t.name));
+  // Merge category-specific tools with web tools (always available)
+  return allTools.filter((t) => allowed.has(t.name) || WEB_TOOLS.has(t.name));
 }
 
 // Should memories be fetched for this category?
@@ -135,13 +145,28 @@ function detectComplexity(text) {
 
 const KEYWORD_RULES = [
   {
+    category: CATEGORY.RECALL,
+    test: (lower) =>
+      /\b(dream|diary|dreamt|dreamed|last night|overnight|overnight.*report)\b/.test(lower)
+      && /\b(tell|what|about|how|show|recall|review|read|describe|share|report|regenerate|resend|send|generate)\b/.test(lower),
+  },
+  {
+    category: CATEGORY.PLANNING,
+    test: (lower) =>
+      /\b(soul|personality)\b/.test(lower) && /\b(change|update|modify|propose|set|adjust|learn|forget|remove)\b/.test(lower),
+  },
+  {
+    category: CATEGORY.PLANNING,
+    test: (lower) =>
+      /\b(project|pitch|atlas|clawd.?agi)\b/.test(lower),
+  },
+  {
     category: CATEGORY.EMAIL,
     test: (lower) =>
       // Require email keywords with action intent, or explicit email tool words.
       // "his email" or "an email" in passing context should NOT trigger email category.
       (/\b(gmail|inbox|draft an? email|send an? email|reply to .* email|forward .* email|compose)\b/.test(lower))
-      || (/\b(email|mail)\b/.test(lower) && /\b(check|read|search|send|draft|compose|write|reply|forward)\b/.test(lower))
-      || (/\b(soul|personality)\b/.test(lower) && /\b(change|update|modify|propose|set|adjust)\b/.test(lower)),
+      || (/\b(email|mail)\b/.test(lower) && /\b(check|read|search|send|draft|compose|write|reply|forward)\b/.test(lower)),
   },
   {
     category: CATEGORY.TASK,
@@ -172,8 +197,10 @@ const KEYWORD_RULES = [
   {
     category: CATEGORY.GENERAL_KNOWLEDGE,
     test: (lower) =>
-      /^(search for|google|look up|what is|who is|how does|how do you|how much does|where is|when did)\b/.test(lower)
-      || /\b(search the web|web search|look this up)\b/.test(lower),
+      /^(search for|google|look up|what is|who is|how does|how do you|how much does|where is|when did|when was|when is|when does)\b/.test(lower)
+      || /\b(search the web|web search|look this up)\b/.test(lower)
+      || /\b(tell me about|explain|latest news|current price|is .{2,30} legal|how many|how much|what happened|what\'s happening|what are the|who founded|who started|who owns|what year|what date|which country)\b/.test(lower)
+      || /\b(compare|difference between|pros and cons|best .{2,30} for|top \d|versus|vs\b)/.test(lower),
   },
 ];
 
@@ -322,19 +349,7 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
     };
   }
 
-  // Pre-check: complexity detection (before any classification)
-  const complexity = detectComplexity(text);
-  if (complexity.complex) {
-    logger.info({ category: CATEGORY.PLANNING, source: 'complexity', reason: complexity.reason }, 'message classified');
-    return {
-      category: CATEGORY.PLANNING,
-      source: 'complexity',
-      forceClaude: true,
-      reason: complexity.reason,
-    };
-  }
-
-  // Layer 1: keyword heuristics
+  // Layer 1: keyword heuristics (run FIRST — specific matches beat generic complexity)
   const keywordResult = classifyByKeywords(text);
   if (keywordResult) {
     const writeIntent = detectsWriteIntent(text);
@@ -348,6 +363,19 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
       source: 'keywords',
       forceClaude,
       reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
+    };
+  }
+
+  // Layer 2: complexity detection (after keywords — catches multi-step/long messages
+  // that didn't match any specific keyword pattern)
+  const complexity = detectComplexity(text);
+  if (complexity.complex) {
+    logger.info({ category: CATEGORY.PLANNING, source: 'complexity', reason: complexity.reason }, 'message classified');
+    return {
+      category: CATEGORY.PLANNING,
+      source: 'complexity',
+      forceClaude: true,
+      reason: complexity.reason,
     };
   }
 

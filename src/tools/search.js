@@ -1,7 +1,7 @@
 import config from '../config.js';
 import logger from '../logger.js';
 
-const MAX_FETCH_CHARS = 4000;
+const MAX_FETCH_CHARS = 8000;
 
 export async function webFetch({ url }) {
   if (!url) return 'URL is required.';
@@ -31,16 +31,57 @@ export async function webFetch({ url }) {
       return text.length > MAX_FETCH_CHARS ? text.slice(0, MAX_FETCH_CHARS) + '\n[...truncated]' : text;
     }
 
-    // HTML — strip tags to plain text
     let text = await res.text();
+
     if (contentType.includes('text/html')) {
-      // Remove script/style blocks
+      // Remove non-content blocks
       text = text.replace(/<script[\s\S]*?<\/script>/gi, '');
       text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
-      // Strip all tags
+      text = text.replace(/<nav[\s\S]*?<\/nav>/gi, '');
+      text = text.replace(/<footer[\s\S]*?<\/footer>/gi, '');
+      text = text.replace(/<header[\s\S]*?<\/header>/gi, '');
+      text = text.replace(/<!--[\s\S]*?-->/g, '');
+
+      // Try to extract the main content area
+      const mainMatch = text.match(/<(?:article|main)[^>]*>([\s\S]*?)<\/(?:article|main)>/i);
+      if (mainMatch) {
+        text = mainMatch[1];
+      }
+
+      // Preserve links: <a href="url">text</a> → text (url)
+      text = text.replace(/<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+        (_, href, linkText) => {
+          const clean = linkText.replace(/<[^>]+>/g, '').trim();
+          if (!clean) return '';
+          // Skip internal anchors and javascript links
+          if (href.startsWith('#') || href.startsWith('javascript:')) return clean;
+          return `${clean} (${href})`;
+        }
+      );
+
+      // Headings → markdown style
+      text = text.replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, (_, content) => {
+        const clean = content.replace(/<[^>]+>/g, '').trim();
+        return clean ? `\n## ${clean}\n` : '';
+      });
+
+      // List items
+      text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, content) => {
+        const clean = content.replace(/<[^>]+>/g, '').trim();
+        return clean ? `- ${clean}\n` : '';
+      });
+
+      // Paragraph breaks
+      text = text.replace(/<\/p>/gi, '\n\n');
+      text = text.replace(/<br\s*\/?>/gi, '\n');
+
+      // Strip remaining tags
       text = text.replace(/<[^>]+>/g, ' ');
-      // Collapse whitespace
-      text = text.replace(/\s+/g, ' ').trim();
+
+      // Collapse whitespace (preserve newlines)
+      text = text.replace(/[ \t]+/g, ' ');
+      text = text.replace(/\n{3,}/g, '\n\n');
+      text = text.trim();
     }
 
     if (text.length > MAX_FETCH_CHARS) {

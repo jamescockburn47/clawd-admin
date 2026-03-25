@@ -15,6 +15,8 @@ const BACKUP_FILE = join(DATA_DIR, 'soul_backup.json');
 
 const VALID_SECTIONS = ['people', 'patterns', 'lessons', 'boundaries'];
 const MAX_ENTRIES_PER_SECTION = 12;
+const MAX_ENTRY_LENGTH = 500;
+const PENDING_FILE = join(DATA_DIR, 'soul_pending.json');
 const OBS_DECAY_DAYS = 14;
 
 // Severity thresholds — how many occurrences before promotion to soul
@@ -123,7 +125,7 @@ export async function soulLearn({ section, text }) {
     return `Invalid section: "${section}". Valid: ${VALID_SECTIONS.join(', ')}`;
   }
   if (!text || text.length < 5) return 'Text too short.';
-  if (text.length > 200) return `Text too long: ${text.length} chars (max 200).`;
+  if (text.length > MAX_ENTRY_LENGTH) return `Text too long: ${text.length} chars (max ${MAX_ENTRY_LENGTH}).`;
   if (isBlocked(text)) return 'Blocked: content matches a guardrail override pattern.';
 
   const soul = await loadSoul();
@@ -173,18 +175,70 @@ export async function soulForget({ section, index }) {
 }
 
 /**
- * Legacy propose — still used for explicit user-initiated proposals.
+ * Propose a soul change — stores pending, does NOT write immediately.
+ * Must be confirmed via soulConfirm before it takes effect.
  */
+// Persist proposals to disk so they survive restarts
+async function loadPending() {
+  try {
+    if (!existsSync(PENDING_FILE)) return null;
+    const data = JSON.parse(await readFile(PENDING_FILE, 'utf-8'));
+    // Expire proposals older than 24 hours
+    if (data && data.proposedAt) {
+      const age = Date.now() - new Date(data.proposedAt).getTime();
+      if (age > 24 * 60 * 60 * 1000) {
+        await clearPending();
+        return null;
+      }
+    }
+    return data;
+  } catch { return null; }
+}
+
+async function savePending(proposal) {
+  await ensureDataDir();
+  await writeFile(PENDING_FILE, JSON.stringify(proposal, null, 2));
+}
+
+async function clearPending() {
+  try { await writeFile(PENDING_FILE, 'null'); } catch {}
+}
+
 export async function soulPropose({ section, content, reason }) {
-  // Redirect to soulLearn — the old propose/confirm flow is replaced
-  return soulLearn({ section, text: content });
+  if (!VALID_SECTIONS.includes(section)) {
+    return `Invalid section: "${section}". Valid: ${VALID_SECTIONS.join(', ')}`;
+  }
+  if (!content || content.length < 5) return 'Content too short.';
+  if (content.length > MAX_ENTRY_LENGTH) return `Content too long: ${content.length} chars (max ${MAX_ENTRY_LENGTH}).`;
+  if (isBlocked(content)) return 'Blocked: content matches a guardrail override pattern.';
+
+  const proposal = { section, text: content, reason, proposedAt: new Date().toISOString() };
+  await savePending(proposal);
+  logger.info({ section, content }, 'soul proposal stored (pending confirmation)');
+  return `**Proposed soul update:**\n\nSection: *${section}*\nContent: "${content}"\nReason: ${reason || 'not provided'}`;
 }
 
 /**
- * Legacy confirm — no longer needed but kept for backwards compat.
+ * Confirm the pending soul proposal — writes to soul.
+ * Only callable from owner DM (handler.js blocks group calls).
+ * Persisted to disk so it survives restarts.
  */
 export async function soulConfirm() {
-  return 'The soul system no longer uses propose/confirm. Use soul_learn to add entries directly, or soul_forget to remove them.';
+  const pending = await loadPending();
+  if (!pending) {
+    return 'No pending soul proposal. Nothing to confirm.';
+  }
+  const { section, text } = pending;
+  await clearPending();
+  return soulLearn({ section, text });
+}
+
+export function getPendingProposal() {
+  try {
+    if (!existsSync(PENDING_FILE)) return null;
+    const data = JSON.parse(readFileSync(PENDING_FILE, 'utf-8'));
+    return data;
+  } catch { return null; }
 }
 
 // ── Observation buffer (for dream mode) ─────────────────────────────────────

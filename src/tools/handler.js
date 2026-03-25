@@ -8,6 +8,9 @@ import { webSearch, webFetch } from './search.js';
 import { soulRead, soulPropose, soulConfirm, soulLearn, soulForget } from './soul.js';
 import { todoAdd, todoList, todoComplete, todoRemove, todoUpdate, getAllTodos } from './todo.js';
 import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
+import { projectList, projectRead, projectPitch, projectUpdate } from './projects.js';
+import { sendOvernightReport } from '../overnight-report.js';
+import { createTask, getTaskSummary } from '../evolution.js';
 import { broadcastSSE, getSSEClientCount } from '../widgets.js';
 import { logAudit } from '../audit.js';
 import { getRoutingStats } from '../router-telemetry.js';
@@ -19,6 +22,10 @@ let _lastVoiceHeartbeat = null;
 export function recordVoiceHeartbeat(data) {
   _lastVoiceHeartbeat = { ...data, receivedAt: Date.now() };
 }
+
+// WhatsApp send function — set by index.js for tools that need to push messages
+let _sendWhatsApp = null;
+export function setSendWhatsApp(fn) { _sendWhatsApp = fn; }
 
 const TODO_MUTATION_TOOLS = new Set(['todo_add', 'todo_complete', 'todo_remove', 'todo_update']);
 
@@ -124,6 +131,29 @@ const TOOL_MAP = {
       `**Routing today**: ${routerLine}`,
     ].join('\n');
   },
+  project_list: projectList,
+  project_read: projectRead,
+  project_pitch: projectPitch,
+  project_update: projectUpdate,
+  overnight_report: async (input) => {
+    if (!_sendWhatsApp) return 'WhatsApp send function not available — cannot deliver report.';
+    try {
+      const dateStr = input.date || null;
+      await sendOvernightReport(_sendWhatsApp, dateStr);
+      return `Overnight report ${dateStr ? 'for ' + dateStr : 'for yesterday'} generated and sent.`;
+    } catch (err) {
+      return `Failed to generate overnight report: ${err.message}`;
+    }
+  },
+  evolution_task: async (input) => {
+    try {
+      const task = createTask(input.instruction, 'whatsapp', input.priority || 'normal');
+      const summary = getTaskSummary();
+      return `Queued coding task (${task.id}): ${input.instruction}\n\nI'll work on it and send you the diff for approval. Queue: ${summary.pending} pending, ${summary.today}/${3} today.`;
+    } catch (err) {
+      return `Failed to create evolution task: ${err.message}`;
+    }
+  },
 };
 
 // Summarise tool input for audit (truncate large payloads)
@@ -143,6 +173,19 @@ export async function executeTool(toolName, toolInput, senderJid, chatJid) {
   }
 
   const isGroup = chatJid && chatJid.endsWith('@g.us');
+
+  // Soul learn from groups must be redirected to proposal flow — only owner DM allows direct writes
+  if (toolName === 'soul_learn' && isGroup && _sendOwnerDM) {
+    const proposal = await soulPropose({ section: toolInput.section, content: toolInput.text, reason: 'learned from group conversation' });
+    await _sendOwnerDM(`*Soul update proposed (from group):*\n\n${proposal}\n\nReply "confirm soul" to apply, or ignore to reject.`);
+    return 'Proposal sent to James via DM for review. Soul changes require owner confirmation.';
+  }
+
+  // Soul forget from groups must be confirmed by owner DM
+  if (toolName === 'soul_forget' && isGroup && _sendOwnerDM) {
+    await _sendOwnerDM(`*Soul deletion requested (from group):*\n\nSection: ${toolInput.section}, Entry #${toolInput.index}\n\nReply "forget soul ${toolInput.section} ${toolInput.index}" in DM to confirm.`);
+    return 'Deletion request sent to James via DM for review. Soul changes require owner confirmation.';
+  }
 
   // Soul proposals from groups must be redirected to owner DM
   if (toolName === 'soul_propose' && isGroup && _sendOwnerDM) {
