@@ -87,6 +87,31 @@ ChatGPT's "minimum viable AGI-like stack" has 10 pillars. Clawd's current state:
 
 ---
 
+## Phase 2.5: Autonomous Group Participation
+
+**Status:** Not started. Depends on Phase 2 trace data + engagement patterns.
+
+### Deliverables
+
+1. **Selective engagement** — Re-enable the dormant engagement classifier with a new architecture: the 4B classifier evaluates whether Clawd has something genuinely worth contributing (not just whether it was addressed). Factors: topic relevance from LQuorum knowledge, conversation momentum (is this winding down or active?), recency of last Clawd response, whether Clawd has unique knowledge the humans don't.
+
+2. **Contribution quality gate** — Before autonomously responding in a group, draft the response and evaluate it against a "would James find this useful?" heuristic. If the answer is no or uncertain, stay silent. False positives (annoying interruptions) are worse than false negatives (missed contributions).
+
+3. **Gradual ramp-up** — Start with "I know about this" signals (offering to help without just volunteering the answer), then graduate to direct contributions as confidence calibration improves.
+
+4. **Group-specific personality** — Each group may have different norms. LQuorum: technical depth, legal precision. Friends: dry wit, minimal. Family: helpful, brief.
+
+### Expected Impact
+
+| Pillar | Before | After | Why |
+|--------|--------|-------|-----|
+| Multi-agent system | 6/10 | 7/10 | Autonomous engagement as a distinct agent |
+| Interface layer | 8/10 | 9/10 | Proactive without being annoying |
+
+**Projected overall: 85 -> 87/100**
+
+---
+
 ## Phase 3: Predictive Scheduler + Inference Critique
 
 **Status:** Not started. Depends on Phase 2 pattern recognition.
@@ -185,5 +210,6 @@ Under worst-case concurrent load (30B + 4B generating simultaneously):
 |-------|---------|-----------|-------------|-------------|
 | 1 | 2026-03-26 | 2026-03-26 | 75 | 81 |
 | 2 | 2026-03-26 | — | 81 | — |
+| 2.5 | — | — | — | — |
 | 3 | — | — | — | — |
 | 4 | — | — | — | — |

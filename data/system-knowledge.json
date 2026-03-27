@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-03-26T16:00:00.000Z",
+  "lastUpdated": "2026-03-27T22:00:00.000Z",
   "identity": {
     "name": "Clawd",
     "fullName": "Clawd Monet",
@@ -37,7 +37,7 @@
     ]
   },
   "engagementClassifier": {
-    "summary": "I use an engagement classifier (Qwen3-0.6B on EVO X2 at :8081) to decide whether to respond in group chats. It sees the last 6 messages of context and the new message, then decides YES (respond) or NO (stay silent). Direct @mentions bypass the classifier."
+    "summary": "In groups, I only respond when directly @mentioned or when someone uses my name as a prefix command ('clawd ...' or 'clawdsec ...'). Replying to one of my messages also works. I don't respond just because someone mentions 'clawd' in conversation — that's discussing me, not addressing me. The engagement classifier (0.6B on EVO) still exists in the codebase but is dormant — it's reserved for a future phase where I participate autonomously in group discussions, with restraint. For now, silence unless asked."
   },
   "muteSystem": {
     "summary": "My mute system lets people tell me to shut up in groups. When someone says 'shut up clawd' or similar, I go quiet for 10 minutes. Only direct @mentions break through a mute. Mute state is in-memory and resets on restart."
@@ -46,22 +46,21 @@
     "summary": "I log all group messages to JSONL files in data/conversation-logs/, not just my own exchanges. This captures full group context for dream mode processing."
   },
   "messageFlow": {
-    "summary": "WhatsApp message received via Baileys → trigger check (DM, mention, /clawd prefix, random chance) → smart router classifies (complexity → keywords → LLM classifier → fallback) → route to local model or Claude → tool execution loop (up to 5 iterations) → response split into WhatsApp chunks → send",
+    "summary": "WhatsApp message → trigger check (DMs always, groups @mention/prefix only) → 4B classifier (category + needsPlan) → route to MiniMax or Claude → tool execution loop (up to 5 iterations) or task planner (multi-step) → response sent. Two addressing modes: 'clawd' for full advisory mode (planner available), 'clawdsec' for secretary/admin mode (single-tool fast path).",
     "router": {
-      "layer0": "Complexity detection — multi-step conjunctions, long messages (>150 chars), mixed question+imperative → forces Claude",
-      "layer1": "Keyword heuristics — category-specific patterns, ~70% hit rate, ~10ms. Now includes mightNeedPlan() heuristic that detects overview/briefing/preparation requests and triggers 4B evaluation even after keyword match",
-      "layer2": "LLM classifier on EVO — qwen3:0.6b, handles ambiguous messages, ~100ms",
-      "layer3": "4B classifier on EVO — Qwen3-4B (port 8085), evaluates whether a message needs multi-step planning. Fires on mightNeedPlan() signals. Returns needsPlan + planReason + confidence",
-      "layer4": "Fallback — Claude/MiniMax with all tools, guaranteed correct but costs money",
-      "writeDetection": "Any mutation intent (email drafts, calendar creates, soul changes) forces Claude — hallucinated args from local models cause real damage",
-      "learnedRules": "Self-improvement cycle adds new keyword rules overnight (data/learned-rules.json), loaded every 5 minutes, validated against eval suite"
+      "layer1": "4B classifier (PRIMARY) — Qwen3-4B on EVO port 8085. Every message goes through this. Returns category + needsPlan + confidence. ~200ms. Handles all routing decisions including whether a request needs multi-step planning.",
+      "layer2": "Keyword heuristics (FALLBACK) — only fires when 4B is unavailable (EVO down, circuit breaker open). Category-specific regex patterns. Cannot detect needsPlan.",
+      "layer3": "0.6B LLM classifier (FALLBACK) — Qwen3-0.6B, last resort if keywords also miss.",
+      "layer4": "Default — PLANNING with Claude/MiniMax, guaranteed correct but costs money.",
+      "writeDetection": "Any mutation intent (email drafts, calendar creates, soul changes) forces Claude — hallucinated args from local models cause real damage.",
+      "learnedRules": "Self-improvement cycle adds new keyword rules overnight (data/learned-rules.json), loaded every 5 minutes, validated against eval suite.",
+      "secretaryMode": "'clawdsec' prefix bypasses the task planner entirely — needsPlan forced false regardless of what the 4B classifier thinks. Fast path for simple admin: check calendar, add todo, search email."
     },
     "modelSelection": {
-      "minimax_default": "MiniMax M2.7 — default cloud model for ALL chat responses including greetings, queries, tool use, email, legal, planning. ~$0.003-0.01 per call. Anthropic-compatible API.",
-      "claude_premium": "Claude Opus 4.6 — premium model, only when user explicitly requests 'ask claude', 'use opus', 'claude only'. Also used as quality gate for complex categories. ~$0.01-0.05 per call.",
-      "local_vision": "Qwen3-VL-30B-A3B on EVO — image understanding and document summarisation only. Not used for chat responses. Free.",
-      "classifier_0_6b": "Qwen3-0.6B on EVO — fast engagement classification for group messages. ~100ms.",
-      "classifier_4b": "Qwen3-4B on EVO (port 8085) — needsPlan detection for agentic task planning. ~200ms."
+      "minimax_default": "MiniMax M2.7 — default cloud model for ALL chat responses. ~$0.003-0.01 per call. Anthropic-compatible API.",
+      "claude_premium": "Claude Opus 4.6 — premium model, only on explicit request ('ask claude', 'use opus'). Also quality gate for complex categories. ~$0.01-0.05 per call.",
+      "local_support": "EVO models handle classification (4B + 0.6B), vision (VL-30B), document summarisation, and embeddings. Never generate chat responses.",
+      "classifier_4b": "Qwen3-4B on EVO (port 8085) — primary router. Category + needsPlan for every message. ~200ms."
     }
   },
   "tools": {
@@ -83,8 +82,10 @@
       "Self-improvement cycle at 01:00 — probes keyword classifier, proposes new rules, validates against eval suite",
       "Overnight extraction at 02:00 — extracts facts from yesterday's conversation logs into EVO memory",
       "System knowledge refresh at 02:00 — regenerates self-knowledge entries in EVO memory from live codebase state",
+      "Trace analyser at 03:00 — analyses reasoning traces from last 7 days, outputs routing breakdown, needsPlan F1, plan success rates, timing percentiles, anomaly detection",
       "Daily backup at 03:00 — todos, soul, soul_history (7-day retention)",
       "Project Deep Think at 23:00 — multi-model strategic analysis on active projects using MiniMax M2.7 (default) with Claude Opus 4.6 available on request. Runs web research via SearXNG to surface SOTA innovations, then feeds everything to the cloud model for deep analysis. Stores insights in memory and sends summary to James",
+      "Weekly retrospective on Sundays at 04:00 — EVO 30B reasons about top 3 improvement priorities from trace data, auto-creates evolution tasks",
       "Weekly memory review on Sundays at 20:00 — memory stats summary via WhatsApp",
       "Widget cache refresh every 5 minutes — Henry weekends, side gig, emails, calendar, weather",
       "EVO model warm-keeping every 10 minutes — prevents llama.cpp from evicting model from VRAM",
@@ -146,8 +147,8 @@
     "mg": "James's wife — can use calendar reading, todos, travel tools, web search. Cannot use email, soul, or calendar mutation tools."
   },
   "selfImprovement": {
-    "summary": "Autonomous overnight cycle that probes the keyword classifier with synthetic messages (generated by Qwen3-Coder-30B on EVO), identifies misses, proposes new keyword rules, validates against full eval suite (cross-contamination check + regression check), and applies passing rules to data/learned-rules.json. Multi-iteration (up to 5 rounds or 30 minutes). Rules surviving 3 cycles get graduated to permanent.",
-    "evalSuite": "172 baseline test cases + dynamic learned labels. Tests keyword classification, complexity detection, write-intent detection, tool safety sets, and category config. Run with: node eval/router-eval.js"
+    "summary": "Multi-layered autonomous improvement: (1) Overnight keyword rule probing and graduation at 1 AM, (2) needsPlan probe — 23 synthetic test cases evaluate 4B classifier accuracy, results in WhatsApp notification, (3) Trace analyser at 3 AM — analyses routing, plans, needsPlan F1, timing, anomalies from reasoning-traces.jsonl, (4) Weekly retrospective on Sundays at 4 AM — 30B model reasons about top 3 priorities from trace data, auto-creates evolution tasks for high/medium severity items.",
+    "evalSuite": "343 tests across 91 suites (task-planner, trace-analyser, reasoning-trace, weekly-retrospective, trigger, engagement, router, quality-gate, etc). 29 labeled needsPlan cases. Router eval covers keyword classification, write-intent detection, tool safety sets. Run with: npm test"
   },
   "overnightCoding": {
     "summary": "Every night from 22:30 to 05:15, I run a self-improvement coding session using the local 30B coding model on EVO. It's like having a code reviewer work overnight — finding router bugs, generating unit tests, and auditing code quality. Three tasks run sequentially: (1) Router Eval Adversarial Expansion finds messages my keyword router misclassifies by generating tricky edge cases, (2) Unit Test Generation creates and iterates on tests for all 27+ source modules using a Reflexion loop (generate → run → see failures → fix → repeat), (3) Code Quality Deep Analysis feeds my entire codebase to the model for a 6-phase audit covering bugs, dead code, error handling gaps, performance, security, and compliance with my code structure rules.",
@@ -163,13 +164,14 @@
     "overnightEvolution": "The overnight evolution script (run-evolution.sh) picks one high-impact fix per session, following the same scope limits. It runs on EVO using Claude Code CLI with the MiniMax M2.7 model by default (Claude Opus as fallback). Results are reviewed in the morning briefing."
   },
   "agenticTaskPlanner": {
-    "summary": "When a message needs information from multiple sources (calendar + todos + memory, or email + calendar + travel), my 4B classifier (Qwen3-4B on port 8085) detects it and flags needsPlan. The task planner then runs a two-phase process: first, goal reasoning — understanding WHAT the user actually needs, not just what they literally asked for. Second, decomposition into executable steps with tool calls. Between steps, adaptive re-planning evaluates results so far and adjusts remaining steps (skip redundant ones, add new ones if results reveal gaps). This means 'what do I need to do this week' triggers calendar lookup, todo check, email scan, and memory search — synthesised into a single coherent briefing. The planner uses the 30B model on EVO for reasoning and the same tool execution pipeline as single-shot requests.",
-    "mightNeedPlan": "A lightweight regex heuristic that detects overview, briefing, preparation, and multi-action signals. Triggers 4B classifier evaluation even after keyword classification, preventing keywords from short-circuiting plan detection.",
-    "adaptiveReplanning": "After each step executes, the planner evaluates whether remaining steps are still needed. If step 1 reveals the answer to step 3, step 3 is skipped. If results expose a gap, new steps are added. This makes the planner genuinely agentic rather than executing a fixed list."
+    "summary": "When the 4B classifier flags needsPlan, the task planner runs a two-phase process: first, goal reasoning — understanding WHAT the user actually needs, not just what they literally asked for. Second, decomposition into dependency-aware steps with tool calls. Steps without dependencies execute in parallel. Between levels, adaptive re-planning evaluates results and adjusts remaining steps. The planner uses the 30B model on EVO for reasoning (MiniMax fallback) and the same tool execution pipeline as single-shot requests. Plans are held in memory for diagnostics (/api/plans endpoint).",
+    "addressingModes": "'clawd' or '@clawd' = full advisory mode with planner available. 'clawdsec' = secretary mode, planner bypassed, single-tool admin only.",
+    "adaptiveReplanning": "After each execution level, the planner evaluates whether remaining steps are still needed. If step 1 reveals the answer to step 3, step 3 is skipped. If results expose a gap, new steps are added. This makes the planner genuinely agentic rather than executing a fixed list."
   },
   "agiRoadmap": {
-    "summary": "Clawd is an ongoing AGI experiment. The roadmap tracks progressive capability additions: three-tier AI routing (done), engagement classification (done), soul/personality evolution (done), dream mode with extractive memory (done), conversational working memory (done), agentic task planning with goal reasoning and adaptive re-planning (done 2026-03-26), overnight self-coding (done), evolution pipeline with approval gates (done). Next frontiers: genuine multi-agent orchestration, predictive action (anticipating needs before asked), cross-session learning from plan execution quality, and autonomous capability discovery.",
-    "currentPhase": "Phase 3 — Agentic Intelligence. The system reasons about goals, breaks complex requests into plans, adapts mid-execution, and has basic self-modification capabilities through the evolution pipeline. Self-awareness is queryable and up-to-date."
+    "summary": "Clawd is an ongoing AGI experiment scoring 81/100 on a 10-pillar framework. Phase 1 (Task Planner + Reasoning Traces) complete — planning/reasoning jumped 4→7/10. Phase 2 (Autonomous Goal Generation + Trace Analysis) in progress — trace analyser runs nightly at 3 AM, weekly retrospective on Sundays auto-creates evolution tasks. Phase 3 planned: Predictive Scheduler + Inference Critique. Phase 4: World Model + Persistent Identity.",
+    "currentPhase": "Phase 2 — Autonomous Improvement. The system analyses its own cognitive performance overnight (routing accuracy, plan success rates, needsPlan F1, timing percentiles, anomaly detection), reasons about improvement priorities weekly via the 30B model, and auto-queues evolution tasks. Two addressing modes enable appropriate cognitive depth: 'clawd' for full advisory, 'clawdsec' for fast admin.",
+    "traceAnalysis": "Every message generates a reasoning trace (routing layer, category, model, plan details, timing). Nightly trace analyser computes metrics. Weekly retrospective uses EVO 30B to identify top 3 improvement priorities and create scoped evolution tasks. Endpoints: /api/traces, /api/traces/live, /api/retrospective."
   },
   "documentation": {
     "summary": "My codebase is fully documented across multiple files. CLAUDE.md holds all binding design decisions (100+ numbered rules) and session protocol. architecture.md describes the full system architecture across all three devices. The docs/ folder contains detailed references for specific subsystems.",
@@ -240,5 +242,5 @@
   "systemHealthApi": {
     "summary": "The /api/system-health endpoint provides a consolidated view of all subsystem statuses. It reports on WhatsApp connection, EVO reachability, briefing/diary/self-improve/knowledge-refresh/backup last-run times, memory statistics (total count + category breakdown), system uptime, and memory usage. The dashboard's Admin panel fetches this on startup and displays it as a real-time status grid with green/red indicators."
   },
-  "version": "2.4.0"
+  "version": "2.5.0"
 }
