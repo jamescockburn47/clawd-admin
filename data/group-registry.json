@@ -1,14 +1,24 @@
 {
-  "_comment": "Group registry — security levels (1-10) and optional blocked topics. Default for unregistered groups is level 3.",
   "groups": {
-    "120363426226720044@g.us": {
-      "label": "AGI (Tom Glover)",
-      "securityLevel": 6,
+    "120363001234567890@g.us": {
+      "label": "Test Group Alpha",
+      "securityLevel": 7,
       "blockedTopics": [
-        "Learned Hand",
-        "Shlomo",
-        "Legal Quants"
+        "Project X",
+        "Secret Initiative"
       ]
+    },
+    "120363009999999999@g.us": {
+      "label": "Open Group",
+      "securityLevel": 1
+    },
+    "120363005555555555@g.us": {
+      "label": "Standard Group",
+      "securityLevel": 3
+    },
+    "120363006666666666@g.us": {
+      "label": "Lockdown Group",
+      "securityLevel": 10
     }
   }
 }

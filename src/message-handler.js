@@ -16,6 +16,7 @@ import { getDocumentInfo, processDocument } from './document-handler.js';
 import { handleEvolutionConfirmation, handleEvolutionApproval } from './evolution-gate.js';
 import { cacheSentMessage } from './message-cache.js';
 import { recordDecryptionFailure } from './session-repair.js';
+import { filterResponse, getBlockedResponse } from './output-filter.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -279,9 +280,17 @@ export async function handleIncomingMessage(sock, message, botJid) {
       return;
     }
 
+    // Output filter — code-level security, cannot be prompt-injected
+    const filterResult = filterResponse(response, chatJid);
+    let finalResponse = response;
+    if (!filterResult.safe) {
+      logger.warn({ chatJid, reason: filterResult.reason, blocked: filterResult.blocked }, 'output filter blocked response');
+      finalResponse = getBlockedResponse(filterResult.reason);
+    }
+
     // Send response
-    await simulateTyping(sock, chatJid, response.length);
-    const chunks = splitMessage(response);
+    await simulateTyping(sock, chatJid, finalResponse.length);
+    const chunks = splitMessage(finalResponse);
     const sentMsgIds = [];
     for (const chunk of chunks) {
       const sent = await sock.sendMessage(chatJid, { text: chunk });
@@ -292,25 +301,25 @@ export async function handleIncomingMessage(sock, message, botJid) {
       if (chunks.length > 1) await new Promise((r) => setTimeout(r, 300));
     }
 
-    pushMessage(chatJid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
+    pushMessage(chatJid, { senderName: 'Clawd', text: finalResponse, hasImage: false, isBot: true });
     if (isGroup) recordGroupResponse(chatJid);
 
     if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
-      broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
+      broadcastSSE('message', { sender: 'Clawd', text: finalResponse, timestamp: Date.now() });
     }
 
     logInteraction({
       sender: { name: senderName, jid: senderJid }, source: 'whatsapp',
       input: { text: messageText, hadImage: !!imageData }, routing: { mode: trigger.mode },
-      toolsCalled: getLastToolsCalled(), response: { text: response, chars: response.length },
+      toolsCalled: getLastToolsCalled(), response: { text: finalResponse, chars: finalResponse.length, filtered: !filterResult.safe },
       latencyMs: responseLatency, messageIds: sentMsgIds,
     });
 
     if (config.evoMemoryEnabled) {
-      try { logConversation(chatJid, [{ senderName: 'Clawd', text: response, isBot: true }]); } catch {}
+      try { logConversation(chatJid, [{ senderName: 'Clawd', text: finalResponse, isBot: true }]); } catch {}
     }
 
-    logger.info({ mode: trigger.mode, chars: response.length, latencyMs: responseLatency }, 'response sent');
+    logger.info({ mode: trigger.mode, chars: finalResponse.length, filtered: !filterResult.safe, latencyMs: responseLatency }, 'response sent');
   } catch (err) {
     logger.error({ err: err.message }, 'message handler error');
   }

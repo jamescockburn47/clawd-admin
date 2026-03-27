@@ -209,7 +209,8 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 112. **James sets levels by saying a number in the group.** "@clawd security level 7" → Clawd calls `group_security` tool, writes to `group-registry.json`, restrictions active immediately. No JID hunting, no JSON editing. Owner-only.
 113. **Optional `blockedTopics` per group sit on top of the security level.** For specific items that need blocking regardless of level. Also set via the tool or JSON.
 114. **Unregistered groups default to level 3 (Standard).** Blocks personal admin tools and personal life details. No action needed for basic groups.
-115. **Restrictions are prompt-level enforcement.** Appended after `GROUP_CONTENT_BOUNDARY` in `prompt.js` via `getGroupRestrictions(chatJid)`.
+115. **Three-layer defense: prompt + output filter + canary.** Prompt-level restrictions tell the model what not to say. `output-filter.js` scans every response with deterministic regex BEFORE sending — blocks IP addresses, model names, project names, personal details based on security level. Canary token in system prompt detects prompt leakage. Cannot be prompt-injected.
+116. **Anti-prompt-injection hardening in group prompts.** Identity lock (always Clawd), instruction hierarchy (system overrides user), anti-extraction instruction, anti-role-play instruction. Injected for all groups.
 
 ## Known Gotchas
 
