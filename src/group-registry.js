@@ -1,7 +1,7 @@
 // src/group-registry.js — Per-group configuration and content restrictions
 // Maps WhatsApp group JIDs to labels and confidentiality rules.
 // Data lives in data/group-registry.json, hot-reloaded every 5 minutes.
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import logger from './logger.js';
 
@@ -96,6 +96,47 @@ export function getRegisteredGroups() {
     blockedTopics: config.blockedTopics || [],
     hasConfidentialityPrompt: !!config.confidentialityPrompt,
   }));
+}
+
+/**
+ * Save current registry to disk.
+ */
+function saveRegistry() {
+  try {
+    writeFileSync(REGISTRY_FILE, JSON.stringify(registry, null, 2));
+    lastLoadedAt = Date.now();
+  } catch (err) {
+    logger.error({ err: err.message }, 'group-registry: failed to save');
+    throw err;
+  }
+}
+
+/**
+ * Set or update config for a group. Persists immediately.
+ * @param {string} chatJid - WhatsApp group JID
+ * @param {{ label?: string, blockedTopics?: string[], confidentialityPrompt?: string }} config
+ */
+export function setGroupConfig(chatJid, config) {
+  ensureLoaded();
+  if (!registry.groups) registry.groups = {};
+  const existing = registry.groups[chatJid] || {};
+  registry.groups[chatJid] = { ...existing, ...config };
+  saveRegistry();
+  logger.info({ chatJid, label: registry.groups[chatJid].label }, 'group-registry: config updated');
+}
+
+/**
+ * Remove a group from the registry. Persists immediately.
+ * @param {string} chatJid
+ * @returns {boolean} true if group was registered
+ */
+export function removeGroupConfig(chatJid) {
+  ensureLoaded();
+  if (!registry.groups || !registry.groups[chatJid]) return false;
+  delete registry.groups[chatJid];
+  saveRegistry();
+  logger.info({ chatJid }, 'group-registry: group removed');
+  return true;
 }
 
 /**

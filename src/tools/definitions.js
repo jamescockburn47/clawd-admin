@@ -697,4 +697,47 @@ export const TOOL_DEFINITIONS = [
       required: ['filename'],
     },
   },
+
+  // === GROUP CONTENT RESTRICTIONS ===
+  {
+    name: 'group_restrict',
+    description: 'Set content restrictions for the current WhatsApp group. Blocks specific topics from being discussed. Owner only. Use when James says to block or restrict topics in a group.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        label: {
+          type: 'string',
+          description: 'Human-readable label for this group (e.g. "AGI (Tom Glover)").',
+        },
+        blocked_topics: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of topics that must never be discussed in this group.',
+        },
+        confidentiality_prompt: {
+          type: 'string',
+          description: 'Optional free-form confidentiality instruction for this group.',
+        },
+      },
+      required: ['label'],
+    },
+  },
+  {
+    name: 'group_unrestrict',
+    description: 'Remove all content restrictions from the current WhatsApp group. Owner only.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'group_restrictions',
+    description: 'Show current content restrictions for this group, if any.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
 ];

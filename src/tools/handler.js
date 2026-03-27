@@ -11,6 +11,7 @@ import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
 import { projectList, projectRead, projectPitch, projectUpdate } from './projects.js';
 import { sendOvernightReport } from '../overnight-report.js';
 import { createTask, getTaskSummary } from '../evolution.js';
+import { getGroupConfig, setGroupConfig, removeGroupConfig, getRegisteredGroups } from '../group-registry.js';
 import { broadcastSSE, getSSEClientCount } from '../sse.js';
 import { logAudit } from '../audit.js';
 import { getRoutingStats } from '../router-telemetry.js';
@@ -275,6 +276,51 @@ export async function executeTool(toolName, toolInput, senderJid, chatJid) {
   // Soul confirm only works from owner DM, not groups
   if (toolName === 'soul_confirm' && isGroup) {
     return 'Soul confirmations must happen in DM with James, not in group chats.';
+  }
+
+  // ── GROUP RESTRICTION TOOLS ──────────────────────────────────────────────
+  if (toolName === 'group_restrict') {
+    if (!isOwnerSender(senderJid)) {
+      return 'Only James can set group restrictions.';
+    }
+    if (!isGroup) {
+      return 'This tool only works in group chats. Send the command in the group you want to restrict.';
+    }
+    const update = { label: toolInput.label };
+    if (toolInput.blocked_topics) update.blockedTopics = toolInput.blocked_topics;
+    if (toolInput.confidentiality_prompt) update.confidentialityPrompt = toolInput.confidentiality_prompt;
+    setGroupConfig(chatJid, update);
+    const topicList = update.blockedTopics ? update.blockedTopics.join(', ') : 'none';
+    return `Group registered as "${toolInput.label}" (${chatJid}). Blocked topics: ${topicList}. Restrictions are active immediately.`;
+  }
+
+  if (toolName === 'group_unrestrict') {
+    if (!isOwnerSender(senderJid)) {
+      return 'Only James can remove group restrictions.';
+    }
+    if (!isGroup) {
+      return 'This tool only works in group chats.';
+    }
+    const removed = removeGroupConfig(chatJid);
+    return removed
+      ? 'All restrictions removed from this group.'
+      : 'This group had no restrictions.';
+  }
+
+  if (toolName === 'group_restrictions') {
+    if (!isGroup) {
+      // In DM, show all registered groups
+      const groups = getRegisteredGroups();
+      if (groups.length === 0) return 'No groups have content restrictions.';
+      return groups.map(g => {
+        const topics = g.blockedTopics.length > 0 ? g.blockedTopics.join(', ') : 'none';
+        return `*${g.label}* (${g.jid})\nBlocked: ${topics}${g.hasConfidentialityPrompt ? '\nCustom prompt: yes' : ''}`;
+      }).join('\n\n');
+    }
+    const cfg = getGroupConfig(chatJid);
+    if (!cfg) return 'No restrictions set for this group.';
+    const topics = cfg.blockedTopics?.length > 0 ? cfg.blockedTopics.join(', ') : 'none';
+    return `*${cfg.label}*\nBlocked topics: ${topics}${cfg.confidentialityPrompt ? '\nCustom prompt: yes' : ''}`;
   }
 
   try {
