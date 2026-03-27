@@ -1,7 +1,9 @@
 [Unit]
 Description=Clawd Dream Mode — Overnight Diary
-After=clawdbot-memory.service llama-server-main.service
-Wants=clawdbot-memory.service llama-server-main.service
+After=network.target
+# No hard dependency on LLM service — dream_mode.py has its own health check
+# that waits up to 120s for any model on port 8080 to be ready.
+Wants=clawdbot-memory.service
 
 [Service]
 Type=oneshot
@@ -9,7 +11,6 @@ User=james
 Environment=EVO_LLM_URL=http://localhost:8080
 Environment=EVO_MEMORY_URL=http://localhost:5100
 Environment=PI_URL=http://10.0.0.1:3000
-Environment=DASHBOARD_TOKEN=VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM
 Environment=PI_LOG_DIR=/home/james/clawdbot-logs/conversation-logs
 
 # Step 1: Sync conversation logs from Pi

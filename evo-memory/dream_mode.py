@@ -13,6 +13,7 @@ import json
 import os
 import re
 import sys
+import time
 import argparse
 import requests
 from datetime import datetime, timedelta
@@ -727,12 +728,70 @@ def prune_stale_memories(date_str, max_age_days=STALE_MEMORY_AGE_DAYS):
     return pruned
 
 
+def wait_for_llm(url=EVO_LLM_URL, max_wait=120, interval=5):
+    """Wait for the LLM server to be ready before starting dream mode.
+
+    Robust against model swaps — doesn't care which model is loaded,
+    just that the /v1/models endpoint responds successfully.
+    Returns True if ready, False if timed out.
+    """
+    print(f'Checking LLM readiness at {url}...')
+    deadline = time.time() + max_wait
+    attempt = 0
+    while time.time() < deadline:
+        attempt += 1
+        try:
+            resp = requests.get(f'{url}/v1/models', timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                models = data.get('data', data.get('models', []))
+                if models:
+                    model_id = models[0].get('id', models[0].get('model', 'unknown'))
+                    print(f'LLM ready: {model_id} (attempt {attempt})')
+                    return True
+                else:
+                    print(f'  Attempt {attempt}: server up but no models loaded yet...')
+            else:
+                print(f'  Attempt {attempt}: HTTP {resp.status_code}')
+        except requests.ConnectionError:
+            print(f'  Attempt {attempt}: connection refused — server not up yet')
+        except Exception as e:
+            print(f'  Attempt {attempt}: {e}')
+        time.sleep(interval)
+
+    print(f'ERROR: LLM not ready after {max_wait}s', file=sys.stderr)
+    return False
+
+
+def wait_for_memory(url=MEMORY_SERVICE_URL, max_wait=30, interval=3):
+    """Wait for the memory service to be ready."""
+    print(f'Checking memory service at {url}...')
+    deadline = time.time() + max_wait
+    while time.time() < deadline:
+        try:
+            resp = requests.get(f'{url}/health', timeout=5)
+            if resp.status_code == 200:
+                print('Memory service ready.')
+                return True
+        except Exception:
+            pass
+        time.sleep(interval)
+    print(f'WARNING: Memory service not ready after {max_wait}s — continuing anyway', file=sys.stderr)
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description='Clawd Dream Mode — Experience Diary')
     parser.add_argument('--date', default=None, help='Date to process (YYYY-MM-DD, default: today)')
     parser.add_argument('--log-dir', default=PI_LOG_DIR, help='Path to conversation logs')
     parser.add_argument('--doc-log-dir', default=None, help='Path to document logs (default: <log-dir>/../document-logs)')
     args = parser.parse_args()
+
+    # Health checks — wait for LLM and memory service before processing
+    if not wait_for_llm():
+        print('FATAL: LLM server not available — aborting dream mode', file=sys.stderr)
+        sys.exit(2)
+    wait_for_memory()  # Non-fatal — we can still generate diaries without memory search
 
     date_str = args.date or datetime.now().strftime('%Y-%m-%d')
     log_dir = Path(args.log_dir)

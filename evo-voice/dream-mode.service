@@ -1,7 +1,9 @@
 [Unit]
 Description=Clawd Dream Mode — overnight conversation summarisation
-After=network.target llama-server-main.service clawdbot-memory.service
-Requires=llama-server-main.service clawdbot-memory.service
+After=network.target
+# No hard Requires — dream_mode.py has its own health check wait loop
+# that's robust against model swaps, restarts, or any LLM server changes.
+Wants=clawdbot-memory.service
 
 [Service]
 Type=oneshot
@@ -14,9 +16,9 @@ Environment=PI_LOG_DIR=/tmp/conversation-logs
 # Pull conversation logs from Pi via direct ethernet
 ExecStartPre=/bin/bash -c 'mkdir -p /tmp/conversation-logs && scp pi@10.0.0.1:~/clawdbot/data/conversation-logs/*.jsonl /tmp/conversation-logs/ 2>/dev/null || true'
 
-# Run dream mode (LLM servers run 24/7)
+# Run dream mode — script waits for LLM readiness internally (up to 120s)
 ExecStart=/home/james/clawdbot-memory/venv/bin/python /home/james/clawdbot-memory/dream_mode.py
 
 StandardOutput=journal
 StandardError=journal
-TimeoutStartSec=300
+TimeoutStartSec=600
