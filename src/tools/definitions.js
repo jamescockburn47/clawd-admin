@@ -698,42 +698,33 @@ export const TOOL_DEFINITIONS = [
     },
   },
 
-  // === GROUP CONTENT RESTRICTIONS ===
+  // === GROUP SECURITY LEVELS ===
   {
-    name: 'group_restrict',
-    description: 'Set content restrictions for the current WhatsApp group. Blocks specific topics from being discussed. Owner only. Use when James says to block or restrict topics in a group.',
+    name: 'group_security',
+    description: 'Set security level (1-10) for the current group. 1=open, 3=standard (default for all groups), 5=guarded, 7=confidential, 10=maximum lockdown. Owner only. Use when James says a number like "security level 7" or "level 5" in a group. Can also set a label and additional blocked topics.',
     input_schema: {
       type: 'object',
       properties: {
+        level: {
+          type: 'number',
+          description: 'Security level 1-10.',
+        },
         label: {
           type: 'string',
-          description: 'Human-readable label for this group (e.g. "AGI (Tom Glover)").',
+          description: 'Optional human-readable label for this group.',
         },
         blocked_topics: {
           type: 'array',
           items: { type: 'string' },
-          description: 'List of topics that must never be discussed in this group.',
-        },
-        confidentiality_prompt: {
-          type: 'string',
-          description: 'Optional free-form confidentiality instruction for this group.',
+          description: 'Optional additional blocked topics on top of the security level.',
         },
       },
-      required: ['label'],
+      required: ['level'],
     },
   },
   {
-    name: 'group_unrestrict',
-    description: 'Remove all content restrictions from the current WhatsApp group. Owner only.',
-    input_schema: {
-      type: 'object',
-      properties: {},
-      required: [],
-    },
-  },
-  {
-    name: 'group_restrictions',
-    description: 'Show current content restrictions for this group, if any.',
+    name: 'group_security_status',
+    description: 'Show current security level and restrictions for this group.',
     input_schema: {
       type: 'object',
       properties: {},

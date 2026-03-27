@@ -11,7 +11,7 @@ import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
 import { projectList, projectRead, projectPitch, projectUpdate } from './projects.js';
 import { sendOvernightReport } from '../overnight-report.js';
 import { createTask, getTaskSummary } from '../evolution.js';
-import { getGroupConfig, setGroupConfig, removeGroupConfig, getRegisteredGroups } from '../group-registry.js';
+import { getGroupConfig, setGroupConfig, removeGroupConfig, getRegisteredGroups, getSecurityLevel, getSecurityLevelInfo, getAllSecurityLevels } from '../group-registry.js';
 import { broadcastSSE, getSSEClientCount } from '../sse.js';
 import { logAudit } from '../audit.js';
 import { getRoutingStats } from '../router-telemetry.js';
@@ -278,49 +278,41 @@ export async function executeTool(toolName, toolInput, senderJid, chatJid) {
     return 'Soul confirmations must happen in DM with James, not in group chats.';
   }
 
-  // ── GROUP RESTRICTION TOOLS ──────────────────────────────────────────────
-  if (toolName === 'group_restrict') {
+  // ── GROUP SECURITY LEVEL TOOLS ────────────────────────────────────────────
+  if (toolName === 'group_security') {
     if (!isOwnerSender(senderJid)) {
-      return 'Only James can set group restrictions.';
+      return 'Only James can set group security levels.';
     }
     if (!isGroup) {
-      return 'This tool only works in group chats. Send the command in the group you want to restrict.';
+      return 'This tool only works in group chats. Send the command in the group you want to configure.';
     }
-    const update = { label: toolInput.label };
+    const level = Math.max(1, Math.min(10, Math.round(toolInput.level)));
+    const levelInfo = getSecurityLevelInfo(level);
+    const update = { securityLevel: level };
+    if (toolInput.label) update.label = toolInput.label;
     if (toolInput.blocked_topics) update.blockedTopics = toolInput.blocked_topics;
-    if (toolInput.confidentiality_prompt) update.confidentialityPrompt = toolInput.confidentiality_prompt;
     setGroupConfig(chatJid, update);
-    const topicList = update.blockedTopics ? update.blockedTopics.join(', ') : 'none';
-    return `Group registered as "${toolInput.label}" (${chatJid}). Blocked topics: ${topicList}. Restrictions are active immediately.`;
+    return `Security level set to ${level} (${levelInfo.name}). ${levelInfo.description}`;
   }
 
-  if (toolName === 'group_unrestrict') {
-    if (!isOwnerSender(senderJid)) {
-      return 'Only James can remove group restrictions.';
-    }
-    if (!isGroup) {
-      return 'This tool only works in group chats.';
-    }
-    const removed = removeGroupConfig(chatJid);
-    return removed
-      ? 'All restrictions removed from this group.'
-      : 'This group had no restrictions.';
-  }
-
-  if (toolName === 'group_restrictions') {
+  if (toolName === 'group_security_status') {
     if (!isGroup) {
       // In DM, show all registered groups
       const groups = getRegisteredGroups();
-      if (groups.length === 0) return 'No groups have content restrictions.';
-      return groups.map(g => {
-        const topics = g.blockedTopics.length > 0 ? g.blockedTopics.join(', ') : 'none';
-        return `*${g.label}* (${g.jid})\nBlocked: ${topics}${g.hasConfidentialityPrompt ? '\nCustom prompt: yes' : ''}`;
-      }).join('\n\n');
+      if (groups.length === 0) return 'No groups registered. Unregistered groups default to security level 3 (Standard).';
+      const lines = groups.map(g => {
+        const info = getSecurityLevelInfo(g.securityLevel);
+        const topics = g.blockedTopics.length > 0 ? `\n  Extra blocked: ${g.blockedTopics.join(', ')}` : '';
+        return `*${g.label || 'Unnamed'}* — Level ${g.securityLevel} (${info.name})${topics}`;
+      });
+      return lines.join('\n\n') + '\n\nUnregistered groups default to level 3 (Standard).';
     }
+    const level = getSecurityLevel(chatJid);
+    const info = getSecurityLevelInfo(level);
     const cfg = getGroupConfig(chatJid);
-    if (!cfg) return 'No restrictions set for this group.';
-    const topics = cfg.blockedTopics?.length > 0 ? cfg.blockedTopics.join(', ') : 'none';
-    return `*${cfg.label}*\nBlocked topics: ${topics}${cfg.confidentialityPrompt ? '\nCustom prompt: yes' : ''}`;
+    const registered = cfg ? 'Registered' : 'Unregistered (using default)';
+    const topics = cfg?.blockedTopics?.length > 0 ? `\nExtra blocked topics: ${cfg.blockedTopics.join(', ')}` : '';
+    return `${registered} — Security level ${level} (${info.name})\n${info.description}${topics}`;
   }
 
   try {

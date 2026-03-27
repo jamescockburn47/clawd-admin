@@ -1,8 +1,9 @@
 {
-  "_comment": "Group registry — maps WhatsApp group JIDs to labels and content restrictions. Restrictions are injected into the system prompt. To find a group JID, check data/conversation-logs/ filenames or enable debug logging.",
+  "_comment": "Group registry — security levels (1-10) and optional blocked topics. Default for unregistered groups is level 3.",
   "groups": {
     "120363426226720044@g.us": {
       "label": "AGI (Tom Glover)",
+      "securityLevel": 6,
       "blockedTopics": [
         "Learned Hand",
         "Shlomo",

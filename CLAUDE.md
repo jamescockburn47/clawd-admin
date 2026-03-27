@@ -204,10 +204,12 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 109. **Groups: @mention only.** No passive engagement. Bot name in text without @mention → silent. Reply-to-bot and prefix commands (`clawd ...`, `clawdsec ...`) also trigger. Future: autonomous participation with restraint.
 110. **Passive mode removed from trigger.js.** Engagement classifier still exists but only fires for future autonomous mode. Current groups are @mention-gated.
 
-### Per-Group Content Restrictions (2026-03-27)
-111. **Group registry (`data/group-registry.json`) maps JIDs to confidentiality rules.** Hot-reloaded every 5 minutes. Each group can have `blockedTopics` (auto-generates restriction text) and/or a `confidentialityPrompt` (free-form). Injected into system prompt via `getGroupRestrictions()`.
-112. **Restrictions are prompt-level enforcement.** Appended after `GROUP_CONTENT_BOUNDARY` in `prompt.js`. Model instructed to refuse discussion, not confirm or deny existence.
-113. **To add a restricted group:** find its JID from `data/conversation-logs/` filenames, add entry to `data/group-registry.json` with label, blockedTopics, and/or confidentialityPrompt. No restart needed (5 min hot-reload).
+### Per-Group Security Levels (2026-03-27)
+111. **Security levels 1-10 control group disclosure.** 1=open, 3=standard (default for ALL groups including unregistered), 5=guarded, 7=confidential, 10=maximum lockdown. Each level adds cumulative restrictions. Defined in `group-registry.js` SECURITY_LEVELS constant.
+112. **James sets levels by saying a number in the group.** "@clawd security level 7" → Clawd calls `group_security` tool, writes to `group-registry.json`, restrictions active immediately. No JID hunting, no JSON editing. Owner-only.
+113. **Optional `blockedTopics` per group sit on top of the security level.** For specific items that need blocking regardless of level. Also set via the tool or JSON.
+114. **Unregistered groups default to level 3 (Standard).** Blocks personal admin tools and personal life details. No action needed for basic groups.
+115. **Restrictions are prompt-level enforcement.** Appended after `GROUP_CONTENT_BOUNDARY` in `prompt.js` via `getGroupRestrictions(chatJid)`.
 
 ## Known Gotchas
 
