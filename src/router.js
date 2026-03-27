@@ -497,4 +497,4 @@ export function mustUseClaude(category) {
 export { READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS };
 
 // Exported for eval suite and self-improvement
-export { detectComplexity, detectsWriteIntent, KEYWORD_RULES, CLAUDE_CATEGORIES, WRITE_LIKELY_CATEGORIES };
+export { detectComplexity, detectsWriteIntent, mightNeedPlan, KEYWORD_RULES, CLAUDE_CATEGORIES, WRITE_LIKELY_CATEGORIES };
