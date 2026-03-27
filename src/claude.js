@@ -63,7 +63,7 @@ function getAvailableTools(isOwner = true) {
   });
 }
 
-export async function getClawdResponse(context, mode, senderJid, imageData = null, chatJid = null) {
+export async function getClawdResponse(context, mode, senderJid, imageData = null, chatJid = null, options = {}) {
   _lastToolsCalled = [];
 
   if (!checkDailyLimit()) {
@@ -81,6 +81,12 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
   const routeStart = Date.now();
   const isGroup = chatJid && chatJid.endsWith('@g.us');
   const route = await classifyMessage(context, !!imageData, isGroup);
+  // Secretary mode (clawdsec): skip planner, single-tool admin only
+  if (options.secretaryMode) {
+    route.needsPlan = false;
+    route.planReason = null;
+    logger.info({ category: route.category }, 'secretary mode — planner bypassed');
+  }
   const { category, source: classifySource, forceClaude, reason: routeReason } = route;
 
   // Detect explicit user request for Claude/Opus (overrides default MiniMax routing)

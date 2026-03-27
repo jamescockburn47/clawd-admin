@@ -194,7 +194,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
     }
 
     const trigger = shouldRespond({ text, hasImage: msgHasImage || !!docInfo, isFromMe: message.key.fromMe, isGroup, senderJid, botJid, groupJid: chatJid, mentionedJids });
-    if (!trigger.respond && repliedToBot && !message.key.fromMe) { trigger.respond = true; trigger.mode = 'direct'; }
+    if (!trigger.respond && repliedToBot && !message.key.fromMe) { trigger.respond = true; trigger.mode = 'direct'; trigger.secretaryMode = false; }
 
     // Log ALL group messages before respond gate (dream mode needs everything)
     if (isGroup && config.evoMemoryEnabled) {
@@ -222,6 +222,15 @@ export async function handleIncomingMessage(sock, message, botJid) {
     logger.info({ mode: trigger.mode, chat: chatJid }, 'triggered');
 
     let messageText = text;
+    // Strip bot name prefixes (clawd, clawdbot, clawdsec)
+    const BOT_PREFIXES = ['clawdsec', 'clawdbot', 'clawd']; // longest first to avoid partial match
+    const lowerMsg = messageText.toLowerCase();
+    for (const prefix of BOT_PREFIXES) {
+      if (lowerMsg.startsWith(prefix + ' ') || lowerMsg === prefix) {
+        messageText = messageText.slice(prefix.length).trim();
+        break;
+      }
+    }
     if (messageText.toLowerCase().startsWith(config.triggerPrefix.toLowerCase())) {
       messageText = messageText.slice(config.triggerPrefix.length).trim();
     }
@@ -263,7 +272,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
     // Generate response
     const context = buildContext(chatJid, messageText);
     const responseStart = Date.now();
-    const response = await getClawdResponse(context, trigger.mode, senderJid, imageData, chatJid);
+    const response = await getClawdResponse(context, trigger.mode, senderJid, imageData, chatJid, { secretaryMode: !!trigger.secretaryMode });
     const responseLatency = Date.now() - responseStart;
     if (!response || !response.trim() || response.trim() === '[SILENT]') {
       if (response?.trim() === '[SILENT]') logger.debug({ chat: chatJid }, 'Claude chose silence');

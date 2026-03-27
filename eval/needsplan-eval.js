@@ -1,22 +1,20 @@
-// eval/needsplan-eval.js — Offline eval for mightNeedPlan() heuristic
+// eval/needsplan-eval.js — Labeled dataset for needsPlan classification accuracy
 // Run standalone: node eval/needsplan-eval.js
-// Import:         import { runNeedsPlanEval, NEEDS_PLAN_LABELS, NO_PLAN_LABELS, EDGE_CASE_LABELS } from './eval/needsplan-eval.js'
+// Import:         import { NEEDS_PLAN_LABELS, NO_PLAN_LABELS, EDGE_CASE_LABELS } from './eval/needsplan-eval.js'
 //
-// Tests the lightweight heuristic that gates whether the 4B classifier is called.
-// Runs OFFLINE — no EVO, no model inference. Pure regex/heuristic evaluation.
-
-// Must set before any imports (config.js hard-exits without this)
-if (!process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = 'eval-placeholder';
-
-// Dynamic import to ensure env is set first
-const router = await import('../src/router.js');
-const { mightNeedPlan } = router;
+// These labeled datasets are used by:
+// 1. The self-improvement cycle (src/self-improve/cycle.js) to probe 4B accuracy overnight
+// 2. The trace analyser to cross-reference predicted vs actual needsPlan
+// 3. This standalone runner to test 4B when EVO is available
+//
+// With the router rewrite (2026-03-27), all classification goes through the 4B model.
+// The old mightNeedPlan() heuristic is removed. These labels remain as ground truth.
 
 // ============================================================================
 // LABELED DATASETS
 // ============================================================================
 
-// True positives — these SHOULD trigger mightNeedPlan
+// True positives — these SHOULD trigger needsPlan
 export const NEEDS_PLAN_LABELS = [
   { msg: 'what do I need to do this week and are there any calendar conflicts', expected: true, reason: 'multi-source overview' },
   { msg: 'search my emails for the Anderson matter and draft a summary', expected: true, reason: 'search + action' },
@@ -32,7 +30,7 @@ export const NEEDS_PLAN_LABELS = [
   { msg: 'get the weather forecast and suggest what to pack for York', expected: true, reason: 'multi-source reasoning' },
 ];
 
-// True negatives — these should NOT trigger mightNeedPlan
+// True negatives — these should NOT trigger needsPlan
 export const NO_PLAN_LABELS = [
   { msg: 'what\'s on my calendar today', expected: false, reason: 'single tool' },
   { msg: 'add milk to the shopping list', expected: false, reason: 'single action' },
@@ -61,12 +59,21 @@ export const EDGE_CASE_LABELS = [
 // EVAL FUNCTIONS
 // ============================================================================
 
-function runLabelSet(labels) {
+function calcMetrics(tp, fp, tn, fn) {
+  const precision = (tp + fp) > 0 ? tp / (tp + fp) : 1;
+  const recall = (tp + fn) > 0 ? tp / (tp + fn) : 1;
+  const f1 = (precision + recall) > 0 ? 2 * (precision * recall) / (precision + recall) : 0;
+  const accuracy = (tp + fp + tn + fn) > 0 ? (tp + tn) / (tp + fp + tn + fn) : 1;
+  return { precision, recall, f1, accuracy };
+}
+
+export function runNeedsPlanEval(classifyFn) {
+  const allLabels = [...NEEDS_PLAN_LABELS, ...NO_PLAN_LABELS, ...EDGE_CASE_LABELS];
   const results = { total: 0, correct: 0, tp: 0, fp: 0, tn: 0, fn: 0, failures: [] };
 
-  for (const { msg, expected, reason } of labels) {
+  for (const { msg, expected, reason } of allLabels) {
     results.total++;
-    const got = mightNeedPlan(msg);
+    const got = classifyFn(msg);
 
     if (got === expected) {
       results.correct++;
@@ -79,102 +86,25 @@ function runLabelSet(labels) {
     }
   }
 
-  return results;
-}
-
-function calcMetrics(tp, fp, tn, fn) {
-  const precision = (tp + fp) > 0 ? tp / (tp + fp) : 1;
-  const recall = (tp + fn) > 0 ? tp / (tp + fn) : 1;
-  const f1 = (precision + recall) > 0 ? 2 * (precision * recall) / (precision + recall) : 0;
-  const accuracy = (tp + fp + tn + fn) > 0 ? (tp + tn) / (tp + fp + tn + fn) : 1;
-  return { precision, recall, f1, accuracy };
-}
-
-export function runNeedsPlanEval() {
-  const positives = runLabelSet(NEEDS_PLAN_LABELS);
-  const negatives = runLabelSet(NO_PLAN_LABELS);
-  const edges = runLabelSet(EDGE_CASE_LABELS);
-
-  // Aggregate across all sets
-  const totalTP = positives.tp + negatives.tp + edges.tp;
-  const totalFP = positives.fp + negatives.fp + edges.fp;
-  const totalTN = positives.tn + negatives.tn + edges.tn;
-  const totalFN = positives.fn + negatives.fn + edges.fn;
-  const totalCorrect = positives.correct + negatives.correct + edges.correct;
-  const totalTests = positives.total + negatives.total + edges.total;
-
-  const overall = calcMetrics(totalTP, totalFP, totalTN, totalFN);
-  const allFailures = [...positives.failures, ...negatives.failures, ...edges.failures];
-
-  return {
-    timestamp: new Date().toISOString(),
-    positives: {
-      total: positives.total,
-      correct: positives.correct,
-      accuracy: positives.total > 0 ? positives.correct / positives.total : 1,
-      failures: positives.failures,
-    },
-    negatives: {
-      total: negatives.total,
-      correct: negatives.correct,
-      accuracy: negatives.total > 0 ? negatives.correct / negatives.total : 1,
-      failures: negatives.failures,
-    },
-    edges: {
-      total: edges.total,
-      correct: edges.correct,
-      accuracy: edges.total > 0 ? edges.correct / edges.total : 1,
-      failures: edges.failures,
-    },
-    precision: overall.precision,
-    recall: overall.recall,
-    f1: overall.f1,
-    overall: overall.accuracy,
-    totalTests,
-    totalCorrect,
-    allFailures,
-  };
+  const metrics = calcMetrics(results.tp, results.fp, results.tn, results.fn);
+  return { ...results, ...metrics, timestamp: new Date().toISOString() };
 }
 
 // ============================================================================
-// STANDALONE RUNNER
+// STANDALONE RUNNER — requires EVO 4B to be available
 // ============================================================================
 
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 
 if (process.argv[1] && process.argv[1].replace(/\\/g, '/') === __filename.replace(/\\/g, '/')) {
-  const results = runNeedsPlanEval();
-
-  console.log('\n=== Clawd needsPlan Heuristic Eval ===\n');
-
-  const sections = [
-    ['True positives (should need plan)', results.positives],
-    ['True negatives (should NOT need plan)', results.negatives],
-    ['Edge cases', results.edges],
-  ];
-
-  for (const [name, section] of sections) {
-    const pct = (section.accuracy * 100).toFixed(1);
-    const status = section.accuracy === 1 ? 'PASS' : 'FAIL';
-    console.log(`${status}  ${name}: ${pct}% (${section.correct}/${section.total})`);
-    for (const f of section.failures) {
-      console.log(`  >>> MISS  "${f.msg}"`);
-      console.log(`           expected=${f.expected}  got=${f.got}  (${f.reason})`);
-    }
-  }
-
-  console.log(`\n--- Aggregate Metrics ---`);
-  console.log(`Accuracy:  ${(results.overall * 100).toFixed(1)}% (${results.totalCorrect}/${results.totalTests})`);
-  console.log(`Precision: ${(results.precision * 100).toFixed(1)}%`);
-  console.log(`Recall:    ${(results.recall * 100).toFixed(1)}%`);
-  console.log(`F1:        ${(results.f1 * 100).toFixed(1)}%`);
-
-  if (results.allFailures.length > 0) {
-    console.log(`\n${results.allFailures.length} failure(s) detected.`);
-  } else {
-    console.log('\nAll evals passed.');
-  }
-
-  process.exit(results.overall < 1.0 ? 1 : 0);
+  console.log('\n=== Clawd needsPlan Labeled Dataset ===\n');
+  console.log(`True positives: ${NEEDS_PLAN_LABELS.length} cases`);
+  console.log(`True negatives: ${NO_PLAN_LABELS.length} cases`);
+  console.log(`Edge cases:     ${EDGE_CASE_LABELS.length} cases`);
+  console.log(`Total:          ${NEEDS_PLAN_LABELS.length + NO_PLAN_LABELS.length + EDGE_CASE_LABELS.length} labeled cases`);
+  console.log('\nThis dataset is used by the self-improvement cycle to probe 4B accuracy overnight.');
+  console.log('The old mightNeedPlan() heuristic has been removed — all classification goes through 4B.');
+  console.log('\nTo run a live eval against 4B, use the self-improvement cycle or run:');
+  console.log('  curl http://10.0.0.2:8085/v1/chat/completions ...');
 }

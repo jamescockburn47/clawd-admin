@@ -188,7 +188,7 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 ### Agentic Task Planner (2026-03-26)
 98. **Task planner uses goal reasoning, not mechanical decomposition.** Two-phase: understand the goal first, then decompose into steps.
 99. **Adaptive re-planning between steps.** Evaluates results after each step, skips redundant steps, adds new ones if gaps emerge.
-100. **4B classifier (Qwen3-4B, port 8085) detects needsPlan.** `mightNeedPlan()` heuristic triggers 4B even after keyword match.
+100. **4B classifier is the PRIMARY routing layer.** Every message goes through 4B for category + needsPlan. Keywords are fallback only (EVO down). `mightNeedPlan()` and `detectComplexity()` removed.
 101. **Task planner uses 30B model for reasoning.** `config.evoLlmUrl` (port 8080), not `config.evoPlannerUrl` (port 8085).
 
 ### Trace Analysis & Autonomous Improvement (2026-03-26)
@@ -197,6 +197,12 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 104. **Trace diagnostics API endpoints.** `/api/traces` (latest nightly), `/api/traces/live` (on-demand 24h), `/api/retrospective` (latest weekly). All authenticated.
 105. **Overnight report includes trace analysis and retrospective.** Sections added to `generateMarkdownReport()` in `overnight-report.js`.
 106. **needsPlan probing in self-improvement cycle.** 23 synthetic test cases evaluate 4B classifier accuracy overnight. Results included in WhatsApp notification.
+
+### Naming Conventions & Group Engagement (2026-03-27)
+107. **`clawd`/`@clawd` = advisory/paralegal mode.** Full cognitive stack: 4B classification, needsPlan, task planner, quality gate. For complex analysis, legal research, multi-step requests.
+108. **`clawdsec` = secretary/admin mode.** Skips task planner entirely (`needsPlan: false`). For single-tool admin: check calendar, add todo, search email. Fast path.
+109. **Groups: @mention only.** No passive engagement. Bot name in text without @mention → silent. Reply-to-bot and prefix commands (`clawd ...`, `clawdsec ...`) also trigger. Future: autonomous participation with restraint.
+110. **Passive mode removed from trigger.js.** Engagement classifier still exists but only fires for future autonomous mode. Current groups are @mention-gated.
 
 ## Known Gotchas
 

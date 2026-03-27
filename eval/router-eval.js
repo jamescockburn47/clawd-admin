@@ -13,7 +13,7 @@ if (!process.env.ANTHROPIC_API_KEY) process.env.ANTHROPIC_API_KEY = 'eval-placeh
 const router = await import('../src/router.js');
 const {
   classifyByKeywords, CATEGORY, getToolsForCategory, needsMemories, mustUseClaude,
-  READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS, detectComplexity, detectsWriteIntent,
+  READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS, detectsWriteIntent,
   KEYWORD_RULES, CLAUDE_CATEGORIES, WRITE_LIKELY_CATEGORIES,
 } = router;
 
@@ -136,28 +136,8 @@ export const KEYWORD_LABELS = [
 ];
 
 // Complexity detection: { msg, expected }
-export const COMPLEXITY_LABELS = [
-  // Complex — multi-step conjunctions (≥2)
-  { msg: "check my calendar and then book a train and also find a hotel", expected: true },
-  { msg: "send the email then update the calendar then also remind me", expected: true },
-  { msg: "find trains as well as hotels plus check my diary", expected: true },
-  // Complex — long messages (>150 chars)
-  { msg: "I need to plan a trip to York this weekend including finding the best train times from Kings Cross and booking accommodation near the North York Moors and checking my calendar for any potential conflicts with existing events", expected: true },
-  // Complex — mixed question + imperative with conjunction
-  { msg: "can you check my calendar and then schedule a meeting", expected: true },
-  { msg: "what time is the train and then book me a ticket", expected: true },
-  // Not complex — short, single intent
-  { msg: "trains to York", expected: false },
-  { msg: "check my email", expected: false },
-  { msg: "what's on my calendar", expected: false },
-  { msg: "hello", expected: false },
-  { msg: "remind me to buy milk", expected: false },
-  { msg: "how does the voice pipeline work", expected: false },
-  // Edge cases — only 1 conjunction (not enough for multi-step)
-  { msg: "check calendar then book train", expected: false },
-  { msg: "find trains and hotels", expected: false },
-  { msg: "what time is it", expected: false },
-];
+// COMPLEXITY_LABELS removed — detectComplexity is dead code since 2026-03-27.
+// All classification now goes through 4B classifier as primary layer.
 
 // Write intent detection: { msg, expected }
 export const WRITE_INTENT_LABELS = [
@@ -228,21 +208,6 @@ function runKeywordEval() {
       results.correct++;
     } else {
       results.failures.push({ msg, expected, got });
-    }
-  }
-  results.accuracy = results.total > 0 ? results.correct / results.total : 1;
-  return results;
-}
-
-function runComplexityEval() {
-  const results = { total: 0, correct: 0, failures: [] };
-  for (const { msg, expected } of COMPLEXITY_LABELS) {
-    results.total++;
-    const got = detectComplexity(msg);
-    if (got.complex === expected) {
-      results.correct++;
-    } else {
-      results.failures.push({ msg, expected, got: got.complex, reason: got.reason });
     }
   }
   results.accuracy = results.total > 0 ? results.correct / results.total : 1;
@@ -358,20 +323,18 @@ export function testPatternSafety(pattern, targetCategory) {
 
 export function runFullEval() {
   const keyword = runKeywordEval();
-  const complexity = runComplexityEval();
   const writeIntent = runWriteIntentEval();
   const toolSafety = runToolSafetyEval();
   const categoryConfig = runCategoryConfigEval();
 
-  const totalCorrect = keyword.correct + complexity.correct + writeIntent.correct
+  const totalCorrect = keyword.correct + writeIntent.correct
     + toolSafety.correct + categoryConfig.correct;
-  const totalTests = keyword.total + complexity.total + writeIntent.total
+  const totalTests = keyword.total + writeIntent.total
     + toolSafety.total + categoryConfig.total;
 
   return {
     timestamp: new Date().toISOString(),
     keyword,
-    complexity,
     writeIntent,
     toolSafety,
     categoryConfig,

@@ -1,5 +1,5 @@
 // src/router.js — Smart activity-based message router
-// Layers: complexity detection → keyword heuristics → LLM classifier → fallback
+// Layers: 4B classifier (primary) → keyword heuristics (fallback) → 0.6B LLM → default
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import config from './config.js';
@@ -110,53 +110,7 @@ export function needsMemories(category) {
   return MEMORY_CATEGORIES.has(category);
 }
 
-// --- Query complexity detection (pre-classifier) ---
-
-function detectComplexity(text) {
-  if (!text) return { complex: false, reason: null };
-  const lower = text.toLowerCase();
-
-  // Multi-step conjunctions: "check X and book Y", "find trains then accommodation"
-  const conjunctions = (lower.match(/\b(and then|then|also|after that|as well|plus)\b/g) || []).length;
-  if (conjunctions >= 2) return { complex: true, reason: 'multi-step (3+ conjunctions)' };
-
-  // Very long messages with action verbs are usually complex
-  // (Raised from 150 — conversational messages in groups are often 150-400 chars)
-  if (text.length > 400) return { complex: true, reason: `long message (${text.length} chars)` };
-
-  // Mixed intent: question + imperative
-  const hasQuestion = /\b(what|when|how|where|who|which|is there|are there|can you)\b/.test(lower);
-  const hasImperative = /\b(book|create|send|draft|add|update|schedule|find|search|check)\b/.test(lower);
-  if (hasQuestion && hasImperative && conjunctions >= 1) {
-    return { complex: true, reason: 'mixed question + imperative with conjunction' };
-  }
-
-  return { complex: false, reason: null };
-}
-
-// --- Plan signal heuristic (lightweight check before calling 4B for needsPlan) ---
-
-function mightNeedPlan(text) {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-
-  // Overview/briefing requests — inherently multi-source
-  if (/\b(this week|next week|prepare|get ready|brief me|catch me up|what's outstanding|what do i need|what have i got on|status update|overview|what's happening)\b/.test(lower)) return true;
-
-  // Cross-domain signals — combining different tool domains
-  if (/\b(and also|and then|then also|as well as|plus|after that)\b/.test(lower)) return true;
-
-  // Preparation/readiness signals
-  if (/\b(prepare|ready for|get sorted|make sure|ensure)\b/.test(lower)) return true;
-
-  // Multiple action verbs in one message
-  const actions = lower.match(/\b(check|find|search|add|create|send|book|list|get|prepare|review|draft|update|look up|remind)\b/g);
-  if (actions && new Set(actions).size >= 2) return true;
-
-  return false;
-}
-
-// --- Layer 1: Keyword heuristics (instant, handles ~60-70% of messages) ---
+// --- Keyword heuristics (fallback when 4B classifier unavailable) ---
 
 const KEYWORD_RULES = [
   {
@@ -376,65 +330,14 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
     };
   }
 
-  // Layer 1: keyword heuristics (run FIRST — specific matches beat generic complexity)
-  const keywordResult = classifyByKeywords(text);
-  if (keywordResult) {
-    const writeIntent = detectsWriteIntent(text);
-    let forceClaude = CLAUDE_CATEGORIES.has(keywordResult)
-      || WRITE_LIKELY_CATEGORIES.has(keywordResult)
-      || writeIntent;
-
-    // Always evaluate needsPlan via 4B — keywords determine category, 4B determines complexity
-    let needsPlan = false;
-    let planReason = null;
-    let confidence = null;
-
-    if (mightNeedPlan(text)) {
-      const classResult = await plannerBreaker.call(() => classifyVia4B(text), null);
-      if (classResult) {
-        needsPlan = classResult.needsPlan || false;
-        planReason = classResult.planReason || null;
-        confidence = classResult.confidence || null;
-        if (needsPlan) forceClaude = true;
-      }
-    }
-
-    logger.info({ category: keywordResult, source: 'keywords', forceClaude, writeIntent, needsPlan, planReason }, 'message classified');
-    return {
-      category: needsPlan ? CATEGORY.PLANNING : keywordResult, // upgrade to PLANNING if plan needed
-      source: 'keywords',
-      forceClaude,
-      reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
-      needsPlan,
-      planReason,
-      confidence,
-    };
-  }
-
-  // Layer 2: complexity detection (after keywords — catches multi-step/long messages
-  // that didn't match any specific keyword pattern)
-  const complexity = detectComplexity(text);
-  if (complexity.complex) {
-    logger.info({ category: CATEGORY.PLANNING, source: 'complexity', reason: complexity.reason }, 'message classified');
-    return {
-      category: CATEGORY.PLANNING,
-      source: 'complexity',
-      forceClaude: true,
-      reason: complexity.reason,
-      needsPlan: false, // complexity detection doesn't determine needsPlan — 4B does that
-      planReason: null,
-      confidence: null,
-    };
-  }
-
-  // Layer 3: 4B classifier (category + needsPlan) — replaces the 0.6B for routing
+  // Layer 1: 4B classifier (primary — handles category + needsPlan for all messages)
   const classResult = await plannerBreaker.call(() => classifyVia4B(text), null);
   if (classResult && VALID_CATEGORIES.has(classResult.category)) {
     const writeIntent = detectsWriteIntent(text);
     const forceClaude = CLAUDE_CATEGORIES.has(classResult.category)
       || WRITE_LIKELY_CATEGORIES.has(classResult.category)
       || writeIntent
-      || classResult.needsPlan; // planning always uses cloud model
+      || classResult.needsPlan;
 
     logger.info({
       category: classResult.category,
@@ -456,7 +359,27 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
     };
   }
 
-  // Layer 4: Legacy 0.6B LLM classifier (fallback if 4B unavailable)
+  // Layer 2: keyword heuristics (fallback if 4B unavailable — circuit breaker open, EVO down)
+  const keywordResult = classifyByKeywords(text);
+  if (keywordResult) {
+    const writeIntent = detectsWriteIntent(text);
+    const forceClaude = CLAUDE_CATEGORIES.has(keywordResult)
+      || WRITE_LIKELY_CATEGORIES.has(keywordResult)
+      || writeIntent;
+
+    logger.info({ category: keywordResult, source: 'keywords_fallback', forceClaude, writeIntent }, 'message classified');
+    return {
+      category: keywordResult,
+      source: 'keywords_fallback',
+      forceClaude,
+      reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
+      needsPlan: false, // keywords can't determine needsPlan — 4B does that
+      planReason: null,
+      confidence: null,
+    };
+  }
+
+  // Layer 3: Legacy 0.6B LLM classifier (fallback if keywords also miss)
   const llmResult = await classifyByLLM(text);
   if (llmResult) {
     const writeIntent = detectsWriteIntent(text);
@@ -475,7 +398,7 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
     };
   }
 
-  // Fallback: PLANNING with Claude.
+  // Fallback: PLANNING with Claude
   logger.info({ category: CATEGORY.PLANNING, source: 'fallback', isGroup }, 'message classified');
   return {
     category: CATEGORY.PLANNING,
@@ -497,4 +420,4 @@ export function mustUseClaude(category) {
 export { READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS };
 
 // Exported for eval suite and self-improvement
-export { detectComplexity, detectsWriteIntent, mightNeedPlan, KEYWORD_RULES, CLAUDE_CATEGORIES, WRITE_LIKELY_CATEGORIES };
+export { detectsWriteIntent, KEYWORD_RULES, CLAUDE_CATEGORIES, WRITE_LIKELY_CATEGORIES };

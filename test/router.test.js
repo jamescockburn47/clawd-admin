@@ -4,13 +4,13 @@ import assert from 'node:assert/strict';
 
 process.env.ANTHROPIC_API_KEY = 'test-key-not-real';
 
-let classifyByKeywords, detectComplexity, detectsWriteIntent,
+let classifyByKeywords, detectsWriteIntent,
   getToolsForCategory, needsMemories, mustUseClaude,
   CATEGORY, READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS;
 
 async function loadModules() {
   const mod = await import('../src/router.js');
-  ({ classifyByKeywords, detectComplexity, detectsWriteIntent,
+  ({ classifyByKeywords, detectsWriteIntent,
     getToolsForCategory, needsMemories, mustUseClaude,
     CATEGORY, READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS } = mod);
 }
@@ -63,23 +63,6 @@ describe('classifyByKeywords', () => {
   it('classifies self-coding requests as planning', () => {
     assert.equal(classifyByKeywords('evolution task fix the classifier'), 'planning');
     assert.equal(classifyByKeywords('self program a new feature'), 'planning');
-  });
-});
-
-describe('detectComplexity', () => {
-  beforeEach(async () => {
-    if (!detectComplexity) await loadModules();
-  });
-
-  it('detects long messages as complex', () => {
-    const longMsg = 'word '.repeat(100); // 500 chars
-    const result = detectComplexity(longMsg);
-    assert.equal(result.complex, true);
-  });
-
-  it('short simple messages are not complex', () => {
-    const result = detectComplexity('what time is it');
-    assert.equal(result.complex, false);
   });
 });
 

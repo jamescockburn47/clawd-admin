@@ -11,7 +11,7 @@ const mutes = new Map(); // groupJid → muteExpiresAt (epoch ms)
 const lastResponseTime = new Map(); // groupJid → epoch ms of last Clawd response
 const RESPONSE_COOLDOWN_MS = 120_000; // 2 min cooldown after responding in a group
 
-const BOT_NAMES = /\b(clawd|clawdbot)\b/i;
+const BOT_NAMES = /\b(clawd|clawdbot|clawdsec)\b/i;
 const MUTE_KEYWORDS = /\b(shut\s*up|be\s*quiet|go\s*quiet|stay\s*out|stop\s*talking|silence|mute|hush)\b/i;
 
 /**
