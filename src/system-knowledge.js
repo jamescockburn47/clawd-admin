@@ -349,8 +349,8 @@ export async function getLiveSystemSnapshot() {
 
   let evoStatus = 'unknown';
   try {
-    const { checkEvoHealth } = await import('./evo-llm.js');
-    evoStatus = await checkEvoHealth() ? 'online' : 'offline';
+    const { checkLlamaHealth } = await import('./evo-client.js');
+    evoStatus = await checkLlamaHealth() ? 'online' : 'offline';
   } catch { evoStatus = 'check failed'; }
 
   const { getRoutingStats } = await import('./router-telemetry.js');

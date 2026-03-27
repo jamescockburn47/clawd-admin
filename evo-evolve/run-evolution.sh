@@ -128,48 +128,53 @@ git diff --cached --quiet || git commit -q -m "pre-evolution snapshot"
 echo "[4/5] Running Claude Code evolution session..." | tee -a "$LOG_FILE"
 
 PROMPT=$(cat << 'EVOLUTION_PROMPT'
-You are running an overnight evolution session for Clawdbot, a WhatsApp bot + voice assistant.
+You are running an overnight evolution session for Clawdbot.
 
-READ THESE FILES FIRST:
-- CLAUDE.md (project overview and deployment instructions)
-- architecture.md (system architecture)
-- The health report at ../health-report.md (interaction data, feedback, errors)
+READ EVOLUTION.md FIRST — it contains the hard rules you must follow.
+
+Then read the health report at ../health-report.md for interaction data, feedback, and errors.
 
 YOUR TASK:
-Analyse the health report and codebase to identify and implement improvements. Focus on:
+Pick the SINGLE most impactful fix from the health report. Do NOT batch multiple fixes.
 
-1. **Bug fixes** — errors in audit log, failed tool calls, patterns in negative feedback
-2. **Performance** — high-latency interactions, unnecessary API calls, caching opportunities
-3. **Robustness** — error handling gaps, missing fallbacks, edge cases
-4. **Code quality** — dead code, unclear logic, missing logging
+SCOPE RULES (HARD — VIOLATION = SESSION FAILURE):
+- You may ONLY modify files under src/ or eval/
+- NEVER modify: CLAUDE.md, EVOLUTION.md, .env, package.json, package-lock.json
+- NEVER modify anything in: data/, auth_state/, .claude/, evo-hooks/, node_modules/, docs/
+- Maximum 5 files changed total
+- Maximum 150 lines changed total (insertions + deletions)
+- NO new dependencies
+- NO changes to: config.js env var names, tool definition schemas, port numbers, API endpoints, auth logic
+- One commit only with a clear message
+- If your fix needs more than 5 files or 150 lines, STOP and write why in the summary. Do not proceed.
 
-RULES (NON-NEGOTIABLE):
-- Work ONLY in this branch. Never touch main.
-- Max 50 lines changed per improvement. Small, targeted fixes only.
-- NO new dependencies (no npm install, no new imports from packages not already in package.json)
-- NO changes to: .env, config.js env var names, auth logic, API keys, port numbers
-- NO changes to tool definitions schema (tools/definitions.js) — these are the Claude API contract
-- Every change must pass: node --check <file>
-- Make one commit per improvement with a clear message explaining what and why
-- If you're unsure whether a change is safe, DON'T MAKE IT. Skip and note it in the summary.
-- NEVER invent test data, API responses, or mock scenarios. Only use real data from the health report.
+PROCESS:
+1. Read the health report and identify the single highest-impact issue
+2. Read the relevant source files
+3. Implement the fix (within scope limits)
+4. Run: node --check <file> for every file you changed
+5. Commit with a clear message
 
 OUTPUT:
-After making changes, write a summary to ../evolution-summary.md with:
-- What you found (diagnosis)
-- What you changed (with file:line references)
-- What you skipped and why (risk assessment)
-- Recommended changes that need human review
-
-Keep the session under 1 hour. Quality over quantity — one good fix beats five risky ones.
+Write a summary to ../evolution-summary.md with:
+- What you found (one issue, from health report data)
+- What you changed (file:line references)
+- What you skipped and why
 EVOLUTION_PROMPT
 )
 
+# Write scope file for PreToolUse hook (allows all src/ and eval/ for overnight)
+echo '{"allowed_files": ["src/*", "eval/*"]}' > /tmp/evo-task-scope.json
+
 # Run with timeout and cost controls
 timeout "$MAX_DURATION" claude -p "$PROMPT" \
-  --max-turns 30 \
+  --max-turns 20 \
   --output-format text \
+  --dangerously-skip-permissions \
   2>&1 | tee -a "$LOG_FILE" || true
+
+# Clean up scope file
+rm -f /tmp/evo-task-scope.json
 
 echo "[4/5] Claude Code session complete" | tee -a "$LOG_FILE"
 
@@ -184,18 +189,42 @@ echo "Commits: $COMMIT_COUNT" | tee -a "$LOG_FILE"
 DIFF_STAT=$(git diff --stat main.."$BRANCH" 2>/dev/null || echo "no changes")
 echo "Changes: $DIFF_STAT" | tee -a "$LOG_FILE"
 
+# Post-validation: check scope limits
+FILES_CHANGED=$(git diff --name-only main.."$BRANCH" 2>/dev/null | wc -l || echo 0)
+INSERTIONS=$(git diff --shortstat main.."$BRANCH" 2>/dev/null | grep -oP '\d+(?= insertion)' || echo 0)
+DELETIONS=$(git diff --shortstat main.."$BRANCH" 2>/dev/null | grep -oP '\d+(?= deletion)' || echo 0)
+TOTAL_LINES=$((INSERTIONS + DELETIONS))
+
+# Check for banned files
+BANNED_MODIFIED=$(git diff --name-only main.."$BRANCH" 2>/dev/null | grep -E '^(CLAUDE\.md|EVOLUTION\.md|\.env|package\.json|package-lock\.json|data/|auth_state/|\.claude/|evo-hooks/|node_modules/|docs/)' || true)
+
+if [ -n "$BANNED_MODIFIED" ]; then
+  echo "POST-VALIDATION FAILED: banned files modified: $BANNED_MODIFIED" | tee -a "$LOG_FILE"
+  git checkout main && git branch -D "$BRANCH" 2>/dev/null || true
+  COMMIT_COUNT=0
+  NOTIFY_MSG="Evolution REJECTED: banned files modified ($BANNED_MODIFIED)"
+elif [ "$FILES_CHANGED" -gt 5 ]; then
+  echo "POST-VALIDATION FAILED: $FILES_CHANGED files changed (max 5)" | tee -a "$LOG_FILE"
+  git checkout main && git branch -D "$BRANCH" 2>/dev/null || true
+  COMMIT_COUNT=0
+  NOTIFY_MSG="Evolution REJECTED: too many files ($FILES_CHANGED > 5)"
+elif [ "$TOTAL_LINES" -gt 150 ]; then
+  echo "POST-VALIDATION FAILED: $TOTAL_LINES lines changed (max 150)" | tee -a "$LOG_FILE"
+  git checkout main && git branch -D "$BRANCH" 2>/dev/null || true
+  COMMIT_COUNT=0
+  NOTIFY_MSG="Evolution REJECTED: too many lines ($TOTAL_LINES > 150)"
+fi
+
 # Copy summary if Claude wrote one
 if [ -f "../evolution-summary.md" ]; then
   cp "../evolution-summary.md" "data/evolution-report-$(date +%Y-%m-%d).md"
   echo "Summary written to data/evolution-report-$(date +%Y-%m-%d).md" | tee -a "$LOG_FILE"
 fi
 
-# Notify Pi (for morning briefing)
-NOTIFY_MSG="🧬 Evolution session complete.
-Commits: $COMMIT_COUNT
-$DIFF_STAT
-
-Review: cd ~/clawdbot-evolution/clawdbot && git log --oneline main..$BRANCH"
+# Notify Pi (for morning briefing) — only set if not already set by post-validation failure
+if [ -z "${NOTIFY_MSG:-}" ]; then
+  NOTIFY_MSG="Evolution session complete. Commits: $COMMIT_COUNT, Files: $FILES_CHANGED, Lines: $TOTAL_LINES. Review: cd ~/clawdbot-evolution/clawdbot && git log --oneline main..$BRANCH"
+fi
 
 ssh -i "$HOME/.ssh/id_ed25519" "$PI_HOST" "curl -s -X POST http://localhost:3000/api/voice-status \
   -H 'Content-Type: application/json' \

@@ -4,20 +4,12 @@ import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import config from './config.js';
 import logger from './logger.js';
-import { classifyViaEvo } from './evo-llm.js';
+import { classifyViaEvo, classifyVia4B } from './evo-llm.js';
+import { CATEGORY } from './constants.js';
+import { plannerBreaker } from './evo-client.js';
 
-// Activity categories
-export const CATEGORY = {
-  CALENDAR: 'calendar',
-  TASK: 'task',
-  TRAVEL: 'travel',
-  EMAIL: 'email',
-  RECALL: 'recall',
-  PLANNING: 'planning',
-  CONVERSATIONAL: 'conversational',
-  GENERAL_KNOWLEDGE: 'general_knowledge',
-  SYSTEM: 'system',
-};
+// Re-export CATEGORY so existing consumers don't break
+export { CATEGORY };
 
 // Tools available per category
 // NOTE: web_search and web_fetch are ALWAYS injected into every category
@@ -101,6 +93,7 @@ const CLAUDE_CATEGORIES = new Set([
   CATEGORY.EMAIL,
   CATEGORY.PLANNING,
   CATEGORY.RECALL,
+  CATEGORY.SYSTEM,
 ]);
 
 // Filter tool definitions for a given category
@@ -141,6 +134,28 @@ function detectComplexity(text) {
   return { complex: false, reason: null };
 }
 
+// --- Plan signal heuristic (lightweight check before calling 4B for needsPlan) ---
+
+function mightNeedPlan(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+
+  // Overview/briefing requests — inherently multi-source
+  if (/\b(this week|next week|prepare|get ready|brief me|catch me up|what's outstanding|what do i need|what have i got on|status update|overview|what's happening)\b/.test(lower)) return true;
+
+  // Cross-domain signals — combining different tool domains
+  if (/\b(and also|and then|then also|as well as|plus|after that)\b/.test(lower)) return true;
+
+  // Preparation/readiness signals
+  if (/\b(prepare|ready for|get sorted|make sure|ensure)\b/.test(lower)) return true;
+
+  // Multiple action verbs in one message
+  const actions = lower.match(/\b(check|find|search|add|create|send|book|list|get|prepare|review|draft|update|look up|remind)\b/g);
+  if (actions && new Set(actions).size >= 2) return true;
+
+  return false;
+}
+
 // --- Layer 1: Keyword heuristics (instant, handles ~60-70% of messages) ---
 
 const KEYWORD_RULES = [
@@ -159,6 +174,11 @@ const KEYWORD_RULES = [
     category: CATEGORY.PLANNING,
     test: (lower) =>
       /\b(project|pitch|atlas|clawd.?agi)\b/.test(lower),
+  },
+  {
+    category: CATEGORY.PLANNING,
+    test: (lower) =>
+      /\b(self.?program|self.?cod|evolution|evolve|tweak.*classif|fix.*yourself|upgrade.*yourself|improve.*yourself|recode|reprogram)\b/.test(lower),
   },
   {
     category: CATEGORY.EMAIL,
@@ -192,7 +212,11 @@ const KEYWORD_RULES = [
       || /\b(what changed|changelog|what version|current version|deployment|what(?:'s| is) deployed)\b/.test(lower)
       || /\b(how are you running|how do you work|what are you running on|tell me about yourself)\b/.test(lower)
       || /\b(self[- ]?aware|know yourself|what are you|who are you as a system)\b/.test(lower)
-      || /\b(evo x2|ollama|llama-server|whisper model|voice listener|noise suppression)\b/.test(lower),
+      || /\b(evo x2|ollama|llama-server|whisper model|voice listener|noise suppression)\b/.test(lower)
+      || /\b(agi|your (?:plan|roadmap|capabilities|functions|features|progress)|how far along|what can you do|what do you do)\b/.test(lower)
+      || /\b(your evolution|your dream|your soul|your memory|your diary|overnight (?:report|coding|learning))\b/.test(lower)
+      || /\b(how (?:do|does) (?:clawd|you) (?:work|learn|think|evolve|improve|dream))\b/.test(lower)
+      || /\b(tell me (?:about|what) you(?:rself)?|describe yourself|explain yourself|what(?:'s| is) your status)\b/.test(lower),
   },
   {
     category: CATEGORY.GENERAL_KNOWLEDGE,
@@ -346,6 +370,9 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
       source: 'image',
       forceClaude: false,
       reason: 'image input — EVO VL model preferred',
+      needsPlan: false,
+      planReason: null,
+      confidence: null,
     };
   }
 
@@ -353,16 +380,34 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
   const keywordResult = classifyByKeywords(text);
   if (keywordResult) {
     const writeIntent = detectsWriteIntent(text);
-    const forceClaude = CLAUDE_CATEGORIES.has(keywordResult)
+    let forceClaude = CLAUDE_CATEGORIES.has(keywordResult)
       || WRITE_LIKELY_CATEGORIES.has(keywordResult)
       || writeIntent;
 
-    logger.info({ category: keywordResult, source: 'keywords', forceClaude, writeIntent }, 'message classified');
+    // Always evaluate needsPlan via 4B — keywords determine category, 4B determines complexity
+    let needsPlan = false;
+    let planReason = null;
+    let confidence = null;
+
+    if (mightNeedPlan(text)) {
+      const classResult = await plannerBreaker.call(() => classifyVia4B(text), null);
+      if (classResult) {
+        needsPlan = classResult.needsPlan || false;
+        planReason = classResult.planReason || null;
+        confidence = classResult.confidence || null;
+        if (needsPlan) forceClaude = true;
+      }
+    }
+
+    logger.info({ category: keywordResult, source: 'keywords', forceClaude, writeIntent, needsPlan, planReason }, 'message classified');
     return {
-      category: keywordResult,
+      category: needsPlan ? CATEGORY.PLANNING : keywordResult, // upgrade to PLANNING if plan needed
       source: 'keywords',
       forceClaude,
       reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
+      needsPlan,
+      planReason,
+      confidence,
     };
   }
 
@@ -376,10 +421,42 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
       source: 'complexity',
       forceClaude: true,
       reason: complexity.reason,
+      needsPlan: false, // complexity detection doesn't determine needsPlan — 4B does that
+      planReason: null,
+      confidence: null,
     };
   }
 
-  // Layer 2: LLM classifier
+  // Layer 3: 4B classifier (category + needsPlan) — replaces the 0.6B for routing
+  const classResult = await plannerBreaker.call(() => classifyVia4B(text), null);
+  if (classResult && VALID_CATEGORIES.has(classResult.category)) {
+    const writeIntent = detectsWriteIntent(text);
+    const forceClaude = CLAUDE_CATEGORIES.has(classResult.category)
+      || WRITE_LIKELY_CATEGORIES.has(classResult.category)
+      || writeIntent
+      || classResult.needsPlan; // planning always uses cloud model
+
+    logger.info({
+      category: classResult.category,
+      source: '4b_classifier',
+      forceClaude,
+      needsPlan: classResult.needsPlan,
+      planReason: classResult.planReason,
+      confidence: classResult.confidence,
+    }, 'message classified');
+
+    return {
+      category: classResult.category,
+      source: '4b_classifier',
+      forceClaude,
+      reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
+      needsPlan: classResult.needsPlan || false,
+      planReason: classResult.planReason || null,
+      confidence: classResult.confidence || null,
+    };
+  }
+
+  // Layer 4: Legacy 0.6B LLM classifier (fallback if 4B unavailable)
   const llmResult = await classifyByLLM(text);
   if (llmResult) {
     const writeIntent = detectsWriteIntent(text);
@@ -392,22 +469,22 @@ export async function classifyMessage(text, hasImage, isGroup = false) {
       source: 'llm_classifier',
       forceClaude,
       reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
+      needsPlan: false,
+      planReason: null,
+      confidence: null,
     };
   }
 
   // Fallback: PLANNING with Claude.
-  // Groups: Claude handles nuanced discussion, social dynamics, technical debate.
-  //   Qwen3-30B is fine for structured tool tasks but not for the quality of response
-  //   Clawd needs in group conversations. Claude is the sophistication layer.
-  // DMs: Claude handles full capability.
-  // EVO 30B fires when keywords or LLM classifier confidently identify a simple
-  //   tool-based category (calendar, todo, travel, recall, system, general_knowledge).
   logger.info({ category: CATEGORY.PLANNING, source: 'fallback', isGroup }, 'message classified');
   return {
     category: CATEGORY.PLANNING,
     source: 'fallback',
     forceClaude: true,
     reason: 'no confident classification',
+    needsPlan: false,
+    planReason: null,
+    confidence: null,
   };
 }
 

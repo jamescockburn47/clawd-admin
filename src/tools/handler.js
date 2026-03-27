@@ -11,11 +11,36 @@ import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
 import { projectList, projectRead, projectPitch, projectUpdate } from './projects.js';
 import { sendOvernightReport } from '../overnight-report.js';
 import { createTask, getTaskSummary } from '../evolution.js';
-import { broadcastSSE, getSSEClientCount } from '../widgets.js';
+import { broadcastSSE, getSSEClientCount } from '../sse.js';
 import { logAudit } from '../audit.js';
 import { getRoutingStats } from '../router-telemetry.js';
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import config from '../config.js';
 import logger from '../logger.js';
+
+// Hard owner check — code-level, not prompt-level
+function isOwnerSender(senderJid) {
+  if (!senderJid) return false;
+  const ownerJids = new Set();
+  if (config.ownerJid) ownerJids.add(config.ownerJid);
+  if (config.ownerLid) ownerJids.add(config.ownerLid);
+  return ownerJids.has(senderJid);
+}
+
+// Pending evolution confirmations: Map<confirmId, { instruction, priority, expiresAt }>
+const _pendingEvolution = new Map();
+
+export function confirmEvolutionTask(confirmId) {
+  const pending = _pendingEvolution.get(confirmId);
+  if (!pending) return null;
+  if (Date.now() > pending.expiresAt) {
+    _pendingEvolution.delete(confirmId);
+    return null;
+  }
+  _pendingEvolution.delete(confirmId);
+  return createTask(pending.instruction, 'whatsapp', pending.priority);
+}
 
 // Voice listener heartbeat tracking
 let _lastVoiceHeartbeat = null;
@@ -26,6 +51,11 @@ export function recordVoiceHeartbeat(data) {
 // WhatsApp send function — set by index.js for tools that need to push messages
 let _sendWhatsApp = null;
 export function setSendWhatsApp(fn) { _sendWhatsApp = fn; }
+
+// Document send function — set by index.js for sending file attachments
+let _sendDocument = null;
+export function setSendDocument(fn) { _sendDocument = fn; }
+export function getSendDocument() { return _sendDocument; }
 
 const TODO_MUTATION_TOOLS = new Set(['todo_add', 'todo_complete', 'todo_remove', 'todo_update']);
 
@@ -89,8 +119,8 @@ const TOOL_MAP = {
     // Check EVO health
     let evoStatus = 'unknown';
     try {
-      const { checkEvoHealth } = await import('../evo-llm.js');
-      evoStatus = await checkEvoHealth() ? 'online (llama-server responding)' : 'offline';
+      const { checkLlamaHealth } = await import('../evo-client.js');
+      evoStatus = await checkLlamaHealth() ? 'online (llama-server responding)' : 'offline';
     } catch { evoStatus = 'check failed'; }
 
     // WhatsApp connection
@@ -145,14 +175,29 @@ const TOOL_MAP = {
       return `Failed to generate overnight report: ${err.message}`;
     }
   },
-  evolution_task: async (input) => {
+  send_file: async (input) => {
+    const docSender = _sendDocument;
+    if (!docSender) return 'Document send function not available — WhatsApp not connected.';
+    const safeFilename = (input.filename || '').replace(/[\/\\]/g, '');
+    if (!safeFilename) return 'No filename provided.';
+    const filePath = join('data', safeFilename);
+    if (!existsSync(filePath)) return `File not found: data/${safeFilename}`;
     try {
-      const task = createTask(input.instruction, 'whatsapp', input.priority || 'normal');
-      const summary = getTaskSummary();
-      return `Queued coding task (${task.id}): ${input.instruction}\n\nI'll work on it and send you the diff for approval. Queue: ${summary.pending} pending, ${summary.today}/${3} today.`;
+      const buffer = readFileSync(filePath);
+      const ext = safeFilename.split('.').pop().toLowerCase();
+      const mimeMap = { pdf: 'application/pdf', txt: 'text/plain', json: 'application/json', md: 'text/markdown', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+      const mimetype = mimeMap[ext] || 'application/octet-stream';
+      await docSender(buffer, safeFilename, mimetype, input.caption || '');
+      return `Sent ${safeFilename} (${(buffer.length / 1024).toFixed(1)} KB)`;
     } catch (err) {
-      return `Failed to create evolution task: ${err.message}`;
+      logger.error({ err: err.message, file: safeFilename }, 'send_file failed');
+      return `Failed to send file: ${err.message}`;
     }
+  },
+  // evolution_task is handled specially in executeTool — hard-gated, DM confirmation required.
+  // This handler should never be called directly.
+  evolution_task: async () => {
+    return 'Evolution tasks require DM confirmation. This should not have been called directly.';
   },
 };
 
@@ -173,6 +218,39 @@ export async function executeTool(toolName, toolInput, senderJid, chatJid) {
   }
 
   const isGroup = chatJid && chatJid.endsWith('@g.us');
+
+  // ── HARD GATE: evolution_task ──────────────────────────────────────────────
+  // Code-level enforcement: only owner can trigger, and even then requires
+  // explicit DM confirmation before the task is actually created.
+  if (toolName === 'evolution_task') {
+    // 1. Non-owner → absolute block
+    if (!isOwnerSender(senderJid)) {
+      logger.warn({ senderJid, tool: toolName }, 'evolution_task blocked: non-owner');
+      return 'Evolution tasks can only be created by James. This request has been blocked.';
+    }
+
+    // 2. Owner → queue for DM confirmation, don't create yet
+    const { randomBytes: rb } = await import('crypto');
+    const confirmId = rb(4).toString('hex');
+    _pendingEvolution.set(confirmId, {
+      instruction: toolInput.instruction,
+      priority: toolInput.priority || 'normal',
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10 min expiry
+    });
+
+    if (_sendOwnerDM) {
+      await _sendOwnerDM(
+        `*EVOLUTION TASK — Confirm to queue*\n\n` +
+        `Instruction: ${toolInput.instruction}\n` +
+        `Priority: ${toolInput.priority || 'normal'}\n\n` +
+        `Reply "confirm evolution ${confirmId}" to approve.\n` +
+        `Expires in 10 minutes. Ignoring = rejected.`
+      );
+    }
+
+    logger.info({ confirmId, instruction: toolInput.instruction.slice(0, 100) }, 'evolution_task: awaiting DM confirmation');
+    return 'Evolution task sent to James via DM for confirmation. It will only be queued after explicit approval.';
+  }
 
   // Soul learn from groups must be redirected to proposal flow — only owner DM allows direct writes
   if (toolName === 'soul_learn' && isGroup && _sendOwnerDM) {

@@ -49,3 +49,20 @@ __pycache__/
 
 # Rust build artifacts
 clawd-dashboard/target/
+
+# Debug/temp session artifacts
+evo_logs*.txt
+evo_status.txt
+pi_procs.txt
+dream_output.txt
+
+# Binary documents (not source)
+*.docx
+*.pdf
+
+# Runtime trace/analysis data (regenerated)
+data/reasoning-traces.jsonl
+data/trace-analysis.json
+data/trace-analysis-log.jsonl
+data/weekly-retrospective.json
+data/retrospective-log.jsonl

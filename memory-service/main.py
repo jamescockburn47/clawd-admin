@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
 import config
-import ollama_client
+import llm_client
 import whisper_service
 from command_router import route_voice_command_async
 from memory_store import MemoryStore
@@ -68,12 +68,12 @@ class RouteCommandRequest(BaseModel):
 
 @app.get("/health")
 async def health():
-    ollama = await ollama_client.check_ollama()
+    llm_status = await llm_client.check_health()
     uptime = int(time.time() - _start_time)
     return {
         "status": "online",
         "uptime_seconds": uptime,
-        "ollama": ollama,
+        "llm": llm_status,
         "whisper": {
             "available": whisper_service.is_available(),
             "loaded": whisper_service.is_loaded(),
@@ -87,7 +87,7 @@ async def health():
 
 @app.post("/memory/store")
 async def memory_store(req: StoreRequest):
-    embedding = await ollama_client.embed_single(req.fact)
+    embedding = await llm_client.embed_single(req.fact)
     record = store.store(
         fact=req.fact,
         category=req.category,
@@ -103,7 +103,7 @@ async def memory_store(req: StoreRequest):
 
 @app.post("/memory/search")
 async def memory_search(req: SearchRequest):
-    query_embedding = await ollama_client.embed_single(req.query)
+    query_embedding = await llm_client.embed_single(req.query)
     results = store.search(
         query_embedding=query_embedding,
         query_text=req.query,
@@ -126,7 +126,7 @@ async def memory_list(include_embeddings: bool = False):
 async def memory_update(memory_id: str, req: UpdateRequest):
     embedding = None
     if req.fact is not None:
-        embedding = await ollama_client.embed_single(req.fact)
+        embedding = await llm_client.embed_single(req.fact)
 
     updated = store.update(
         memory_id=memory_id,
@@ -158,7 +158,7 @@ async def memory_stats():
 
 @app.post("/embed")
 async def embed_text(texts: list[str]):
-    embeddings = await ollama_client.embed(texts)
+    embeddings = await llm_client.embed(texts)
     return {"embeddings": embeddings, "count": len(embeddings), "dimensions": len(embeddings[0]) if embeddings else 0}
 
 
@@ -167,7 +167,7 @@ async def embed_text(texts: list[str]):
 @app.post("/extract")
 async def extract_facts(req: ExtractRequest):
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    facts = await ollama_client.extract_facts(req.conversation, today)
+    facts = await llm_client.extract_facts(req.conversation, today)
 
     stored = []
     if req.store_results and facts:
@@ -175,7 +175,7 @@ async def extract_facts(req: ExtractRequest):
             if not isinstance(fact_data, dict) or "fact" not in fact_data:
                 continue
             try:
-                embedding = await ollama_client.embed_single(fact_data["fact"])
+                embedding = await llm_client.embed_single(fact_data["fact"])
                 record = store.store(
                     fact=fact_data["fact"],
                     category=fact_data.get("category", "general"),
@@ -202,11 +202,11 @@ async def extract_facts(req: ExtractRequest):
 async def store_note(req: NoteRequest):
     """Store a direct note — extract facts from it and store them."""
     today = datetime.utcnow().strftime("%Y-%m-%d")
-    facts = await ollama_client.extract_facts(req.text, today)
+    facts = await llm_client.extract_facts(req.text, today)
 
     if not facts:
         # If extraction fails, store the raw text as a single memory
-        embedding = await ollama_client.embed_single(req.text)
+        embedding = await llm_client.embed_single(req.text)
         record = store.store(
             fact=req.text[:300],
             category="general",
@@ -222,7 +222,7 @@ async def store_note(req: NoteRequest):
         if not isinstance(fact_data, dict) or "fact" not in fact_data:
             continue
         try:
-            embedding = await ollama_client.embed_single(fact_data["fact"])
+            embedding = await llm_client.embed_single(fact_data["fact"])
             record = store.store(
                 fact=fact_data["fact"],
                 category=fact_data.get("category", "general"),
@@ -258,7 +258,7 @@ async def transcribe_audio(
 
     if extract and result["text"]:
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        facts = await ollama_client.extract_facts(result["text"], today)
+        facts = await llm_client.extract_facts(result["text"], today)
         response["extracted"] = facts
 
         if store_results and facts:
@@ -267,7 +267,7 @@ async def transcribe_audio(
                 if not isinstance(fact_data, dict) or "fact" not in fact_data:
                     continue
                 try:
-                    embedding = await ollama_client.embed_single(fact_data["fact"])
+                    embedding = await llm_client.embed_single(fact_data["fact"])
                     record = store.store(
                         fact=fact_data["fact"],
                         category=fact_data.get("category", "general"),
@@ -295,13 +295,13 @@ async def analyse_image(
 ):
     """Analyse an image and optionally extract/store facts."""
     image_bytes = await file.read()
-    description = await ollama_client.analyse_image(image_bytes, prompt)
+    description = await llm_client.analyse_image(image_bytes, prompt)
 
     response = {"description": description}
 
     if extract and description:
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        facts = await ollama_client.extract_facts(description, today)
+        facts = await llm_client.extract_facts(description, today)
         response["extracted"] = facts
 
         if store_results and facts:
@@ -310,7 +310,7 @@ async def analyse_image(
                 if not isinstance(fact_data, dict) or "fact" not in fact_data:
                     continue
                 try:
-                    embedding = await ollama_client.embed_single(fact_data["fact"])
+                    embedding = await llm_client.embed_single(fact_data["fact"])
                     record = store.store(
                         fact=fact_data["fact"],
                         category=fact_data.get("category", "general"),

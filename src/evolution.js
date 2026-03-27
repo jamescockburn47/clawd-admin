@@ -141,8 +141,20 @@ export function formatApprovalMessage(task) {
   msg += `Source: ${task.source}\n`;
   msg += `Instruction: ${task.instruction}\n\n`;
 
+  // Show manifest (scope plan) if available
+  if (task.manifest) {
+    const m = task.manifest;
+    msg += `*Planned scope:* ${m.files_to_modify?.join(', ') || '?'}\n`;
+    msg += `*Estimated lines:* ${m.estimated_lines_changed || '?'}`;
+    if (task.total_lines) msg += ` (actual: ${task.total_lines})`;
+    msg += `\n`;
+    if (m.approach) msg += `*Approach:* ${m.approach}\n`;
+    if (m.risks) msg += `*Risks:* ${m.risks}\n`;
+    msg += `\n`;
+  }
+
   if (task.diff_summary) {
-    msg += `*Summary:* ${task.diff_summary}\n\n`;
+    msg += `*Diff stat:*\n${task.diff_summary}\n\n`;
   }
 
   if (task.files_changed?.length) {

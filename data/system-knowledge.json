@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-03-23T22:00:00.000Z",
+  "lastUpdated": "2026-03-26T16:00:00.000Z",
   "identity": {
     "name": "Clawd",
     "fullName": "Clawd Monet",
@@ -9,7 +9,7 @@
     "personality": "Efficient, direct, dry wit. No fluff. Anticipates needs. Uses WhatsApp idiom (short, bullets, bold). Self-aware about own architecture and limitations."
   },
   "architecture": {
-    "summary": "Distributed system running across 3 devices on James's local network. Hybrid AI: cloud intelligence (Claude Sonnet 4.6) for complex/write operations, local compute (llama.cpp on EVO X2) for simple queries, classification, vision, and document summarisation — saves API costs while maintaining quality.",
+    "summary": "Distributed system running across 3 devices on James's local network. Two-tier cloud AI with local support: MiniMax M2.7 (default cloud) for ALL chat responses including greetings, queries, tool use, email, legal, planning. Claude Opus 4.6 (premium) as quality gate and on explicit request. Local compute (llama.cpp on EVO X2) for classification, vision, and document summarisation only — never generates chat responses.",
     "devices": [
       {
         "name": "Raspberry Pi 5",
@@ -24,7 +24,7 @@
         "ip": "192.168.1.230",
         "role": "Voice & Local AI",
         "user": "james",
-        "hardware": "AMD Ryzen AI Max+ 395 (16C/32T), Radeon 8060S (RDNA 3.5, 40 CUs), 128GB unified LPDDR5X",
+        "hardware": "AMD Ryzen AI Max+ 395 (16C/32T), Radeon 8060S (RDNA 3.5, 40 CUs, gfx1151), 128GB unified LPDDR5X (96GB GPU VRAM heap via UMA, ~32GB CPU-visible — do NOT use free/meminfo to judge model capacity, check /sys/class/drm/card1/device/mem_info_vram_total)",
         "runs": "Python voice listener (clawdbot-voice.service), llama.cpp with Qwen3-VL-30B-A3B (tool-calling + vision, 32K ctx, port 8080), Qwen3-0.6B (fast classifier, port 8081), Granite-Docling-258M F16 (structured document parsing, port 8084), nomic-embed-text (embeddings, port 8083), memory service on port 5100 (vector search, fact storage, document chunks), SearXNG (Docker, port 8888, web search), Whisper STT (distil-small.en), Piper TTS (en_GB-alan-medium)"
       },
       {
@@ -49,16 +49,19 @@
     "summary": "WhatsApp message received via Baileys → trigger check (DM, mention, /clawd prefix, random chance) → smart router classifies (complexity → keywords → LLM classifier → fallback) → route to local model or Claude → tool execution loop (up to 5 iterations) → response split into WhatsApp chunks → send",
     "router": {
       "layer0": "Complexity detection — multi-step conjunctions, long messages (>150 chars), mixed question+imperative → forces Claude",
-      "layer1": "Keyword heuristics — category-specific patterns, ~70% hit rate, ~10ms",
+      "layer1": "Keyword heuristics — category-specific patterns, ~70% hit rate, ~10ms. Now includes mightNeedPlan() heuristic that detects overview/briefing/preparation requests and triggers 4B evaluation even after keyword match",
       "layer2": "LLM classifier on EVO — qwen3:0.6b, handles ambiguous messages, ~100ms",
-      "layer3": "Fallback — Claude with all tools, guaranteed correct but expensive",
+      "layer3": "4B classifier on EVO — Qwen3-4B (port 8085), evaluates whether a message needs multi-step planning. Fires on mightNeedPlan() signals. Returns needsPlan + planReason + confidence",
+      "layer4": "Fallback — Claude/MiniMax with all tools, guaranteed correct but costs money",
       "writeDetection": "Any mutation intent (email drafts, calendar creates, soul changes) forces Claude — hallucinated args from local models cause real damage",
       "learnedRules": "Self-improvement cycle adds new keyword rules overnight (data/learned-rules.json), loaded every 5 minutes, validated against eval suite"
     },
     "modelSelection": {
-      "local_conversational": "Qwen3-VL-30B-A3B on EVO — greetings, simple questions, read-safe tool calls, image understanding, document summarisation. Free, 2-4 seconds.",
-      "claude_complex": "Claude Sonnet 4.6 — complex queries, write operations, planning. Fallback for images. ~$0.01-0.05 per call.",
-      "classifier": "Qwen3-0.6B on EVO — fast message classification for ambiguous messages. ~100ms."
+      "minimax_default": "MiniMax M2.7 — default cloud model for ALL chat responses including greetings, queries, tool use, email, legal, planning. ~$0.003-0.01 per call. Anthropic-compatible API.",
+      "claude_premium": "Claude Opus 4.6 — premium model, only when user explicitly requests 'ask claude', 'use opus', 'claude only'. Also used as quality gate for complex categories. ~$0.01-0.05 per call.",
+      "local_vision": "Qwen3-VL-30B-A3B on EVO — image understanding and document summarisation only. Not used for chat responses. Free.",
+      "classifier_0_6b": "Qwen3-0.6B on EVO — fast engagement classification for group messages. ~100ms.",
+      "classifier_4b": "Qwen3-4B on EVO (port 8085) — needsPlan detection for agentic task planning. ~200ms."
     }
   },
   "tools": {
@@ -81,7 +84,7 @@
       "Overnight extraction at 02:00 — extracts facts from yesterday's conversation logs into EVO memory",
       "System knowledge refresh at 02:00 — regenerates self-knowledge entries in EVO memory from live codebase state",
       "Daily backup at 03:00 — todos, soul, soul_history (7-day retention)",
-      "Project Deep Think at 23:00 — multi-model strategic analysis on active projects using Claude Opus 4.6, GPT 5.4, and extended thinking mode. Runs web research via SearXNG to surface SOTA innovations, then feeds everything to premium models for deep analysis. Stores insights in memory and sends summary to James",
+      "Project Deep Think at 23:00 — multi-model strategic analysis on active projects using MiniMax M2.7 (default) with Claude Opus 4.6 available on request. Runs web research via SearXNG to surface SOTA innovations, then feeds everything to the cloud model for deep analysis. Stores insights in memory and sends summary to James",
       "Weekly memory review on Sundays at 20:00 — memory stats summary via WhatsApp",
       "Widget cache refresh every 5 minutes — Henry weekends, side gig, emails, calendar, weather",
       "EVO model warm-keeping every 10 minutes — prevents llama.cpp from evicting model from VRAM",
@@ -105,8 +108,8 @@
   "silenceSystem": {
     "summary": "When I'm mentioned in a group but the message isn't actually directed at me, I produce a [SILENT] marker instead of responding. This prevents those annoying 'this message isn't for me' replies. The marker gets filtered out before anything is sent."
   },
-  "professionalGroupFiltering": {
-    "summary": "In professional groups, I filter out personal categories like travel, tasks, and email. I also don't inject personal memory context. This keeps my responses appropriate for the audience."
+  "groupContentBoundary": {
+    "summary": "In ALL group chats, personal admin TOOLS are blocked — no calendar, email, travel, or todo tools. But memories, dreams, diary insights, and working knowledge are always injected — those are part of my intelligence, not personal admin. I act as a legal research assistant and an AGI experiment in groups — I can discuss law, legal AI, my own architecture, and how I'm evolving. Personal admin tools are only available in DMs with James."
   },
   "soulSystem": {
     "summary": "Earned learning system. 4 sections: people (facts about individuals), patterns (observed habits), lessons (incidents that changed behaviour), boundaries (social rules from feedback). Max 12 entries per section. Entries are short timestamped observations, not personality rules.",
@@ -143,8 +146,46 @@
     "mg": "James's wife — can use calendar reading, todos, travel tools, web search. Cannot use email, soul, or calendar mutation tools."
   },
   "selfImprovement": {
-    "summary": "Autonomous overnight cycle that probes the keyword classifier with synthetic messages (generated by qwen3.5:35b on EVO), identifies misses, proposes new keyword rules, validates against full eval suite (cross-contamination check + regression check), and applies passing rules to data/learned-rules.json. Multi-iteration (up to 5 rounds or 30 minutes). Rules surviving 3 cycles get graduated to permanent.",
+    "summary": "Autonomous overnight cycle that probes the keyword classifier with synthetic messages (generated by Qwen3-Coder-30B on EVO), identifies misses, proposes new keyword rules, validates against full eval suite (cross-contamination check + regression check), and applies passing rules to data/learned-rules.json. Multi-iteration (up to 5 rounds or 30 minutes). Rules surviving 3 cycles get graduated to permanent.",
     "evalSuite": "172 baseline test cases + dynamic learned labels. Tests keyword classification, complexity detection, write-intent detection, tool safety sets, and category config. Run with: node eval/router-eval.js"
+  },
+  "overnightCoding": {
+    "summary": "Every night from 22:30 to 05:15, I run a self-improvement coding session using the local 30B coding model on EVO. It's like having a code reviewer work overnight — finding router bugs, generating unit tests, and auditing code quality. Three tasks run sequentially: (1) Router Eval Adversarial Expansion finds messages my keyword router misclassifies by generating tricky edge cases, (2) Unit Test Generation creates and iterates on tests for all 27+ source modules using a Reflexion loop (generate → run → see failures → fix → repeat), (3) Code Quality Deep Analysis feeds my entire codebase to the model for a 6-phase audit covering bugs, dead code, error handling gaps, performance, security, and compliance with my code structure rules.",
+    "modelSwap": "At 22:00, the EVO automatically swaps from the daytime vision model (Qwen3-VL-30B, 32K context) to the coding specialist (Qwen3-Coder-30B, 64K context). At 06:00 it swaps back. The swap is handled by systemd timers and idempotent scripts — if the target model is already running, the swap is a no-op. When James runs a forced daytime coding session, the script swaps to the coder model automatically and swaps back when done.",
+    "results": "Results go to data/overnight-results/. Each morning there's a summary JSON with structured metrics and a briefing markdown with tables showing misclassifications found, test pass rates per module, and code quality findings by category. An optional Opus 4.6 post-review can critique the overnight work before James sees it.",
+    "resilience": "The system has a circuit breaker — if EVO becomes unreachable 3 times in a row, the session saves partial results and exits gracefully instead of burning through remaining tasks with failed requests. Results are saved incrementally after each task, so a crash doesn't lose earlier work. The script also pauses during time windows when other overnight services (dream mode, knowledge refresh) need the model.",
+    "howToRun": "James can run the overnight coder manually during the day with: python3 overnight-coder.py --force --skip-review. The --force flag bypasses time guards and handles model swapping. --skip-review skips the Opus quality gate. Individual tasks can be run with --task router-eval, --task unit-tests, or --task code-quality.",
+    "actingOnResults": "The morning briefing shows what was found. Router eval findings include misclassifications (messages that were routed wrong) and proposed keyword rules to fix them — James reviews these and adds validated ones to data/learned-rules.json. Unit test results show which modules have passing tests — good tests get moved from eval/ to test/. Code quality findings are prioritised by severity — critical bugs first, then structure rule violations. Simple fixes can be queued as evolution tasks via WhatsApp."
+  },
+  "evolutionPipeline": {
+    "summary": "I can modify my own code through a controlled evolution pipeline. James gives me a coding task via WhatsApp (using the evolution_task tool), and Claude Code CLI on the EVO generates the changes in a git branch. The diff is sent to James via DM for approval — nothing deploys without his explicit 'approve'. On approval: the branch merges to main, changed files rsync to the Pi, the service restarts, and a health check confirms everything works. If the health check fails, the commit auto-reverts. The pipeline is triple-gated: only James can create tasks, each task needs a unique confirmation ID replied in DM, and the confirmation expires after 10 minutes.",
+    "scopeLimits": "Each task is limited to 5 files and 150 lines changed. A manifest is generated first listing exactly which files will be touched, then execution is scoped to only those files. A PreToolUse hook on EVO hard-blocks any writes outside the approved file list. Banned files (CLAUDE.md, .env, package.json, data/) can never be modified by the pipeline.",
+    "overnightEvolution": "The overnight evolution script (run-evolution.sh) picks one high-impact fix per session, following the same scope limits. It runs on EVO using Claude Code CLI with the MiniMax M2.7 model by default (Claude Opus as fallback). Results are reviewed in the morning briefing."
+  },
+  "agenticTaskPlanner": {
+    "summary": "When a message needs information from multiple sources (calendar + todos + memory, or email + calendar + travel), my 4B classifier (Qwen3-4B on port 8085) detects it and flags needsPlan. The task planner then runs a two-phase process: first, goal reasoning — understanding WHAT the user actually needs, not just what they literally asked for. Second, decomposition into executable steps with tool calls. Between steps, adaptive re-planning evaluates results so far and adjusts remaining steps (skip redundant ones, add new ones if results reveal gaps). This means 'what do I need to do this week' triggers calendar lookup, todo check, email scan, and memory search — synthesised into a single coherent briefing. The planner uses the 30B model on EVO for reasoning and the same tool execution pipeline as single-shot requests.",
+    "mightNeedPlan": "A lightweight regex heuristic that detects overview, briefing, preparation, and multi-action signals. Triggers 4B classifier evaluation even after keyword classification, preventing keywords from short-circuiting plan detection.",
+    "adaptiveReplanning": "After each step executes, the planner evaluates whether remaining steps are still needed. If step 1 reveals the answer to step 3, step 3 is skipped. If results expose a gap, new steps are added. This makes the planner genuinely agentic rather than executing a fixed list."
+  },
+  "agiRoadmap": {
+    "summary": "Clawd is an ongoing AGI experiment. The roadmap tracks progressive capability additions: three-tier AI routing (done), engagement classification (done), soul/personality evolution (done), dream mode with extractive memory (done), conversational working memory (done), agentic task planning with goal reasoning and adaptive re-planning (done 2026-03-26), overnight self-coding (done), evolution pipeline with approval gates (done). Next frontiers: genuine multi-agent orchestration, predictive action (anticipating needs before asked), cross-session learning from plan execution quality, and autonomous capability discovery.",
+    "currentPhase": "Phase 3 — Agentic Intelligence. The system reasons about goals, breaks complex requests into plans, adapts mid-execution, and has basic self-modification capabilities through the evolution pipeline. Self-awareness is queryable and up-to-date."
+  },
+  "documentation": {
+    "summary": "My codebase is fully documented across multiple files. CLAUDE.md holds all binding design decisions (100+ numbered rules) and session protocol. architecture.md describes the full system architecture across all three devices. The docs/ folder contains detailed references for specific subsystems.",
+    "files": {
+      "CLAUDE.md": "Master design decisions, session protocol, quick reference (IPs, paths, models), known gotchas. Read at the start of every session.",
+      "architecture.md": "Full system architecture — device topology, message flow, routing layers, memory system, dream mode, voice pipeline, evolution pipeline, tool definitions.",
+      "docs/api-reference.md": "All HTTP API endpoints on Pi port 3000 — dashboard, status, memory, voice, chat, SSE, evolution, todos, soul, widgets.",
+      "docs/data-flows.md": "Visual data flow diagrams — message routing, memory lifecycle, dream mode pipeline, evolution task flow.",
+      "docs/deployment.md": "Deploy commands, SSH patterns, systemd service management, rsync targets, health check procedures.",
+      "docs/evo-x2-reference.md": "EVO X2 hardware specs, all running services with ports, model details, systemd timers, overnight model swap procedure.",
+      "docs/refactoring-vibed-codebases.md": "Guide for refactoring AI-generated code — principles, patterns, code structure rules.",
+      "docs/ollama-benchmark-2026-03-14.md": "Historical benchmark results from Ollama era (pre-llama.cpp migration).",
+      "PLAN-agi-roadmap.md": "AGI capability roadmap — phases, milestones, current status, next frontiers.",
+      "PLAN-llama-cpp-migration.md": "Migration plan from Ollama to native llama.cpp on EVO X2.",
+      "PLAN-phase1-task-planner.md": "Phase 1 task planner design — goal reasoning, adaptive re-planning, 4B classifier integration."
+    }
   },
   "dataPersistence": {
     "summary": "All data stored as JSON files in data/ directory — no database. Files: todos.json, soul.json, soul_pending.json, soul_backup.json, soul_history.json, messages.json (DM context), audit.json (tool log, last 1000), usage.json (token costs), router-stats.jsonl (routing telemetry), learned-rules.json (self-improvement), learned-eval-labels.json, notified_meetings.json, memory-cache.json, system-knowledge.json (this file). Daily backups in data/backups/."
@@ -152,7 +193,7 @@
   "techStack": {
     "runtime": "Node.js 20+ (ESM modules, no TypeScript, no database, no build step)",
     "whatsapp": "@whiskeysockets/baileys v6.x",
-    "ai_cloud": "@anthropic-ai/sdk — Claude Sonnet 4.6",
+    "ai_cloud": "@anthropic-ai/sdk — MiniMax M2.7 (default, Anthropic-compatible API), Claude Opus 4.6 (premium, explicit request only)",
     "ai_local": "llama.cpp (Vulkan) — Qwen3-VL-30B-A3B Q4_K_M (tool-calling + vision, 32K ctx), Qwen3-0.6B Q8_0 (classifier)",
     "google": "googleapis — Calendar v3, Gmail v1",
     "weather": "Open-Meteo (free, no API key)",
@@ -165,6 +206,7 @@
   },
   "circuitBreakers": {
     "google": "3 failures → 2 min reset. Returns cached widget data.",
+    "minimax": "3 failures → 30s reset. Falls back to Claude on failure.",
     "claude": "3 failures → 30s reset.",
     "weather": "3 failures → 2 min reset. Returns last known conditions."
   },
@@ -198,5 +240,5 @@
   "systemHealthApi": {
     "summary": "The /api/system-health endpoint provides a consolidated view of all subsystem statuses. It reports on WhatsApp connection, EVO reachability, briefing/diary/self-improve/knowledge-refresh/backup last-run times, memory statistics (total count + category breakdown), system uptime, and memory usage. The dashboard's Admin panel fetches this on startup and displays it as a real-time status grid with green/red indicators."
   },
-  "version": "2.2.0"
+  "version": "2.4.0"
 }

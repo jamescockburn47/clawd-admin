@@ -1,0 +1,9 @@
+[Unit]
+Description=Start overnight coder at 22:30 (after model swap at 22:00 and dream at 22:05)
+
+[Timer]
+OnCalendar=*-*-* 22:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

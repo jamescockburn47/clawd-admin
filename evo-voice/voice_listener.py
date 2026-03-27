@@ -436,8 +436,8 @@ def speak_error(msg="Sorry, something went wrong"):
     """Guaranteed error speech — catches its own exceptions."""
     try:
         speak_fast(msg)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"speak_error itself failed: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -469,7 +469,8 @@ def send_to_clawdbot(text, route=None):
                 logger.info(f"Local: {route['action']} (tier {route.get('tier','?')})")
                 try:
                     return resp.json()
-                except Exception:
+                except (ValueError, KeyError) as e:
+                    logger.warning(f"voice-local response parse failed: {e}")
                     return {"ok": True, "message": "Done"}
             else:
                 logger.error(f"voice-local {resp.status_code}: {resp.text[:200]}")
@@ -485,7 +486,8 @@ def send_to_clawdbot(text, route=None):
             logger.info(f"Claude: {text!r}")
             try:
                 return resp.json()
-            except Exception:
+            except (ValueError, KeyError) as e:
+                logger.warning(f"Claude response parse failed: {e}")
                 return {"ok": True, "message": "Done"}
         else:
             logger.error(f"Clawdbot {resp.status_code}: {resp.text[:200]}")
@@ -506,8 +508,8 @@ def notify_dashboard(event, data=None):
             headers={"Authorization": f"Bearer {DASHBOARD_TOKEN}"},
             timeout=3,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Dashboard notify failed ({event}): {e}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -523,8 +525,8 @@ def flush_mic(stream, device_chunk, duration_secs):
     try:
         while stream.get_read_available() > device_chunk:
             stream.read(device_chunk, exception_on_overflow=False)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Mic flush error (non-fatal): {e}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -704,8 +706,8 @@ def main():
                     "whisper_model": WHISPER_MODEL,
                     "state": _current_state.name,
                 })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Heartbeat failed: {e}")
             time.sleep(60)
 
     threading.Thread(target=_heartbeat, daemon=True).start()

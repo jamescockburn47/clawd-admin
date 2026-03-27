@@ -1,0 +1,6 @@
+[Unit]
+Description=Swap to daytime main model
+
+[Service]
+Type=oneshot
+ExecStart=/home/james/llama-swap-main.sh

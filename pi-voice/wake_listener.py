@@ -266,8 +266,8 @@ def notify_dashboard(event, data=None):
             headers={"Authorization": f"Bearer {DASHBOARD_TOKEN}"},
             timeout=5,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Dashboard notify failed ({event}): {e}")
 
 
 def main():

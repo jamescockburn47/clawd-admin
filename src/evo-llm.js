@@ -4,6 +4,8 @@ import config from './config.js';
 import logger from './logger.js';
 import { executeTool } from './tools/handler.js';
 import { getWorkingKnowledge, warmFromQuery } from './lquorum-rag.js';
+import { evoFetch, checkLlamaHealth } from './evo-client.js';
+import { TIMEOUTS, LIMITS } from './constants.js';
 
 // Convert Anthropic-style tool definitions to OpenAI function-calling format
 function toOpenAITools(tools) {
@@ -56,6 +58,9 @@ Today is ${dateStr}, ${timeStr} (Europe/London).`;
 - Keep messages short. Use bullet points. Bold key info with *asterisks*.
 - This is WhatsApp — not an essay.`;
   }
+
+  base += `\n\n## Who you are
+You are Clawd Monet — an AGI experiment running on Pi 5 + EVO X2 + touchscreen. Three-tier AI: local (you, free), MiniMax M2.7 (cloud default), Claude Opus 4.6 (premium). You dream overnight (diary + fact extraction + soul evolution), have an agentic task planner, can self-modify via evolution pipeline, search the web, process images/documents locally, and have working memory from the LQuorum legal AI community. You are actively progressing toward AGI. Answer questions about yourself accurately.`;
 
   base += `\n\n## Memories
 You may have background knowledge about James injected below. Use it to understand context (e.g. preferences, people, places) but do NOT mix memory facts into tool result summaries. Memories inform your understanding — tool results are the data you report.`;
@@ -122,31 +127,20 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
     { role: 'user', content: userContent },
   ];
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
-
   try {
-    let res = await fetch(`${baseUrl}/v1/chat/completions`, {
+    let res = await evoFetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages,
         // No tools for vision queries — model should respond directly about the image
         tools: (!isVisionQuery && openAITools.length > 0) ? openAITools : undefined,
         temperature: 0.3,
         max_tokens: isVisionQuery ? 2000 : 1000,
+        repeat_penalty: 1.3,
         cache_prompt: true,
       }),
-      signal: controller.signal,
+      timeout: TIMEOUTS.EVO_REQUEST,
     });
-
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => 'no body');
-      logger.warn({ status: res.status, body: errBody.slice(0, 500), hasImage: !!imageData }, 'EVO llama-server error response');
-      throw new Error(`EVO llama-server HTTP ${res.status}`);
-    }
 
     let data = await res.json();
     let msg = data.choices?.[0]?.message || {};
@@ -158,8 +152,6 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
     while (msg.tool_calls && msg.tool_calls.length > 0 && loopCount < maxLoops) {
       loopCount++;
       messages.push({ role: 'assistant', content: msg.content || '', tool_calls: msg.tool_calls });
-
-      const MAX_TOOL_RESULT = 1500;
 
       for (const tc of msg.tool_calls) {
         const fn = tc.function || {};
@@ -182,31 +174,27 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
         let result = await executeTool(toolName, toolInput, senderJid);
         logger.info({ tool: toolName, chars: result.length, source: 'evo' }, 'local tool result');
 
-        if (result.length > MAX_TOOL_RESULT) {
-          result = result.slice(0, MAX_TOOL_RESULT) + '\n[...truncated]';
+        if (result.length > LIMITS.MAX_TOOL_RESULT) {
+          result = result.slice(0, LIMITS.MAX_TOOL_RESULT) + '\n[...truncated]';
         }
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
       }
 
       // Send tool results back for final response
-      const loopController = new AbortController();
-      const loopTimeout = setTimeout(() => loopController.abort(), 60000);
-
-      res = await fetch(`${baseUrl}/v1/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages,
-          tools: openAITools.length > 0 ? openAITools : undefined,
-          temperature: 0.3,
-          max_tokens: 1000,
-          cache_prompt: true,
-        }),
-        signal: loopController.signal,
-      });
-
-      clearTimeout(loopTimeout);
-      if (!res.ok) break;
+      try {
+        res = await evoFetch(`${baseUrl}/v1/chat/completions`, {
+          method: 'POST',
+          body: JSON.stringify({
+            messages,
+            tools: openAITools.length > 0 ? openAITools : undefined,
+            temperature: 0.3,
+            max_tokens: 1000,
+            repeat_penalty: 1.3,
+            cache_prompt: true,
+          }),
+          timeout: TIMEOUTS.EVO_REQUEST,
+        });
+      } catch { break; }
 
       data = await res.json();
       msg = data.choices?.[0]?.message || {};
@@ -228,9 +216,8 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
 
     return content;
   } catch (err) {
-    clearTimeout(timeoutId);
     if (err.name === 'AbortError') {
-      logger.warn({ timeout: 60000 }, 'evo tool call timed out');
+      logger.warn({ timeout: TIMEOUTS.EVO_REQUEST }, 'evo tool call timed out');
       return null;
     }
     logger.warn({ err: err.message }, 'evo tool call failed');
@@ -238,24 +225,12 @@ export async function getEvoToolResponse(context, tools, senderJid, memoryFragme
   }
 }
 
-// Check if EVO X2's llama-server is healthy
-export async function checkEvoHealth() {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(`${config.evoLlmUrl}/health`, { signal: controller.signal });
-    clearTimeout(timeoutId);
-    if (!res.ok) return false;
-    const data = await res.json();
-    return data.status === 'ok' || data.status === 'no slot available';
-  } catch {
-    return false;
-  }
-}
+// Re-export llama health check from evo-client (backwards compat)
+export { checkLlamaHealth as checkEvoHealth } from './evo-client.js';
 
 // ── Granite-Docling structured document parsing ──────────────────────────────
 
-const DOCLING_URL = (config.evoLlmUrl || 'http://10.0.0.2:8080').replace(/:8080$/, ':8084');
+const DOCLING_URL = config.evoDoclingUrl;
 
 /**
  * Parse a PDF page image via Granite-Docling on EVO X2.
@@ -263,13 +238,10 @@ const DOCLING_URL = (config.evoLlmUrl || 'http://10.0.0.2:8080').replace(/:8080$
  */
 async function parsePageViaDocling(imageBuffer) {
   const base64 = imageBuffer.toString('base64');
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const res = await fetch(`${DOCLING_URL}/v1/chat/completions`, {
+    const res = await evoFetch(`${DOCLING_URL}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages: [{
           role: 'user',
@@ -281,15 +253,11 @@ async function parsePageViaDocling(imageBuffer) {
         temperature: 0.0,
         max_tokens: 4000,
       }),
-      signal: controller.signal,
+      timeout: TIMEOUTS.DOCLING_PARSE,
     });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) return null;
     const data = await res.json();
     return data.choices?.[0]?.message?.content?.trim() || null;
   } catch (err) {
-    clearTimeout(timeoutId);
     logger.warn({ err: err.message }, 'Granite-Docling page parse failed');
     return null;
   }
@@ -394,13 +362,9 @@ export async function parseDocumentWithDocling(pdfBuffer, fileName, maxPages = 1
 
 // Summarise document text via EVO X2 — saves Claude tokens
 export async function summariseDocument(text, fileName, maxOutputTokens = 500) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
-
   try {
-    const res = await fetch(`${config.evoLlmUrl}/v1/chat/completions`, {
+    const res = await evoFetch(`${config.evoLlmUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages: [
           { role: 'system', content: 'You are a document summariser. Produce a concise but thorough summary preserving key facts, figures, names, dates, arguments, and conclusions. Do not add commentary or opinion. If the document has structure (sections, headings), preserve that structure in condensed form.' },
@@ -410,14 +374,8 @@ export async function summariseDocument(text, fileName, maxOutputTokens = 500) {
         max_tokens: maxOutputTokens,
         cache_prompt: true,
       }),
-      signal: controller.signal,
+      timeout: TIMEOUTS.DOC_SUMMARISE,
     });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      logger.warn({ status: res.status, fileName }, 'EVO document summarisation failed');
-      return null;
-    }
 
     const data = await res.json();
     const summary = data.choices?.[0]?.message?.content?.trim();
@@ -426,21 +384,111 @@ export async function summariseDocument(text, fileName, maxOutputTokens = 500) {
     }
     return summary || null;
   } catch (err) {
-    clearTimeout(timeoutId);
     logger.warn({ err: err.message, fileName }, 'EVO document summarisation error');
     return null;
   }
 }
 
-// Classify message via EVO X2's classifier llama-server
-export async function classifyViaEvo(text, systemPrompt) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 5000);
+// ── 4B classifier — category + needsPlan ────────────────────────────────────
 
+const PLANNER_CLASSIFY_PROMPT = `You are a message classifier for a WhatsApp assistant called Clawd.
+Clawd is a personal and legal assistant for James, a senior commercial litigation solicitor.
+You MUST respond in English only. Output JSON only, no thinking, no explanation.
+
+Classify this message into ONE category and determine if it needs multi-step planning.
+
+Categories: calendar, task, travel, email, recall, planning, conversational, general_knowledge, system
+
+- "calendar" = checking schedule, creating/updating events, what's on, free time
+- "task" = todos, reminders, task lists
+- "travel" = trains, hotels, flights, fares, accommodation
+- "email" = reading/sending/drafting emails, inbox
+- "recall" = asking about something previously discussed, stored facts, memories
+- "planning" = complex multi-step reasoning, organising, strategy, anything needing 2+ tools
+- "conversational" = chat, banter, greetings, opinions
+- "general_knowledge" = factual questions, current info, web lookups, legal knowledge
+- "system" = questions about the bot itself, architecture, status
+
+needsPlan is TRUE when answering well requires information from 2+ different sources or tools:
+- Overview requests: "what do I need to do this week" (needs calendar + todos + memory)
+- Preparation: "prepare me for Friday" (needs calendar + todos + memory + possibly email)
+- Briefing: "catch me up on X" (needs memory + email + possibly calendar)
+- Multiple actions: "add a todo and check my calendar"
+- Research + action: "find what the group said about X and summarise it"
+- Conditional: "if I'm free Thursday, book the 0930"
+- Cross-tool synthesis: "what have I been working on this week"
+- Any request where a GOOD answer requires combining data from multiple tools
+
+needsPlan is FALSE for:
+- Single tool calls: "what's on my calendar tomorrow" (just calendar)
+- Conversational: "what do you think about X"
+- Simple lookups: "search for Y" (just web_search)
+- Simple questions: "who is X"
+- Single actions: "add a todo for Friday" (just todo_add)
+
+Output JSON only, no other text, no thinking:
+{"category": "...", "needsPlan": true, "planReason": "brief reason", "confidence": 0.95}`;
+
+/**
+ * Classify via 4B model (port 8085) — category + needsPlan.
+ * Returns { category, needsPlan, planReason, confidence } or null on failure.
+ */
+export async function classifyVia4B(text) {
   try {
-    const res = await fetch(`${config.evoClassifierUrl}/v1/chat/completions`, {
+    const res = await evoFetch(`${config.evoPlannerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: PLANNER_CLASSIFY_PROMPT },
+          { role: 'user', content: text + ' /no_think' },
+        ],
+        temperature: 0,
+        max_tokens: 100,
+        cache_prompt: true,
+      }),
+      timeout: TIMEOUTS.EVO_CLASSIFIER,
+    });
+
+    const data = await res.json();
+    const raw = (data.choices?.[0]?.message?.content || '').trim();
+
+    // Parse JSON — handle markdown-wrapped JSON (```json ... ```)
+    const jsonMatch = raw.match(/\{[^}]+\}/);
+    if (!jsonMatch) {
+      logger.warn({ raw }, '4B classifier returned non-JSON');
+      return null;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+
+    // Validate fields
+    const validCategories = new Set([
+      'calendar', 'task', 'travel', 'email', 'recall',
+      'planning', 'conversational', 'general_knowledge', 'system',
+    ]);
+
+    if (!validCategories.has(parsed.category)) {
+      logger.warn({ category: parsed.category }, '4B classifier returned invalid category');
+      return null;
+    }
+
+    return {
+      category: parsed.category,
+      needsPlan: !!parsed.needsPlan,
+      planReason: parsed.planReason || null,
+      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : null,
+    };
+  } catch (err) {
+    logger.warn({ err: err.message }, '4B classifier failed');
+    return null;
+  }
+}
+
+// Classify message via EVO X2's 0.6B classifier llama-server (engagement gating only)
+export async function classifyViaEvo(text, systemPrompt) {
+  try {
+    const res = await evoFetch(`${config.evoClassifierUrl}/v1/chat/completions`, {
+      method: 'POST',
       body: JSON.stringify({
         messages: [
           { role: 'system', content: systemPrompt },
@@ -450,16 +498,12 @@ export async function classifyViaEvo(text, systemPrompt) {
         max_tokens: 10,
         cache_prompt: true,
       }),
-      signal: controller.signal,
+      timeout: TIMEOUTS.EVO_CLASSIFIER,
     });
-
-    clearTimeout(timeoutId);
-    if (!res.ok) return null;
 
     const data = await res.json();
     return (data.choices?.[0]?.message?.content || '').trim().toLowerCase().replace(/[^a-z_]/g, '');
   } catch (err) {
-    clearTimeout(timeoutId);
     throw err;
   }
 }
@@ -467,18 +511,16 @@ export async function classifyViaEvo(text, systemPrompt) {
 // Keep-alive ping — exercises inference path to prevent any idle-state degradation
 export async function keepEvoWarm() {
   try {
-    const res = await fetch(`${config.evoLlmUrl}/v1/chat/completions`, {
+    await evoFetch(`${config.evoLlmUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages: [{ role: 'user', content: 'ping' }],
         max_tokens: 1,
         cache_prompt: true,
       }),
+      timeout: TIMEOUTS.EVO_HEALTH_CHECK,
     });
-    if (res.ok) {
-      logger.info('evo model kept warm');
-    }
+    logger.info('evo model kept warm');
   } catch {
     // EVO offline — ignore
   }

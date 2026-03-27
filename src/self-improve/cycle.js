@@ -16,6 +16,8 @@ import { join } from 'path';
 import config from '../config.js';
 import logger from '../logger.js';
 import { reloadLearnedRules, KEYWORD_RULES, CATEGORY, classifyByKeywords } from '../router.js';
+import { classifyVia4B } from '../evo-llm.js';
+import { plannerBreaker } from '../evo-client.js';
 
 const TELEMETRY_FILE = join('data', 'router-stats.jsonl');
 const LEARNED_RULES_FILE = join('data', 'learned-rules.json');
@@ -443,6 +445,79 @@ function logCycleResult(result) {
 }
 
 // ============================================================================
+// NEEDSPLAN PROBING — test 4B classifier accuracy on needsPlan detection
+// ============================================================================
+
+const NEEDSPLAN_TESTS = [
+  // TRUE — multi-source overview requests
+  { text: 'what do I need to do this week', expected: true, reason: 'needs calendar + todos + memory' },
+  { text: 'prepare me for Friday', expected: true, reason: 'needs calendar + todos + memory + email' },
+  { text: 'catch me up on the mining dispute', expected: true, reason: 'needs memory + email + possibly calendar' },
+  { text: 'what have I been working on this week check calendar emails and todos', expected: true, reason: 'explicit multi-source' },
+
+  // TRUE — research + action combos
+  { text: 'search my emails for anything from counsel re the mining dispute and summarise the current position', expected: true, reason: 'email search + synthesis' },
+  { text: 'look up the SRA position on AI in legal practice and add a todo to review it', expected: true, reason: 'web search + todo' },
+  { text: 'find what the group discussed about disclosure strategy and draft me a note on it', expected: true, reason: 'memory search + synthesis' },
+
+  // TRUE — conditional / sequential
+  { text: 'check my calendar and add a todo for the disclosure deadline', expected: true, reason: 'calendar + todo' },
+  { text: 'if I am free Thursday book the 0930 from Kings Cross', expected: true, reason: 'calendar check + conditional train booking' },
+  { text: 'search my emails from HP and add todos for urgent ones', expected: true, reason: 'email search + todo creation' },
+  { text: 'draft a reply to that email then remind me to follow up', expected: true, reason: 'email draft + reminder' },
+  { text: 'compare Harvey AI pricing with what Legora quoted us', expected: true, reason: 'web search + memory search' },
+
+  // FALSE — single tool calls
+  { text: 'what is on my calendar tomorrow', expected: false, reason: 'just calendar_list_events' },
+  { text: 'add a todo for Friday', expected: false, reason: 'just todo_add' },
+  { text: 'search the web for Harvey AI', expected: false, reason: 'just web_search' },
+  { text: 'search my emails for the disclosure letter', expected: false, reason: 'just gmail_search' },
+  { text: 'trains from Kings Cross to York tomorrow', expected: false, reason: 'just train_departures' },
+
+  // FALSE — conversational / knowledge
+  { text: 'what do you think about the new model', expected: false, reason: 'conversational' },
+  { text: 'who is the CEO of Anthropic', expected: false, reason: 'general knowledge' },
+  { text: 'what is the limitation period for breach of contract', expected: false, reason: 'legal knowledge' },
+  { text: 'how are you feeling today', expected: false, reason: 'conversational' },
+  { text: 'tell me about yourself', expected: false, reason: 'system query' },
+  { text: 'how does your voice pipeline work', expected: false, reason: 'system query' },
+];
+
+async function probeNeedsPlan() {
+  const results = { total: 0, correct: 0, wrong: [], errors: 0 };
+
+  for (const test of NEEDSPLAN_TESTS) {
+    try {
+      const classResult = await plannerBreaker.call(() => classifyVia4B(test.text), null);
+      if (!classResult) {
+        results.errors++;
+        continue;
+      }
+
+      results.total++;
+      const predicted = !!classResult.needsPlan;
+      if (predicted === test.expected) {
+        results.correct++;
+      } else {
+        results.wrong.push({
+          text: test.text.slice(0, 80),
+          expected: test.expected,
+          predicted,
+          category: classResult.category,
+          confidence: classResult.confidence,
+          reason: test.reason,
+        });
+      }
+    } catch {
+      results.errors++;
+    }
+  }
+
+  results.accuracy = results.total > 0 ? results.correct / results.total : 0;
+  return results;
+}
+
+// ============================================================================
 // MAIN CYCLE — multi-iteration overnight improvement
 // ============================================================================
 
@@ -586,6 +661,22 @@ export async function runImprovementCycle(sendFn = null) {
     // --- Post-loop: graduate battle-tested rules ---
     result.graduated = graduateRules();
 
+    // --- needsPlan probing phase ---
+    try {
+      const planProbe = await probeNeedsPlan();
+      result.needsPlanProbe = planProbe;
+      logger.info({
+        accuracy: (planProbe.accuracy * 100).toFixed(1) + '%',
+        correct: planProbe.correct,
+        total: planProbe.total,
+        wrong: planProbe.wrong.length,
+        errors: planProbe.errors,
+      }, 'self-improve: needsPlan probe complete');
+    } catch (err) {
+      result.errors.push({ phase: 'needsPlan_probe', error: err.message });
+      logger.warn({ err: err.message }, 'self-improve: needsPlan probe failed');
+    }
+
   } catch (err) {
     result.errors.push({ phase: 'cycle', error: err.message });
     logger.error({ err: err.message }, 'self-improve: cycle failed');
@@ -614,6 +705,15 @@ export async function runImprovementCycle(sendFn = null) {
       const totalRules = loadLearnedRulesFile().rules.length;
       lines.push(`Total learned rules: ${totalRules}`);
       lines.push(`Duration: ${(result.durationMs / 1000).toFixed(0)}s`);
+      if (result.needsPlanProbe) {
+        const p = result.needsPlanProbe;
+        lines.push(`\n*needsPlan 4B probe:* ${(p.accuracy * 100).toFixed(0)}% (${p.correct}/${p.total})`);
+        if (p.wrong.length > 0) {
+          for (const w of p.wrong.slice(0, 5)) {
+            lines.push(`  x "${w.text}" — expected ${w.expected}, got ${w.predicted}`);
+          }
+        }
+      }
       if (result.errors.length > 0) lines.push(`Errors: ${result.errors.length}`);
       await sendFn(lines.join('\n'));
     } catch (err) {

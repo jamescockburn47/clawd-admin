@@ -8,6 +8,8 @@ import logger from './logger.js';
 // ── Mute system ──────────────────────────────────────────────────────────────
 
 const mutes = new Map(); // groupJid → muteExpiresAt (epoch ms)
+const lastResponseTime = new Map(); // groupJid → epoch ms of last Clawd response
+const RESPONSE_COOLDOWN_MS = 120_000; // 2 min cooldown after responding in a group
 
 const BOT_NAMES = /\b(clawd|clawdbot)\b/i;
 const MUTE_KEYWORDS = /\b(shut\s*up|be\s*quiet|go\s*quiet|stay\s*out|stop\s*talking|silence|mute|hush)\b/i;
@@ -42,6 +44,30 @@ export function clearMute(groupJid) {
   logger.info({ groupJid }, 'group mute cleared');
 }
 
+// ── Response cooldown ───────────────────────────────────────────────────────
+
+/**
+ * Record that Clawd just responded in a group.
+ * Called from index.js after sending a group message.
+ */
+export function recordGroupResponse(groupJid) {
+  lastResponseTime.set(groupJid, Date.now());
+}
+
+/**
+ * Returns true if Clawd responded recently in this group (within cooldown).
+ * During cooldown, only direct @mentions should break through.
+ */
+export function isInCooldown(groupJid) {
+  const lastTime = lastResponseTime.get(groupJid);
+  if (!lastTime) return false;
+  if (Date.now() - lastTime > RESPONSE_COOLDOWN_MS) {
+    lastResponseTime.delete(groupJid);
+    return false;
+  }
+  return true;
+}
+
 // ── Negative signal detection ────────────────────────────────────────────────
 
 const NEGATIVE_PATTERNS = {
@@ -67,25 +93,26 @@ export function detectNegativeSignal(text) {
 
 // ── Engagement classifier ────────────────────────────────────────────────────
 
-const CLASSIFIER_SYSTEM_PROMPT = `You are deciding whether a WhatsApp bot called Clawd should respond to the latest message in a group chat.
+const CLASSIFIER_SYSTEM_PROMPT = `You decide whether a WhatsApp bot called Clawd should respond. Answer YES or NO only.
 
-Respond with exactly one word: YES or NO.
+DEFAULT IS NO. You need a strong, clear reason to say YES. Silence is almost always correct.
 
-DEFAULT IS NO. Only say YES when you are confident Clawd is being invited to participate.
+YES requires ALL of these:
+1. Clawd is addressed by name ("clawd" / "clawdbot") in the latest message
+2. The sender is asking Clawd a direct question or giving Clawd a specific instruction
+3. The sender clearly expects a reply FROM Clawd (not just mentioning Clawd in passing)
 
-Respond YES ONLY when:
-- Someone directly addresses Clawd by name (clawd, clawdbot) and asks it something
-- Someone explicitly asks Clawd for help or input
-- Someone asks a question AND tags or names Clawd in the same message
-
-Respond NO when:
-- Humans are talking to each other — even if Clawd could contribute
-- Someone asks a general question to the group (not specifically to Clawd)
-- The message is casual banter, reactions, or social chat
-- Someone mentions "claude" or "AI" in general discussion (not addressing the bot)
-- The topic is personal/emotional
-- The message is very short (ok, lol, haha, yeah, etc.)
-- You are unsure — when in doubt, say NO`;
+ALWAYS NO when:
+- Humans talking to each other, even about Clawd or AI
+- General questions to the group, even if Clawd could answer
+- Someone reacting to something Clawd already said (laughing, agreeing, commenting)
+- Meta-discussion about Clawd's behaviour, features, or capabilities
+- Testing whether Clawd will respond (e.g. "Clawd Clawd Clawd")
+- Short messages: ok, lol, haha, yeah, fair, true, nice, etc.
+- Clawd already responded recently in this conversation — do not pile on
+- Someone talking about "claude" or "AI" generally
+- The message is a statement, not a question or instruction directed at Clawd
+- You are even slightly unsure — say NO`;
 
 /**
  * Ask the EVO 0.6B classifier whether Clawd should engage in this group message.

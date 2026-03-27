@@ -677,4 +677,24 @@ export const TOOL_DEFINITIONS = [
       required: ['instruction'],
     },
   },
+
+  // === FILE SENDING ===
+  {
+    name: 'send_file',
+    description: 'Send a file from the data/ directory as a WhatsApp document attachment. Use when asked to send, share, or forward a document, PDF, or file to the chat.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        filename: {
+          type: 'string',
+          description: 'Filename within data/ directory (e.g. "refactoring-vibe-coded-projects.pdf")',
+        },
+        caption: {
+          type: 'string',
+          description: 'Optional caption to send with the document.',
+        },
+      },
+      required: ['filename'],
+    },
+  },
 ];

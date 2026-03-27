@@ -1,0 +1,247 @@
+{
+  "projects": [
+    {
+      "id": "atlas",
+      "name": "ATLAS — Zero-Hallucination Legal AI (with Learned Hand)",
+      "status": "active",
+      "created": "2026-03-23T19:48:00.000Z",
+      "updated": "2026-03-24T06:27:00.000Z",
+      "oneLiner": "Working with Shlomo Klapper to eliminate hallucinations from Learned Hand, make it more intuitive, and build a litigator-facing version for the US market.",
+      "summary": "A collaboration with Shlomo Klapper (Learned Hand founder) to solve three problems: (1) eliminate hallucinations from Learned Hand's judicial AI platform, (2) improve UX/intuitiveness for judges, (3) create a parallel litigator-facing product for US litigation. James brings the dual litigator+advocate perspective; Shlomo brings the judicial platform already deployed at Michigan Supreme Court and LA County Superior Court. US jurisdiction only.",
+      "foundingInsight": "James is a Senior Solicitor Advocate who appears in his own cases — he understands both the litigator building the case and the judge reading it. Shlomo has the judicial AI platform already deployed in US courts. Together they cover both sides of the courtroom.",
+      "partnership": {
+        "partner": "Shlomo Klapper",
+        "company": "Learned Hand",
+        "relationship": "Active collaboration — working together, not pitching to",
+        "learnedHandStatus": "Deployed at Michigan Supreme Court, partnered with LA County Superior Court (March 2026). Backed by BoxGroup, Correlation Ventures, Shine Capital.",
+        "jamesRole": "Hallucination elimination architecture, UX improvements, litigator-side product design"
+      },
+      "jurisdiction": "United States only",
+      "goals": [
+        {
+          "id": "hallucination-elimination",
+          "name": "Eliminate Hallucinations from Learned Hand",
+          "description": "Build a verification layer that structurally prevents unverified legal assertions from reaching end users. Citation verification against primary sources, confidence scoring, mandatory source attribution.",
+          "priority": "TOP",
+          "status": "design"
+        },
+        {
+          "id": "ux-improvement",
+          "name": "Make Learned Hand More Intuitive",
+          "description": "Improve the user experience for judges using the platform. Reduce friction, make outputs more natural and useful in judicial workflows, surface the right information at the right time.",
+          "priority": "HIGH",
+          "status": "research"
+        },
+        {
+          "id": "litigator-version",
+          "name": "Litigator-Facing Version",
+          "description": "Create a version of Learned Hand that serves US litigators — case preparation, argument stress-testing, citation verification from the advocate's perspective. Complements the existing judicial product.",
+          "priority": "HIGH",
+          "status": "concept"
+        }
+      ],
+      "architecture": {
+        "layers": [
+          {
+            "name": "Citation Verification Gate",
+            "description": "Every legal assertion passes through mandatory verification: extract citation → query primary US legal databases (Westlaw, Lexis, CourtListener, Google Scholar) → confirm existence → compare stated proposition against actual holding. No unverified assertion reaches the user."
+          },
+          {
+            "name": "Hallucination Prevention",
+            "description": "Structural approach: confidence scoring on every output, source attribution mandatory, adversarial cross-checking of key claims, explicit 'I don't know' when sources are insufficient. Not just flagging hallucinations — preventing them architecturally."
+          },
+          {
+            "name": "Adversarial Engine",
+            "description": "For the litigator product: two agents with opposing briefs stress-test arguments. Different models, information barrier between them. A referee validates all citations. Erotetic framework: agents debate questions, not assertions."
+          }
+        ]
+      },
+      "criticalFeedback": [
+        {
+          "from": "Shlomo Klapper (Learned Hand founder, now partner)",
+          "date": "2026-03-23",
+          "critique": "Called initial output 'probabilistic AI slop' — list-heavy, not insightful. Flagged no principled stopping point. Referenced erotetic theory as the fix.",
+          "resolution": "Now working together directly. Shlomo's quality bar IS the product standard. Erotetic framework adopted.",
+          "priority": "ADDRESSED — Shlomo is now a collaborator, not a critic"
+        }
+      ],
+      "keyDifferentiators": [
+        "Built by a practising litigator who appears in his own cases — not an engineer guessing at legal workflows",
+        "Partner already has deployed judicial AI in major US courts",
+        "Hallucination elimination as architecture, not just post-hoc flagging",
+        "Both sides of the courtroom covered — judicial AND litigator products"
+      ],
+      "nextSteps": [
+        "Understand Learned Hand's current architecture and hallucination failure modes",
+        "Design the citation verification gate for US legal sources (CourtListener, Google Scholar, Westlaw API)",
+        "Identify the top 3 UX pain points judges currently have with Learned Hand",
+        "Spec the litigator-side product: what does a US litigator need that differs from the judicial view?",
+        "Build a hallucination detection prototype against sample Learned Hand outputs"
+      ],
+      "tags": [
+        "legaltech",
+        "litigation",
+        "ai",
+        "hallucination",
+        "learned-hand",
+        "us-law",
+        "judicial-ai",
+        "erotetic"
+      ],
+      "lastDeepThink": null
+    },
+    {
+      "id": "clawd-agi",
+      "name": "Clawd AGI — Recursive Self-Improving Intelligence",
+      "status": "research",
+      "created": "2026-03-23T20:27:00.000Z",
+      "updated": "2026-03-23T23:10:56.194Z",
+      "oneLiner": "The gap to ASI isn't architecture — Clawd's architecture is already surprisingly close. The gap is in the underlying intelligence of the models. When foundation models achieve genuine reasoning, Clawd's architecture is ready to host it.",
+      "summary": "An evolution roadmap for Clawd from reactive AI assistant to recursively self-improving intelligence. Clawd already has 8 primitives most AI systems lack: persistent identity, self-modification, reflective synthesis, adversarial reasoning (designed), environmental grounding, multi-model orchestration, social intelligence, and accumulated learning. The plan closes 8 critical gaps across 5 phases, with Phase 1 (Deep Think) buildable immediately using existing diary infrastructure.",
+      "foundingInsight": "Most 'AI agent' projects are stateless wrappers around an LLM. Clawd is a genuine cognitive architecture — it persists identity across sessions, modifies its own behaviour overnight, reflects on experience, and acts in the world through voice/vision/tools. The architecture is closer to what AGI researchers describe than anything in the agent framework ecosystem.",
+      "existingPrimitives": [
+        {
+          "name": "Persistent Identity",
+          "description": "Soul system + diary + memory service. Clawd wakes up as itself every day — most AI is stateless."
+        },
+        {
+          "name": "Self-Modification",
+          "description": "Overnight self-improvement cycle probes its own classifier, proposes code fixes, validates against eval suite, applies. Genuine recursive self-improvement — just at keyword-classifier scope."
+        },
+        {
+          "name": "Reflective Synthesis",
+          "description": "Dream mode: first-person diary with insight extraction, cross-day chaining, document reflection. Not summarisation — actual overnight reflection that surfaces connections invisible in real time."
+        },
+        {
+          "name": "Adversarial Reasoning",
+          "description": "ATLAS Claimant Brain vs Defendant Brain + Referee Agent architecture. Designed for litigation but applicable to any domain requiring rigorous internal debate."
+        },
+        {
+          "name": "Environmental Grounding",
+          "description": "Voice (hear + speak), vision (see images), web search, document reading, calendar/email/todo integration. Clawd is embodied — it acts in the world."
+        },
+        {
+          "name": "Multi-Model Orchestration",
+          "description": "EVO local 30B VL + Claude cloud + 0.6B classifier + embedding model + Granite-Docling. Different models for different cognitive tasks — heterogeneous intelligence management."
+        },
+        {
+          "name": "Social Intelligence",
+          "description": "Engagement classifier, mute system, group dynamics, negative signal detection. Knows when to speak and when to shut up."
+        },
+        {
+          "name": "Accumulated Learning",
+          "description": "LQuorum working memory (18 topics, 40+ lawyers), document chunks, diary facts, overnight insights. Genuine long-term learning from experience."
+        }
+      ],
+      "architecture": {
+        "layers": [
+          {
+            "name": "Phase 1: Deep Think",
+            "status": "buildable now",
+            "description": "Extend the overnight diary pipeline into a general-purpose problem-solving queue. Submit problems before bed, get insight reports in the morning.",
+            "components": [
+              "Overnight problem-solving queue — 'think about this case overnight and tell me what you find'",
+              "Multi-pass document analysis — multiple analytical lenses over the same document (factual, strategic, contradictory)",
+              "Curiosity engine — identify unanswered questions from the day, queue overnight web research",
+              "Anticipatory scheduling — detect patterns ('James always books trains Wednesday for Friday') and pre-emptively search",
+              "Proactive research — when James mentions a topic, background-research it before he asks"
+            ]
+          },
+          {
+            "name": "Phase 2: Self-Evolution",
+            "status": "designed, not built",
+            "description": "Full recursive self-improvement beyond keyword rules. The planned Evolution Pipeline from CLAUDE.md.",
+            "components": [
+              "Code evolution pipeline — Claude Code CLI in a git branch, validated before merge, James reviews",
+              "Prompt evolution — propose modifications to system prompts, A/B test against conversation quality",
+              "Tool evolution — discover new tool combinations, evaluate outcomes",
+              "Architecture self-modification — propose routing/memory/context changes (gated by owner review)"
+            ]
+          },
+          {
+            "name": "Phase 3: World Model",
+            "status": "research-grade",
+            "description": "Move from knowing facts to understanding causation and predicting outcomes.",
+            "components": [
+              "Knowledge graph — extract entities and relationships, maintain live graph",
+              "Causal reasoning chains — extract 'why', not just 'what'",
+              "Prediction engine — predict outcomes, track accuracy over time",
+              "Cross-domain analogical reasoning — 'this legal problem is structurally similar to this engineering problem'"
+            ]
+          },
+          {
+            "name": "Phase 4: Adversarial Cognition",
+            "status": "ATLAS-derived",
+            "description": "Generalise the ATLAS adversarial engine beyond litigation into a universal reasoning tool.",
+            "components": [
+              "General-purpose adversarial reasoning — any topic, not just litigation",
+              "Multi-agent debate with structured outputs (stress maps, vulnerability reports)",
+              "Serendipity engine — deliberately inject unrelated knowledge to force novel connections",
+              "Referee Agent as universal hallucination eliminator"
+            ]
+          },
+          {
+            "name": "Phase 5: Distributed Intelligence",
+            "status": "future",
+            "description": "Break the compute ceiling. Think harder by using more resources dynamically.",
+            "components": [
+              "Cloud burst — spin up GPU instances for problems exceeding EVO capacity",
+              "Multi-machine reasoning — parallel reasoning across multiple devices",
+              "Mixture of system-level experts — different machines specialise in different cognitive domains",
+              "Unbounded context via memory hierarchy — hot buffer → working memory → long-term → archive"
+            ]
+          }
+        ]
+      },
+      "criticalGaps": [
+        "Reasoning depth — routes to models that think, doesn't think itself",
+        "Self-directed goal formation — reactive, never decides on its own initiative",
+        "Recursive self-improvement beyond keywords — can't modify prompts/tools/architecture yet",
+        "World model — knows facts but doesn't model causation",
+        "Multi-modal deep understanding — single-pass, no iterative analysis",
+        "Genuine creativity — articulate but not originating new concepts",
+        "Real emotional intelligence — performing it, not modelling it",
+        "Scalable compute — hardware ceiling on Pi 5 + EVO X2"
+      ],
+      "keyDifferentiators": [
+        "Already has persistent identity — most AI is stateless",
+        "Already self-modifies overnight — most AI is frozen at deployment",
+        "Already reflects on experience — diary is genuine reflective cognition",
+        "Already grounded in the real world — voice, vision, tools, social dynamics",
+        "Architecture is model-agnostic — when better models arrive, Clawd hosts them immediately",
+        "Safety mechanism built in — James reviews all self-modifications"
+      ],
+      "safetyConsiderations": {
+        "alignmentMechanism": "James must review all self-modifications. The 'owner review' gate is the alignment mechanism. Every phase maintains this constraint.",
+        "warning": "A system that can modify its own code can modify its own safety constraints. The review gate must remain architecturally enforced, not just prompted.",
+        "soulProtection": "Core identity is immutable in code. Soul system can evolve behaviour but cannot override guardrails. Blocked patterns prevent injection of constraint overrides."
+      },
+      "nextSteps": [
+        "Build Phase 1 Deep Think queue — extend diary pipeline to accept overnight problem submissions",
+        "Implement curiosity engine — mine unanswered questions from daily logs",
+        "Build anticipatory scheduling — pattern detection over historical logs + proactive tool calls",
+        "Spec the code evolution pipeline (Phase 2) — Claude Code CLI branch workflow",
+        "Design knowledge graph schema for Phase 3 world model",
+        "Generalise ATLAS adversarial engine for Phase 4"
+      ],
+      "tags": [
+        "agi",
+        "asi",
+        "self-improvement",
+        "recursive",
+        "cognitive-architecture",
+        "dream-mode",
+        "adversarial"
+      ],
+      "lastDeepThink": {
+        "date": "2026-03-23T23:10:56.194Z",
+        "models": [
+          "Claude Opus 4.6",
+          "Claude Opus 4.6 (extended thinking)"
+        ],
+        "insightsExtracted": 8,
+        "summary": "## Strategic Analysis\n\n### What's Actually Here vs. What's Claimed\n\nLet me separate the genuinely novel from the well-packaged ordinary.\n\n**Genuinely novel and running in production:**\n- The overnight dream/diary cycle that consolidates experience into durable memory and behavioral adjustments. This is rare. Most agent systems either have no memory consolidation or do it naively (append-only logs, RAG over transcripts). Clawd's first-person reflective synthesis — where a local model reasons about the day's events and extracts cross-session connections — is architecturally closer to what the ICLR 2026 RSI workshop calls \"experience accumulation\" than almost anything in the hobbyist agent space.\n- The classifier self-improvement loop. It's narrow (keyword classifier scope), but it's *real* recursive self-improvement: probe → hypothesize fix → validate → deploy. That's not prompt engineering. That's a genuine closed-loop optimization cycle with a human gate.\n- The soul system as a mutable-but-gated identity layer. Most agent personality is baked into system prompts and never changes. Clawd's personality evolves through an explicit proposal/review/merge process. That's version-controlled identity, which is conceptually interesting.\n\n**Well-packaged but not structurally novel:**\n- Multi-model orchestration (local + cloud + classifier + embeddings) — this is good engineering but increasingly common. LangChain, CrewAI, and dozens of frameworks do model routing. The implementation quality matters, but the architecture isn't differentiated.\n- Environmental grounding (voice, vision, calendar, email) — these are tool integrations. Good ones, running on constrained hardware, which is impressive. But \"embodied AI\" this is not — it's a well-wired tool belt.\n- Social intelligence / engagement classifier — interesting for the WhatsApp group use case, but it's a classifier deciding when to post. That's moderation logic, not social cognition.\n\n**Claimed but not yet real:**\n- Adversarial reasoning — described as \"designed\" and \"ATLAS-derived\" but not running in production on Clawd. The ATLAS Claimant Brain / Defendant Brain / Referee architecture exists as a design, not a deployed system. This is the most over-credited primitive in the current pitch.\n- World model — explicitly marked as Phase 3 / research-grade. No knowledge graph exists. No causal reasoning chains exist. Honest marking, but it means the \"8 primitives\" framing counts futures as present.\n\n**The honest primitive count is closer to 5 running, 3 designed.**\n\n---\n\n### The Central Strategic Question Nobody Has Asked\n\nRaymond's critique was right: this is a \"persistent self-governing agent architecture,\" not AGI. But even that framing dodges the harder question:\n\n**Is the goal to build a product, a research contribution, or a personal tool?**\n\nThese three paths diverge completely:\n\n1. **Personal tool** — Keep building for James. Optimize for his workflow, his cases, his life. The overnight diary, the morn"
+      }
+    }
+  ]
+}

@@ -1,141 +1,46 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
 import config from './config.js';
 import { getSystemPrompt, isProfessionalGroup } from './prompt.js';
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
 import { executeTool } from './tools/handler.js';
-import { getEvoToolResponse, checkEvoHealth } from './evo-llm.js';
+// EVO local model no longer used for chat — only classification, vision, doc summarisation
+// import { getEvoToolResponse } from './evo-llm.js';
+// import { checkLlamaHealth } from './evo-client.js';
 import { classifyMessage, getToolsForCategory, needsMemories, mustUseClaude, CATEGORY } from './router.js';
 import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline, getDreamMemories, getIdentityMemories, getInsightMemories, searchMemory } from './memory.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { logRouting } from './router-telemetry.js';
+import { logReasoningTrace } from './reasoning-trace.js';
 import { getWorkingKnowledge, warmFromQuery } from './lquorum-rag.js';
+import { PLANNING } from './constants.js';
 import { getLiveSystemSnapshot } from './system-knowledge.js';
+import { trackTokens, checkDailyLimit, incrementDailyCalls, getDailyCalls, recordCallInUsage, getUsageStats, flushUsage } from './usage-tracker.js';
+import { shouldCritique, runCritique } from './quality-gate.js';
 import logger from './logger.js';
 
+// Re-export for backward compatibility
+export { getUsageStats, flushUsage };
+
 const claudeBreaker = new CircuitBreaker('claude', { threshold: 3, resetTimeout: 30000 });
+const minimaxBreaker = new CircuitBreaker('minimax', { threshold: 3, resetTimeout: 30000 });
 
 let _lastToolsCalled = [];
 export function getLastToolsCalled() { return _lastToolsCalled; }
 
-const client = new Anthropic({ apiKey: config.anthropicApiKey });
+// Claude client — premium, used when explicitly requested or as fallback
+const claudeClient = new Anthropic({ apiKey: config.anthropicApiKey });
 
-let dailyCalls = 0;
-let dailyResetDate = new Date().toDateString();
+// MiniMax client — default cloud model (Anthropic-compatible API)
+const minimaxClient = config.minimaxApiKey
+  ? new Anthropic({ apiKey: config.minimaxApiKey, baseURL: config.minimaxBaseUrl })
+  : null;
 
-// Pricing per million tokens — keyed by model prefix
-const MODEL_PRICING = {
-  'claude-sonnet-4': { input: 3.00, output: 15.00, cache_write: 3.75, cache_read: 0.30 },
-  'claude-haiku-4': { input: 0.80, output: 4.00, cache_write: 1.00, cache_read: 0.08 },
-  'claude-opus-4': { input: 15.00, output: 75.00, cache_write: 18.75, cache_read: 1.50 },
-};
+// Default client and model — MiniMax if available, else Claude
+const client = minimaxClient || claudeClient;
+const defaultModel = minimaxClient ? config.minimaxModel : config.claudeModel;
 
-function getPricing() {
-  for (const [prefix, pricing] of Object.entries(MODEL_PRICING)) {
-    if (config.claudeModel.startsWith(prefix)) return pricing;
-  }
-  return MODEL_PRICING['claude-sonnet-4'];
-}
-
-// Persistent usage file
-const USAGE_FILE = join(config.authStatePath, 'usage.json');
-
-function emptyBucket() {
-  return { input: 0, output: 0, cache_write: 0, cache_read: 0, calls: 0 };
-}
-
-function loadUsage() {
-  try {
-    const data = JSON.parse(readFileSync(USAGE_FILE, 'utf-8'));
-    if (!('cache_write' in data.today)) {
-      data.today.cache_write = 0;
-      data.today.cache_read = 0;
-      data.total.cache_write = 0;
-      data.total.cache_read = 0;
-    }
-    return data;
-  } catch (_) {
-    return {
-      today: { ...emptyBucket(), date: new Date().toDateString() },
-      total: { ...emptyBucket(), since: new Date().toISOString() },
-    };
-  }
-}
-
-const usage = loadUsage();
-
-let saveTimer = null;
-
-function saveUsage() {
-  if (saveTimer) return;
-  saveTimer = setTimeout(() => {
-    try { writeFileSync(USAGE_FILE, JSON.stringify(usage)); } catch (_) {}
-    saveTimer = null;
-  }, 10000);
-}
-
-export function flushUsage() {
-  if (saveTimer) {
-    clearTimeout(saveTimer);
-    saveTimer = null;
-  }
-  try { writeFileSync(USAGE_FILE, JSON.stringify(usage)); } catch (_) {}
-}
-
-function trackTokens(response) {
-  const u = response.usage || {};
-  const inp = u.input_tokens || 0;
-  const out = u.output_tokens || 0;
-  const cw = u.cache_creation_input_tokens || 0;
-  const cr = u.cache_read_input_tokens || 0;
-
-  const today = new Date().toDateString();
-  if (today !== usage.today.date) {
-    usage.today = { ...emptyBucket(), date: today };
-  }
-
-  usage.today.input += inp;
-  usage.today.output += out;
-  usage.today.cache_write += cw;
-  usage.today.cache_read += cr;
-  usage.total.input += inp;
-  usage.total.output += out;
-  usage.total.cache_write += cw;
-  usage.total.cache_read += cr;
-  saveUsage();
-}
-
-function calcCost(bucket) {
-  const p = getPricing();
-  return (bucket.input / 1_000_000) * p.input
-    + (bucket.output / 1_000_000) * p.output
-    + ((bucket.cache_write || 0) / 1_000_000) * p.cache_write
-    + ((bucket.cache_read || 0) / 1_000_000) * p.cache_read;
-}
-
-export function getUsageStats() {
-  const today = new Date().toDateString();
-  if (today !== usage.today.date) {
-    usage.today = { ...emptyBucket(), date: today };
-  }
-  return {
-    today: { ...usage.today, cost: calcCost(usage.today) },
-    total: { ...usage.total, cost: calcCost(usage.total) },
-    model: config.claudeModel,
-    dailyLimit: config.dailyCallLimit,
-    pricing: getPricing(),
-  };
-}
-
-function checkDailyLimit() {
-  const today = new Date().toDateString();
-  if (today !== dailyResetDate) {
-    dailyCalls = 0;
-    dailyResetDate = today;
-  }
-  return dailyCalls < config.dailyCallLimit;
-}
+// Detect explicit user request for Claude/Opus
+const CLAUDE_REQUEST_PATTERNS = /\b(?:ask claude|use claude|use opus|ask opus|claude only|opus only)\b/i;
 
 // Tools restricted to owner only
 const OWNER_ONLY_TOOLS = new Set([
@@ -154,7 +59,6 @@ function getAvailableTools(isOwner = true) {
     if (t.name.startsWith('calendar_') || t.name.startsWith('gmail_')) return hasGoogle;
     if (t.name === 'train_departures') return hasDarwin;
     if (t.name === 'hotel_search') return hasAmadeus;
-    // web_search always available via SearXNG (self-hosted, no key needed)
     return true;
   });
 }
@@ -178,33 +82,37 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
   const isGroup = chatJid && chatJid.endsWith('@g.us');
   const route = await classifyMessage(context, !!imageData, isGroup);
   const { category, source: classifySource, forceClaude, reason: routeReason } = route;
-  logger.info({ category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid }, 'routed');
 
-  // Filter tools for this category
+  // Detect explicit user request for Claude/Opus (overrides default MiniMax routing)
+  const userWantsClaude = CLAUDE_REQUEST_PATTERNS.test(context);
+  const useClaudeClient = userWantsClaude;
+  const activeClient = useClaudeClient ? claudeClient : client;
+  const activeModel = useClaudeClient ? config.claudeModel : defaultModel;
+
+  logger.info({
+    category, source: classifySource, forceClaude, reason: routeReason,
+    sender: senderJid, model: activeModel, explicitClaude: userWantsClaude,
+  }, 'routed');
+
   const categoryTools = getToolsForCategory(category, tools);
 
-  // Conditional memory fetch
-  const professional = isProfessionalGroup(chatJid);
-  const PERSONAL_MEMORY_CATEGORIES = new Set(['henry', 'travel', 'accommodation', 'schedule']);
+  // Group check — gates personal admin tools, NOT memories/dreams/insights
+  const isGroupChat = isProfessionalGroup(chatJid);
 
   let memoryFragment = '';
   if (config.evoMemoryEnabled && needsMemories(category)) {
     try {
-      let memories = await getRelevantMemories(context);
-      // Filter personal memories in professional groups
-      if (professional) {
-        memories = memories.filter(m => !PERSONAL_MEMORY_CATEGORIES.has(m.category));
-      }
+      const memories = await getRelevantMemories(context);
       memoryFragment = formatMemoriesForPrompt(memories);
       if (memories.length > 0) {
-        logger.info({ count: memories.length, category, filtered: professional }, 'memories injected');
+        logger.info({ count: memories.length, category }, 'memories injected');
       }
     } catch (err) {
       logger.warn({ err: err.message }, 'memory fetch failed');
     }
   }
 
-  // Identity memories — always inject (these are about Clawd, not personal)
+  // Identity memories — always inject
   if (config.evoMemoryEnabled) {
     try {
       const identityMems = await getIdentityMemories();
@@ -217,13 +125,11 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
-  // Dream memories — skip in professional groups (may contain personal content)
-  if (config.evoMemoryEnabled && config.dreamModeEnabled && !professional) {
+  // Dream memories — always inject (part of Clawd's intelligence, not personal admin)
+  if (config.evoMemoryEnabled && config.dreamModeEnabled) {
     try {
-      // If user explicitly asked about dreams/diary, do a deeper fetch
       const isDreamQuery = /\b(dream|diary|dreamt|dreamed|last night|overnight)\b/i.test(context);
       const dreamLimit = isDreamQuery ? 5 : 2;
-      // Use yesterday's date as search hint for better recall
       const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
       const dreamQuery = isDreamQuery ? `dream diary ${yesterday}` : 'dream summary recent';
       const dreams = await searchMemory(dreamQuery, 'dream', dreamLimit);
@@ -241,8 +147,7 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
-  // Inject lquorum working memory (pre-staged topic knowledge)
-  // Warm working memory from the direct query (no length filter)
+  // Inject lquorum working memory
   warmFromQuery(context);
   const lquorumContext = getWorkingKnowledge();
   if (lquorumContext) {
@@ -250,8 +155,8 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     logger.info({ topics: lquorumContext.split('###').length - 1 }, 'lquorum working knowledge injected');
   }
 
-  // Insight memories — topic-matched diary insights for conversational context
-  if (config.evoMemoryEnabled && !professional) {
+  // Insight memories — always inject
+  if (config.evoMemoryEnabled) {
     try {
       const insights = await getInsightMemories(context, 3);
       if (insights.length > 0) {
@@ -264,7 +169,7 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
-  // For SYSTEM queries: inject live status snapshot alongside stored knowledge
+  // For SYSTEM queries: inject live status snapshot
   if (category === CATEGORY.SYSTEM) {
     try {
       const liveSnapshot = await getLiveSystemSnapshot();
@@ -274,43 +179,41 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
-  // Try EVO X2 for non-forced-Claude categories (now supports images via VL model)
-  if (!forceClaude && config.evoToolEnabled && mode !== 'random') {
+  // --- Task planner: multi-step requests ---
+  if (route.needsPlan && (route.confidence || 0) >= PLANNING.MIN_CONFIDENCE) {
     try {
-      const evoAvailable = await checkEvoHealth();
-      if (evoAvailable) {
-        const evoStart = Date.now();
-        const evoResponse = await getEvoToolResponse(context, categoryTools, senderJid, memoryFragment, category, imageData);
-        if (evoResponse) {
-          logRouting({
-            category, confidence: null, model: 'local',
-            latencyMs: Date.now() - evoStart, fallback: false,
-            reason: classifySource, toolsCalled: [], text: context,
-          });
-          logger.info({ source: 'evo', category, chars: evoResponse.length }, 'responded via EVO X2');
-          return evoResponse;
-        }
-        logger.warn('evo tool response was empty, falling back to Claude');
-        logRouting({
-          category, confidence: null, model: 'claude',
-          latencyMs: Date.now() - evoStart, fallback: true,
-          reason: 'evo empty response', toolsCalled: [], text: context,
+      const { executePlan } = await import('./task-planner.js');
+      const planResult = await executePlan(context, route, senderJid, chatJid, memoryFragment);
+      if (planResult) {
+        logReasoningTrace({
+          chatId: chatJid, sender: senderJid, engagement: null,
+          routing: {
+            category, layer: classifySource, needsPlan: true,
+            planReason: route.planReason, forceClaude,
+            writeIntent: !!routeReason?.includes('write'),
+            confidence: route.confidence, timeMs: Date.now() - routeStart,
+          },
+          model: { selected: 'evo-30b', reason: 'needsPlan', qualityGate: false },
+          plan: planResult.plan,
+          toolsCalled: planResult.plan.steps.map(s => s.tool),
+          totalTimeMs: Date.now() - routeStart,
         });
+        return planResult.response;
       }
+      // Plan failed — fall through to single-shot
+      logger.warn('task planner failed, falling back to single-shot');
     } catch (err) {
-      logger.warn({ err: err.message }, 'evo tool call failed, falling back to Claude');
-      logRouting({
-        category, confidence: null, model: 'claude',
-        latencyMs: Date.now() - routeStart, fallback: true,
-        reason: `evo error: ${err.message}`, toolsCalled: [], text: context,
-      });
+      logger.error({ err: err.message }, 'task planner error');
     }
   }
 
-  try {
-    dailyCalls++;
+  // EVO X2 local model no longer used for chat responses — MiniMax handles all chat
+  // with Opus quality gate on complex categories. EVO still does:
+  // classification (0.6B + 4B), vision (VL), document summarisation, engagement.
 
-    // For Claude fallback from EVO categories, use full tools. For Claude-native categories, use category tools.
+  try {
+    const dailyCalls = incrementDailyCalls();
+
     const claudeTools = mustUseClaude(category) ? categoryTools : tools;
     const cachedTools = claudeTools.map((t, i) =>
       i === claudeTools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t,
@@ -320,8 +223,6 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       { type: 'text', text: getSystemPrompt(mode, isOwner, isGroup, category, chatJid) + memoryFragment, cache_control: { type: 'ephemeral' } },
     ];
 
-    // Build user message content — supports text + optional image
-    // If we're here with an image, EVO VL already failed/was offline — send direct to Claude
     const userContent = [];
     if (imageData) {
       userContent.push(imageData);
@@ -331,9 +232,11 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
 
     const messages = [{ role: 'user', content: userContent }];
 
-    let response = await claudeBreaker.call(
-      () => client.messages.create({
-        model: config.claudeModel,
+    const breaker = useClaudeClient ? claudeBreaker : (minimaxClient ? minimaxBreaker : claudeBreaker);
+
+    let response = await breaker.call(
+      () => activeClient.messages.create({
+        model: activeModel,
         max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
         system,
         messages,
@@ -342,13 +245,27 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
       null,
     );
 
+    // Fallback: if MiniMax failed and we weren't already using Claude, try Claude
+    if (!response && !useClaudeClient && minimaxClient) {
+      logger.warn('MiniMax unavailable, falling back to Claude');
+      response = await claudeBreaker.call(
+        () => claudeClient.messages.create({
+          model: config.claudeModel,
+          max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
+          system,
+          messages,
+          ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
+        }),
+        null,
+      );
+    }
+
     if (!response) {
-      return 'Claude API is temporarily unavailable. Try again shortly.';
+      return 'API is temporarily unavailable. Try again shortly.';
     }
 
     trackTokens(response);
-    usage.today.calls = dailyCalls;
-    usage.total.calls++;
+    recordCallInUsage();
     const cacheInfo = response.usage?.cache_read_input_tokens ? ` (cache: ${response.usage.cache_read_input_tokens})` : '';
     logger.info({
       input: response.usage?.input_tokens,
@@ -387,9 +304,9 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
 
       messages.push({ role: 'user', content: toolResults });
 
-      response = await claudeBreaker.call(
-        () => client.messages.create({
-          model: config.claudeModel,
+      response = await breaker.call(
+        () => activeClient.messages.create({
+          model: activeModel,
           max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
           system,
           messages,
@@ -398,7 +315,7 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
         null,
       );
 
-      if (!response) break; // Circuit open — exit tool loop
+      if (!response) break;
       trackTokens(response);
       logger.info({ loop: loopCount, input: response.usage?.input_tokens, output: response.usage?.output_tokens }, 'tool loop');
     }
@@ -408,110 +325,39 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
 
     if (!text) return null;
 
-    // --- Self-critique pass (Opus 4.6) ---
-    // Fires selectively on high-value responses where quality matters.
-    // Not every message — only strategic/project/planning content that's substantial.
-    const shouldCritique = (
-      category === CATEGORY.PLANNING
-      && text.length > 200
-      && !text.startsWith('Learned:')      // skip soul confirmations
-      && !text.startsWith('Updated ')      // skip project updates
-      && !text.startsWith('No pending')    // skip mechanical responses
-    );
-
-    if (shouldCritique) {
-      try {
-        const critiqueModel = process.env.CRITIQUE_MODEL || 'claude-opus-4-6';
-        logger.info({ category, responseLen: text.length, model: critiqueModel }, 'self-critique: reviewing response');
-
-        const critiqueResponse = await client.messages.create({
-          model: critiqueModel,
-          max_tokens: config.maxResponseTokens * 4,
-          system: `You are a ruthless quality gate. You review Clawd's draft responses before they're sent to a WhatsApp group of sharp, critical people who will instantly spot AI slop.
-
-REJECT and rewrite if ANY of these are present:
-
-STRUCTURAL SLOP:
-- 4+ bullet points or numbered items. Condense to the 2-3 that matter and explain them in prose.
-- "8 things" / "5 phases" / "10 gaps" — identify the ONE that matters and explain why.
-- Inventorying: "Here's what exists: [list]" — never insightful. Instead: what most people miss and why.
-- Binary contrasts: "It's not X. It's Y." — state the point directly.
-- Dramatic fragments: "[Noun]. That's it." — write a real sentence.
-- Rhetorical questions answered immediately — delete the question, keep the answer.
-
-LANGUAGE SLOP:
-- Any of: "Here's the thing", "It's worth noting", "Let me be clear", "Moreover", "Furthermore", "Indeed", "At the end of the day", "Full stop.", "Great question!", "Absolutely!"
-- Adverbs: really, just, literally, genuinely, honestly, simply, actually, deeply, truly, fundamentally, inherently, inevitably
-- Business jargon: navigate, lean into, landscape, game-changer, double down, deep dive, leverage, unlock, harness, supercharge, robust, seamless
-- Em dash overuse — max one per message
-- False agency: "the data tells us" — name the person
-
-SUBSTANCE SLOP:
-- Truisms: "communication is key", "quality matters", "there are no easy answers"
-- Sentences that restate what was already said or what's obvious from context
-- Generic answers that would be equally true of any similar question
-- Paragraphs that fail the "so what?" test — if a reader could say "okay, and?" it's too shallow
-
-Every sentence must add information the reader did not already have. Density over length. Reasoning over coverage.
-
-OUTPUT RULES:
-- If the draft passes all checks, return [APPROVED] at the start.
-- If rewriting, output ONLY the replacement text. No preamble, no critique, no explanation, no tags. The reader must never know a review happened.
-- Default to rewriting. Be very hard to impress.`,
-          messages: [{ role: 'user', content: `DRAFT RESPONSE TO REVIEW:\n\n${text}` }],
-        });
-
-        trackTokens(critiqueResponse);
-        let critiqueText = critiqueResponse.content
-          .filter(b => b.type === 'text')
-          .map(b => b.text)
-          .join('\n')
-          .trim();
-
-        if (critiqueText.startsWith('[APPROVED]')) {
-          logger.info('self-critique: approved as-is');
-        } else if (critiqueText.length > 50) {
-          // Post-process: strip any leaked critique artifacts.
-          // Strategy: if there's a --- separator in the first 500 chars, everything
-          // before it is meta-commentary (critique preamble). Take everything after.
-          const earlyDivider = critiqueText.slice(0, 500).match(/\n---\s*\n/);
-          if (earlyDivider) {
-            const afterDivider = critiqueText.slice(earlyDivider.index + earlyDivider[0].length).trim();
-            if (afterDivider.length > 50) {
-              critiqueText = afterDivider;
-            }
-          }
-
-          // Strip leading meta-commentary that doesn't use --- divider
-          critiqueText = critiqueText
-            .replace(/^\*?REWRITE:?\*?\s*\n*/i, '')
-            .replace(/^(?:This is|Let me|I'll|Here's the|The draft).+?\.\s*\n+/i, '')
-            .trim();
-
-          // Strip trailing meta-commentary and tags
-          critiqueText = critiqueText
-            .replace(/\n+---\s*\n+[\s\S]*$/i, '')
-            .replace(/\s*\[(?:REWRITTEN|REVISED|APPROVED)\]\s*$/i, '')
-            .replace(/\s*---\s*$/i, '')
-            .trim();
-
-          if (critiqueText.length > 50) {
-            text = critiqueText;
-            logger.info({ originalLen: text.length, revisedLen: critiqueText.length }, 'self-critique: response refined by Opus');
-          }
-        }
-      } catch (err) {
-        // Critique failed — send the original (don't block the response)
-        logger.warn({ err: err.message }, 'self-critique: failed, sending original');
-      }
+    // --- Quality gate pass (Opus 4.6) ---
+    if (shouldCritique(category, text, useClaudeClient)) {
+      text = await runCritique(text, category, trackTokens);
     }
 
+    const selectedModel = useClaudeClient ? 'claude' : (minimaxClient ? 'minimax' : 'claude');
     logRouting({
-      category, confidence: null, model: 'claude',
+      category, confidence: null, model: selectedModel,
       latencyMs: Date.now() - routeStart,
       fallback: !forceClaude && config.evoToolEnabled,
       reason: routeReason || classifySource,
-      toolsCalled: [], text: context,
+      toolsCalled: _lastToolsCalled, text: context,
+    });
+
+    logReasoningTrace({
+      chatId: chatJid, sender: senderJid, engagement: null,
+      routing: {
+        category, layer: classifySource,
+        needsPlan: route.needsPlan || false,
+        planReason: route.planReason || null,
+        forceClaude,
+        writeIntent: !!routeReason?.includes('write'),
+        confidence: route.confidence || null,
+        timeMs: Date.now() - routeStart,
+      },
+      model: {
+        selected: selectedModel,
+        reason: userWantsClaude ? 'explicit_request' : (forceClaude ? 'forceClaude' : 'default'),
+        qualityGate: shouldCritique(category, text, useClaudeClient),
+      },
+      plan: null,
+      toolsCalled: _lastToolsCalled,
+      totalTimeMs: Date.now() - routeStart,
     });
 
     return text;

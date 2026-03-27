@@ -98,9 +98,7 @@ export async function webFetch({ url }) {
 
 export async function webSearch({ query, count }) {
   // SearXNG on EVO (self-hosted, no API key, no limits)
-  const searxngUrl = config.evoLlmUrl
-    ? config.evoLlmUrl.replace(/:\d+$/, ':8888')
-    : 'http://10.0.0.2:8888';
+  const searxngUrl = config.evoSearxngUrl;
 
   // Default to 5, clamp between 1 and 10
   const raw = count == null ? 5 : Number(count);

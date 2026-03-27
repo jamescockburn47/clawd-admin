@@ -1,0 +1,14 @@
+[Unit]
+Description=Overnight coder — multi-round iterative coding with EVO local model
+After=network.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/clawdbot
+ExecStart=/usr/bin/python3 /home/pi/clawdbot/evo-overnight/overnight-coder.py
+TimeoutStartSec=28800
+Environment=HOME=/home/pi
+
+[Install]
+WantedBy=multi-user.target

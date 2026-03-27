@@ -7,13 +7,17 @@ import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, rea
 import { join } from 'path';
 import config from './config.js';
 import logger from './logger.js';
+import { evoFetchJSON, evoFetch as evoFetchRaw } from './evo-client.js';
+import { TIMEOUTS } from './constants.js';
+
+// Re-export logConversation for backward compatibility
+export { logConversation } from './conversation-logger.js';
 
 const CACHE_FILE = join('data', 'memory-cache.json');
 const QUEUE_DIR = join('data', 'memory-queue');
 const QUEUE_TEXT_DIR = join(QUEUE_DIR, 'text');
 const QUEUE_AUDIO_DIR = join(QUEUE_DIR, 'audio');
 const QUEUE_IMAGE_DIR = join(QUEUE_DIR, 'images');
-const CONV_LOG_DIR = join('data', 'conversation-logs');
 
 // State
 let evoOnline = false;
@@ -22,7 +26,7 @@ let memoryCache = [];
 let cacheTimestamp = 0;
 
 // Ensure directories exist
-for (const dir of [QUEUE_TEXT_DIR, QUEUE_AUDIO_DIR, QUEUE_IMAGE_DIR, CONV_LOG_DIR]) {
+for (const dir of [QUEUE_TEXT_DIR, QUEUE_AUDIO_DIR, QUEUE_IMAGE_DIR]) {
   mkdirSync(dir, { recursive: true });
 }
 
@@ -39,24 +43,10 @@ try {
 }
 
 
-async function evoFetch(path, options = {}) {
+// Convenience wrapper: fetch from the memory service base URL, return parsed JSON
+async function memoryFetch(path, options = {}) {
   const url = `${config.evoMemoryUrl}${path}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeout || 10000);
-
-  try {
-    const resp = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', ...options.headers },
-    });
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-    }
-    return await resp.json();
-  } finally {
-    clearTimeout(timeout);
-  }
+  return evoFetchJSON(url, options);
 }
 
 
@@ -66,7 +56,7 @@ let lastHealthData = null;
 
 export async function checkEvoHealth() {
   try {
-    const data = await evoFetch('/health', { timeout: 5000 });
+    const data = await memoryFetch('/health', { timeout: TIMEOUTS.MEMORY_HEALTH_CHECK });
     if (data.status === 'online') {
       const wasOffline = !evoOnline;
       evoOnline = true;
@@ -114,10 +104,10 @@ export function getEvoStatus() {
 export async function searchMemory(query, category = null, limit = 8) {
   if (evoOnline) {
     try {
-      const data = await evoFetch('/memory/search', {
+      const data = await memoryFetch('/memory/search', {
         method: 'POST',
         body: JSON.stringify({ query, category, limit }),
-        timeout: 15000,
+        timeout: TIMEOUTS.MEMORY_SEARCH,
       });
       return data.results || [];
     } catch (err) {
@@ -161,10 +151,10 @@ function keywordSearch(query, category, limit) {
 export async function storeMemory(fact, category, tags, confidence = 0.9, source = 'api') {
   if (evoOnline) {
     try {
-      const data = await evoFetch('/memory/store', {
+      const data = await memoryFetch('/memory/store', {
         method: 'POST',
         body: JSON.stringify({ fact, category, tags, confidence, source }),
-        timeout: 30000,
+        timeout: TIMEOUTS.MEMORY_STORE,
       });
       return data;
     } catch (err) {
@@ -183,10 +173,10 @@ export async function storeMemory(fact, category, tags, confidence = 0.9, source
 export async function storeNote(text, source = 'manual_note') {
   if (evoOnline) {
     try {
-      const data = await evoFetch('/note', {
+      const data = await memoryFetch('/note', {
         method: 'POST',
         body: JSON.stringify({ text, source }),
-        timeout: 60000,
+        timeout: TIMEOUTS.MEMORY_NOTE,
       });
       return data;
     } catch (err) {
@@ -204,10 +194,10 @@ export async function storeNote(text, source = 'manual_note') {
 export async function extractFromConversation(conversation, source = 'conversation') {
   if (evoOnline) {
     try {
-      const data = await evoFetch('/extract', {
+      const data = await memoryFetch('/extract', {
         method: 'POST',
         body: JSON.stringify({ conversation, store_results: true, source }),
-        timeout: 120000,
+        timeout: TIMEOUTS.MEMORY_EXTRACT,
       });
       return data;
     } catch (err) {
@@ -232,28 +222,18 @@ export async function analyseImage(imageBuffer, prompt, extract = true, storeRes
       formData.append('store_results', String(storeResults));
 
       const url = `${config.evoMemoryUrl}/analyse-image`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000);
-
-      try {
-        const resp = await fetch(url, {
-          method: 'POST',
-          body: formData,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return await resp.json();
-      } catch (err) {
-        clearTimeout(timeout);
-        throw err;
-      }
+      const resp = await evoFetchRaw(url, {
+        method: 'POST',
+        body: formData,
+        headers: {},  // Let browser set multipart boundary
+        timeout: TIMEOUTS.MEMORY_IMAGE,
+      });
+      return await resp.json();
     } catch (err) {
       logger.warn({ err: err.message }, 'EVO X2 image analysis failed');
     }
   }
 
-  // No fallback queuing for images — return null to trigger Claude vision fallback
   return null;
 }
 
@@ -270,22 +250,13 @@ export async function transcribeAudio(audioBuffer, language = 'en', extract = tr
       formData.append('store_results', String(storeResults));
 
       const url = `${config.evoMemoryUrl}/transcribe`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120000);
-
-      try {
-        const resp = await fetch(url, {
-          method: 'POST',
-          body: formData,
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        return await resp.json();
-      } catch (err) {
-        clearTimeout(timeout);
-        throw err;
-      }
+      const resp = await evoFetchRaw(url, {
+        method: 'POST',
+        body: formData,
+        headers: {},  // Let browser set multipart boundary
+        timeout: TIMEOUTS.MEMORY_AUDIO,
+      });
+      return await resp.json();
     } catch (err) {
       logger.warn({ err: err.message }, 'EVO X2 transcription failed');
     }
@@ -301,10 +272,10 @@ export async function updateMemory(memoryId, updates) {
   if (!evoOnline) return { updated: false, offline: true };
 
   try {
-    const data = await evoFetch(`/memory/${memoryId}`, {
+    const data = await memoryFetch(`/memory/${memoryId}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
-      timeout: 30000,
+      timeout: TIMEOUTS.MEMORY_STORE,
     });
     return data;
   } catch (err) {
@@ -317,9 +288,9 @@ export async function deleteMemory(memoryId) {
   if (!evoOnline) return { deleted: false, offline: true };
 
   try {
-    const data = await evoFetch(`/memory/${memoryId}`, {
+    const data = await memoryFetch(`/memory/${memoryId}`, {
       method: 'DELETE',
-      timeout: 10000,
+      timeout: TIMEOUTS.MEMORY_DEFAULT,
     });
     return data;
   } catch (err) {
@@ -334,7 +305,7 @@ export async function deleteMemory(memoryId) {
 export async function getMemoryStats() {
   if (evoOnline) {
     try {
-      return await evoFetch('/memory/stats', { timeout: 5000 });
+      return await memoryFetch('/memory/stats', { timeout: TIMEOUTS.MEMORY_HEALTH_CHECK });
     } catch (err) {
       logger.warn({ err: err.message }, 'failed to get memory stats');
     }
@@ -353,7 +324,7 @@ export async function getMemoryStats() {
 export async function listMemories() {
   if (evoOnline) {
     try {
-      const data = await evoFetch('/memory/list', { timeout: 10000 });
+      const data = await memoryFetch('/memory/list', { timeout: TIMEOUTS.MEMORY_DEFAULT });
       return data.memories || [];
     } catch (err) {
       logger.warn({ err: err.message }, 'failed to list memories');
@@ -368,7 +339,6 @@ export async function listMemories() {
 export async function getRelevantMemories(messageText) {
   if (!messageText || messageText.length < 5) return [];
 
-  // Quick keyword check — skip embedding for trivial messages
   const tokens = messageText.toLowerCase().split(/\W+/).filter(t => t.length > 2);
   if (tokens.length === 0) return [];
 
@@ -380,7 +350,6 @@ export async function getRelevantMemories(messageText) {
     try {
       const docResults = await searchMemory(messageText, 'document_chunk', 4);
       const docSummaries = await searchMemory(messageText, 'document', 2);
-      // Merge, deduplicate by id
       const existingIds = new Set(results.map(r => (r.memory || r).id));
       for (const r of [...docResults, ...docSummaries]) {
         const id = (r.memory || r).id;
@@ -394,13 +363,11 @@ export async function getRelevantMemories(messageText) {
     }
   }
 
-  // Filter weak matches (embedding + keyword hybrid scores; threshold tuned for recall)
   return results
     .filter((r) => (r.score ?? 0) >= 0.12)
     .map((r) => r.memory);
 }
 
-// Fetch recent dream summaries for a group
 export async function getDreamMemories(groupJid, limit = 3) {
   if (!evoOnline) return [];
   try {
@@ -412,8 +379,6 @@ export async function getDreamMemories(groupJid, limit = 3) {
   }
 }
 
-// Fetch identity memories — always injected, not gated by category.
-// These are core facts about who Clawd is, who James is, voice/style profiles.
 export async function getIdentityMemories() {
   if (!evoOnline) return [];
   try {
@@ -425,7 +390,6 @@ export async function getIdentityMemories() {
   }
 }
 
-// Fetch overnight insights for morning briefing — yesterday's diary insight extractions
 export async function getOvernightInsights(dateStr) {
   if (!evoOnline) return [];
   try {
@@ -440,7 +404,6 @@ export async function getOvernightInsights(dateStr) {
   }
 }
 
-// Fetch topic-matching insights for live conversation context (same pattern as working memory)
 export async function getInsightMemories(query, limit = 3) {
   if (!evoOnline) return [];
   try {
@@ -472,44 +435,30 @@ export function formatMemoriesForPrompt(memories) {
 const DOC_LOG_DIR = join(process.cwd(), 'data', 'document-logs');
 const DOC_CACHE_DIR = join(process.cwd(), 'data', 'document-cache');
 
-// Ensure dirs exist
 for (const dir of [DOC_LOG_DIR, DOC_CACHE_DIR]) {
   if (!existsSync(dir)) { mkdirSync(dir, { recursive: true }); }
 }
 
-/**
- * Store a parsed document in the memory service for long-term retrieval.
- * Creates: summary entry, chunked raw text entries, and an index entry.
- * Also writes a document log entry for dream mode and caches raw text.
- */
 export async function storeDocument({ fileName, rawText, summary, sender, chatJid }) {
   const date = new Date().toISOString().split('T')[0];
   const baseTags = [fileName.replace(/\s+/g, '_'), date, sender || 'unknown'];
 
-  // 1. Store summary as quick-recall entry
   try {
     await storeMemory(
       `Document "${fileName}" (${rawText.length} chars, from ${sender || 'unknown'}): ${summary}`,
-      'document',
-      [...baseTags, 'summary'],
-      0.9,
-      'document_intake',
+      'document', [...baseTags, 'summary'], 0.9, 'document_intake',
     );
   } catch (err) {
     logger.warn({ err: err.message, fileName }, 'failed to store document summary');
   }
 
-  // 2. Chunk raw text and store each chunk
   const chunks = chunkText(rawText, 2000);
   let storedChunks = 0;
   for (let i = 0; i < chunks.length; i++) {
     try {
       await storeMemory(
         `[${fileName} chunk ${i + 1}/${chunks.length}] ${chunks[i]}`,
-        'document_chunk',
-        [...baseTags, `chunk_${i}`],
-        0.85,
-        'document_intake',
+        'document_chunk', [...baseTags, `chunk_${i}`], 0.85, 'document_intake',
       );
       storedChunks++;
     } catch (err) {
@@ -517,20 +466,15 @@ export async function storeDocument({ fileName, rawText, summary, sender, chatJi
     }
   }
 
-  // 3. Store index entry (registry of all docs Clawd has read)
   try {
     await storeMemory(
       `Document index: "${fileName}", ${rawText.length} chars, ${chunks.length} chunks, from ${sender || 'unknown'} on ${date}. Summary: ${summary.slice(0, 200)}`,
-      'document_index',
-      [...baseTags, 'index'],
-      1.0,
-      'document_intake',
+      'document_index', [...baseTags, 'index'], 1.0, 'document_intake',
     );
   } catch (err) {
     logger.warn({ err: err.message, fileName }, 'failed to store document index');
   }
 
-  // 4. Write document log for dream mode
   try {
     const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
     const rawPath = join(DOC_CACHE_DIR, `${date}_${safeName}`);
@@ -539,12 +483,8 @@ export async function storeDocument({ fileName, rawText, summary, sender, chatJi
     const logFile = join(DOC_LOG_DIR, `${date}.jsonl`);
     const logEntry = JSON.stringify({
       timestamp: new Date().toISOString(),
-      fileName,
-      sender: sender || 'unknown',
-      chatJid: chatJid || 'unknown',
-      charCount: rawText.length,
-      summary: summary.slice(0, 1000),
-      rawTextPath: rawPath,
+      fileName, sender: sender || 'unknown', chatJid: chatJid || 'unknown',
+      charCount: rawText.length, summary: summary.slice(0, 1000), rawTextPath: rawPath,
     });
     appendFileSync(logFile, logEntry + '\n');
   } catch (err) {
@@ -570,7 +510,6 @@ function chunkText(text, maxChars = 2000) {
   }
   if (current.trim()) chunks.push(current.trim());
 
-  // Handle case where a single paragraph exceeds maxChars
   const result = [];
   for (const chunk of chunks) {
     if (chunk.length <= maxChars) {
@@ -584,9 +523,6 @@ function chunkText(text, maxChars = 2000) {
   return result;
 }
 
-/**
- * Clean up old document cache files (older than 7 days).
- */
 export function cleanDocumentCache(maxAgeDays = 7) {
   try {
     const now = Date.now();
@@ -636,26 +572,18 @@ async function drainQueue() {
       const data = JSON.parse(readFileSync(filepath, 'utf-8'));
 
       if (data.type === 'store') {
-        await evoFetch('/memory/store', {
-          method: 'POST',
-          body: JSON.stringify(data),
-          timeout: 30000,
+        await memoryFetch('/memory/store', {
+          method: 'POST', body: JSON.stringify(data), timeout: TIMEOUTS.MEMORY_STORE,
         });
       } else if (data.type === 'note') {
-        await evoFetch('/note', {
-          method: 'POST',
-          body: JSON.stringify({ text: data.text, source: data.source }),
-          timeout: 60000,
+        await memoryFetch('/note', {
+          method: 'POST', body: JSON.stringify({ text: data.text, source: data.source }), timeout: TIMEOUTS.MEMORY_NOTE,
         });
       } else if (data.type === 'extract') {
-        await evoFetch('/extract', {
+        await memoryFetch('/extract', {
           method: 'POST',
-          body: JSON.stringify({
-            conversation: data.conversation,
-            store_results: true,
-            source: data.source,
-          }),
-          timeout: 120000,
+          body: JSON.stringify({ conversation: data.conversation, store_results: true, source: data.source }),
+          timeout: TIMEOUTS.MEMORY_EXTRACT,
         });
       }
 
@@ -663,7 +591,7 @@ async function drainQueue() {
       processed++;
     } catch (err) {
       logger.error({ err: err.message, file }, 'failed to process queued item');
-      break; // Stop on error to avoid skipping items
+      break;
     }
   }
 
@@ -677,7 +605,7 @@ async function drainQueue() {
 
 export async function syncCache() {
   try {
-    const data = await evoFetch('/memory/list', { timeout: 15000 });
+    const data = await memoryFetch('/memory/list', { timeout: TIMEOUTS.MEMORY_SEARCH });
     memoryCache = data.memories || [];
     cacheTimestamp = Date.now();
     writeFileSync(CACHE_FILE, JSON.stringify({
@@ -691,35 +619,12 @@ export async function syncCache() {
 }
 
 
-// --- Conversation logging ---
-
-export function logConversation(chatJid, messages) {
-  const date = new Date().toISOString().split('T')[0];
-  const filename = `${date}_${chatJid.replace(/[^a-zA-Z0-9]/g, '_')}.jsonl`;
-  const filepath = join(CONV_LOG_DIR, filename);
-
-  const lines = messages.map(m => JSON.stringify({
-    timestamp: new Date().toISOString(),
-    sender: m.senderName,
-    text: m.text,
-    isBot: m.isBot,
-  }));
-
-  try {
-    const existing = existsSync(filepath) ? readFileSync(filepath, 'utf-8') : '';
-    writeFileSync(filepath, existing + lines.join('\n') + '\n');
-  } catch (err) {
-    logger.error({ err: err.message }, 'conversation log write failed');
-  }
-}
-
-
 // --- Trigger maintenance ---
 
 export async function triggerMaintenance() {
   if (!evoOnline) return { error: 'EVO X2 offline' };
   try {
-    return await evoFetch('/maintain', { method: 'POST', timeout: 30000 });
+    return await memoryFetch('/maintain', { method: 'POST', timeout: TIMEOUTS.MEMORY_STORE });
   } catch (err) {
     return { error: err.message };
   }

@@ -2,6 +2,10 @@
 
 Embeddings: dedicated nomic-embed-text server on port 8083 (always on)
 Extraction: main Qwen3-30B server on port 8080 (daytime only)
+
+Note: Renamed from ollama_client.py. The Ollama name was legacy — this
+module has talked to llama.cpp servers via OpenAI-compatible API since
+the migration.
 """
 
 import json
@@ -13,7 +17,7 @@ import config
 
 logger = logging.getLogger("llm-client")
 
-EMBED_URL = config.LLM_EMBED_URL if hasattr(config, 'LLM_EMBED_URL') else "http://localhost:8083"
+EMBED_URL = config.LLM_EMBED_URL
 
 
 async def embed(texts: list[str]) -> list[list[float]]:
@@ -83,15 +87,16 @@ async def analyse_image(image_bytes: bytes, prompt: str = "Describe this image."
     return ""
 
 
-async def check_ollama() -> dict:
-    """Check llama.cpp server health (function name kept for API compat)."""
+async def check_health() -> dict:
+    """Check llama.cpp server health."""
     status = {}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             # Check embedding server (always on)
             resp = await client.get(f"{EMBED_URL}/health")
             status["embedding"] = "online" if resp.status_code == 200 else "offline"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Embedding health check failed: {e}")
         status["embedding"] = "offline"
 
     try:
@@ -99,7 +104,8 @@ async def check_ollama() -> dict:
             # Check main LLM (daytime only)
             resp = await client.get(f"{config.LLM_URL}/health")
             status["llm"] = "online" if resp.status_code == 200 else "offline"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"LLM health check failed: {e}")
         status["llm"] = "offline"
 
     overall = "online" if status.get("embedding") == "online" else "degraded"

@@ -1,0 +1,6 @@
+[Unit]
+Description=Swap to overnight coder model
+
+[Service]
+Type=oneshot
+ExecStart=/home/james/llama-swap-coder.sh

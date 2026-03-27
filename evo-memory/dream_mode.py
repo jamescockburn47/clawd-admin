@@ -18,13 +18,21 @@ import requests
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# Config
-EVO_LLM_URL = os.environ.get('EVO_LLM_URL', 'http://localhost:8080')
-MEMORY_SERVICE_URL = os.environ.get('EVO_MEMORY_URL', 'http://localhost:5100')
-PI_URL = os.environ.get('PI_URL', 'http://10.0.0.1:3000')
-DASHBOARD_TOKEN = os.environ.get('DASHBOARD_TOKEN', '')
-PI_LOG_DIR = os.environ.get('PI_LOG_DIR', '/tmp/conversation-logs')
-MAX_CONTEXT_TOKENS = 4000
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+EVO_LLM_URL = os.environ.get('EVO_LLM_URL', 'http://localhost:8080')       # Main LLM (port 8080, Coder at night)
+MEMORY_SERVICE_URL = os.environ.get('EVO_MEMORY_URL', 'http://localhost:5100')  # Memory service (FastAPI, always on)
+PI_URL = os.environ.get('PI_URL', 'http://10.0.0.1:3000')                  # Pi clawdbot (direct ethernet)
+DASHBOARD_TOKEN = os.environ.get('DASHBOARD_TOKEN', '')                     # Auth token for Pi dashboard API
+PI_LOG_DIR = os.environ.get('PI_LOG_DIR', '/tmp/conversation-logs')         # Where conversation logs are synced
+MAX_CONTEXT_TOKENS = 4000                                                    # Max tokens for log content in prompt
+LLM_TIMEOUT = 180                                                           # Seconds to wait for LLM diary generation
+MEMORY_STORE_TIMEOUT = 30                                                    # Seconds for memory store operations
+MEMORY_SEARCH_TIMEOUT = 15                                                   # Seconds for memory search/dedup checks
+PRIOR_DREAM_DAYS = 3                                                         # How many prior days to chain
+MAX_LOG_CHARS = 8000                                                         # Max chars of conversation log in prompt
+STALE_MEMORY_AGE_DAYS = 30                                                   # Prune machine-extracted memories older than this
+STALE_MEMORY_MIN_ACCESS = 5                                                  # Don't prune if accessed this many times
 
 DREAM_PROMPT = """You are Clawd. You are writing tonight's diary — first person, always. Not "Clawd did X" but "I did X."
 
@@ -87,7 +95,7 @@ Today's conversation log:
 {LOG_CONTENT}"""
 
 
-def fetch_prior_dreams(group_id, date_str, days_back=3):
+def fetch_prior_dreams(group_id, date_str, days_back=PRIOR_DREAM_DAYS):
     """Fetch recent diary/dream entries for this group to chain into tonight's diary."""
     target_date = datetime.strptime(date_str, '%Y-%m-%d')
     prior_dreams = []
@@ -118,7 +126,8 @@ def fetch_prior_dreams(group_id, date_str, days_back=3):
                         break  # Found one for this date, skip other category
                 if any(d['date'] == prior_date for d in prior_dreams):
                     break  # Already found for this date
-            except Exception:
+            except Exception as e:
+                print(f'  Warning: failed to fetch prior dream for {prior_date}/{cat}: {e}', file=sys.stderr)
                 continue
 
     return prior_dreams
@@ -151,7 +160,7 @@ def load_log_file(filepath):
     return entries
 
 
-def format_log_for_prompt(entries, max_chars=8000):
+def format_log_for_prompt(entries, max_chars=MAX_LOG_CHARS):
     """Format log entries into readable text for the prompt."""
     lines = []
     for e in entries:
@@ -206,8 +215,8 @@ def format_document_log(doc_entries):
                 with open(raw_path, 'r', encoding='utf-8') as f:
                     raw = f.read()[:8000]
                 lines.append(f'Content (first 8K chars):\n{raw}')
-            except Exception:
-                pass
+            except Exception as e:
+                print(f'  Warning: failed to read raw text {raw_path}: {e}', file=sys.stderr)
     return '\n'.join(lines) + '\n'
 
 
@@ -230,7 +239,7 @@ def generate_dream_summary(log_content, prior_dreams_text='', document_log_text=
                 'temperature': 0.3,
                 'max_tokens': 1200,
             },
-            timeout=180,
+            timeout=LLM_TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -288,7 +297,7 @@ def store_diary(summary, group_id, date_str, warnings=None):
                 'confidence': 0.85 if not warnings else 0.6,
                 'source': 'dream_mode',
             },
-            timeout=30,
+            timeout=MEMORY_STORE_TIMEOUT,
         )
         resp.raise_for_status()
         print(f'  Stored diary entry for {group_id} ({date_str})')
@@ -385,7 +394,8 @@ def store_facts(facts, group_id, date_str):
             )
             resp.raise_for_status()
             stored += 1
-        except Exception:
+        except Exception as e:
+            print(f'    Warning: failed to store fact: {e}', file=sys.stderr)
             continue
 
     parts = [f'{stored} stored']
@@ -429,7 +439,8 @@ def store_insights(insights, group_id, date_str):
             )
             resp.raise_for_status()
             stored += 1
-        except Exception:
+        except Exception as e:
+            print(f'    Warning: failed to store insight: {e}', file=sys.stderr)
             continue
 
     parts = [f'{stored} stored']
@@ -556,8 +567,9 @@ def check_before_store(fact_text, tags, category='general'):
 
         return ('store', None)
 
-    except Exception:
+    except Exception as e:
         # On any error, store anyway — better to have a duplicate than lose data
+        print(f'    Warning: dedup check failed, storing anyway: {e}', file=sys.stderr)
         return ('store', None)
 
 
@@ -633,7 +645,8 @@ def store_verbatim(verbatim_entries, group_id, date_str):
             )
             resp.raise_for_status()
             stored += 1
-        except Exception:
+        except Exception as e:
+            print(f'    Warning: failed to store verbatim excerpt: {e}', file=sys.stderr)
             continue
 
     if stored:
@@ -641,7 +654,7 @@ def store_verbatim(verbatim_entries, group_id, date_str):
     return stored
 
 
-def prune_stale_memories(date_str, max_age_days=30):
+def prune_stale_memories(date_str, max_age_days=STALE_MEMORY_AGE_DAYS):
     """Phase 5: Prune stale memories — run /maintain plus date-based staleness check."""
     target_date = datetime.strptime(date_str, '%Y-%m-%d')
     pruned = 0
@@ -689,7 +702,7 @@ def prune_stale_memories(date_str, max_age_days=30):
                         age_days = (target_date - tag_date).days
                         if age_days > max_age_days:
                             # Check access frequency — don't prune frequently accessed memories
-                            if mem.get('accessCount', 0) >= 5:
+                            if mem.get('accessCount', 0) >= STALE_MEMORY_MIN_ACCESS:
                                 continue
                             # Delete
                             mem_id = mem.get('id')
@@ -700,8 +713,8 @@ def prune_stale_memories(date_str, max_age_days=30):
                                         timeout=10,
                                     )
                                     pruned += 1
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    print(f'    Warning: failed to prune memory {mem_id}: {e}', file=sys.stderr)
                     except ValueError:
                         continue
                     break  # Only check first date tag
@@ -866,8 +879,8 @@ def main():
             },
             timeout=10,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f'Warning: failed to store completion marker: {e}', file=sys.stderr)
 
     print(f'\nDiary mode complete. Processed {len(log_files)} group(s), {len(doc_entries)} document(s) for {date_str}.')
 

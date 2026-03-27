@@ -17,13 +17,85 @@ import Anthropic from '@anthropic-ai/sdk';
 import config from './config.js';
 import logger from './logger.js';
 import { getEvoStatus, getMemoryStats, isEvoOnline, searchMemory } from './memory.js';
+import { getLatestAnalysis } from './tasks/trace-analyser.js';
+import { getLatestRetrospective } from './tasks/weekly-retrospective.js';
+
+const EVO_SSH_HOST = config.evoSshHost;
+const EVO_SSH_USER = config.evoSshUser;
+import { getSendDocument } from './tools/handler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DATA_DIR = join(__dirname, '..', 'data');
 const CONV_LOG_DIR = join(DATA_DIR, 'conversation-logs');
 
-const anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
+const anthropic = config.minimaxEnabled && config.minimaxApiKey
+  ? new Anthropic({ apiKey: config.minimaxApiKey, baseURL: config.minimaxBaseUrl })
+  : new Anthropic({ apiKey: config.anthropicApiKey });
+
+// --- PDF generation (markdown → HTML → Chromium headless → PDF) ---
+
+async function generatePDF(markdown, dateStr) {
+  const { writeFile: writeFileAsync } = await import('fs/promises');
+  const { execSync } = await import('child_process');
+
+  // Convert markdown to basic HTML
+  const htmlContent = markdownToHTML(markdown, dateStr);
+  const htmlPath = `/tmp/clawd-report-${dateStr}.html`;
+  const pdfPath = `/tmp/clawd-report-${dateStr}.pdf`;
+
+  await writeFileAsync(htmlPath, htmlContent, 'utf-8');
+
+  try {
+    execSync(
+      `chromium-browser --headless --disable-gpu --no-sandbox --print-to-pdf="${pdfPath}" "${htmlPath}" 2>/dev/null`,
+      { timeout: 30000, stdio: 'pipe' }
+    );
+    const pdfBuffer = await readFile(pdfPath);
+    logger.info({ dateStr, size: pdfBuffer.length }, 'overnight-report: PDF generated');
+    return pdfBuffer;
+  } catch (err) {
+    logger.warn({ err: err.message }, 'overnight-report: Chromium PDF generation failed');
+    return null;
+  }
+}
+
+function markdownToHTML(md, dateStr) {
+  // Simple markdown → HTML conversion (no external deps)
+  let html = md
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>')
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\n{2,}/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+
+  // Wrap consecutive <li> in <ul>
+  html = html.replace(/(<li>.*?<\/li>(?:<br>)?)+/gs, (match) => {
+    return '<ul>' + match.replace(/<br>/g, '') + '</ul>';
+  });
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Clawd Report ${dateStr}</title>
+<style>
+  body { font-family: -apple-system, system-ui, 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; font-size: 14px; line-height: 1.6; }
+  h1 { font-size: 22px; border-bottom: 2px solid #333; padding-bottom: 8px; margin-top: 0; }
+  h2 { font-size: 17px; color: #333; margin-top: 28px; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  h3 { font-size: 14px; color: #555; margin-top: 18px; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 4px; }
+  blockquote { border-left: 3px solid #ccc; margin: 10px 0; padding: 4px 12px; color: #666; }
+  code { background: #f4f4f4; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+  hr { border: none; border-top: 1px solid #ddd; margin: 20px 0; }
+  p { margin: 8px 0; }
+</style></head><body><p>${html}</p></body></html>`;
+}
 
 // --- Data collection ---
 
@@ -36,7 +108,7 @@ async function fetchDreamReportJSON(dateStr) {
   // 1. Try rsync from EVO direct ethernet
   try {
     execSync(
-      `rsync -az --timeout=10 james@10.0.0.2:${remotePath} ${localPath} 2>/dev/null`,
+      `rsync -az --timeout=10 ${EVO_SSH_USER}@${EVO_SSH_HOST}:${remotePath} ${localPath} 2>/dev/null`,
       { stdio: 'pipe' }
     );
     const data = JSON.parse(await readFile(localPath, 'utf-8'));
@@ -49,7 +121,7 @@ async function fetchDreamReportJSON(dateStr) {
   // 2. Try scp fallback (rsync may not be installed or PATH issue)
   try {
     execSync(
-      `scp -o ConnectTimeout=10 james@10.0.0.2:${remotePath} ${localPath} 2>/dev/null`,
+      `scp -o ConnectTimeout=10 ${EVO_SSH_USER}@${EVO_SSH_HOST}:${remotePath} ${localPath} 2>/dev/null`,
       { stdio: 'pipe' }
     );
     const data = JSON.parse(await readFile(localPath, 'utf-8'));
@@ -247,7 +319,7 @@ IMPORTANT: Include ALL data. Do not summarise or omit facts/insights. The diary 
 
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: config.minimaxEnabled ? config.minimaxModel : config.claudeModel,
       max_tokens: 8000,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -422,6 +494,210 @@ async function sendWhatsAppFullReport(sendFn, dreamReport, projectThink, selfImp
 
 // --- Main entry point ---
 
+// --- Generate structured markdown report ---
+
+function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis = null, retrospective = null) {
+  const lines = [];
+  const dayName = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  lines.push(`# Clawd Overnight Report`);
+  lines.push(`**${dayName}**\n`);
+
+  // Summary line
+  if (logStats.length > 0) {
+    const totalMsgs = logStats.reduce((sum, s) => sum + s.messageCount, 0);
+    lines.push(`${logStats.length} chats logged, ${totalMsgs} messages total.`);
+  }
+  if (dreamReport) {
+    lines.push(`${dreamReport.groups_processed} groups dreamed | ${dreamReport.totals?.facts || 0} facts | ${dreamReport.totals?.insights || 0} insights | ${dreamReport.totals?.observations || 0} observations`);
+    if (dreamReport.source === 'memory_service') lines.push('*(from memory service fallback)*');
+  } else {
+    lines.push('Dream data: unavailable.');
+  }
+  lines.push('');
+
+  // System health
+  lines.push(`## System`);
+  lines.push(`- EVO: ${systemHealth.evo}`);
+  lines.push(`- Memories: ${systemHealth.memories}`);
+  lines.push(`- Queue depth: ${systemHealth.queueDepth}`);
+  lines.push('');
+
+  // Conversation log stats
+  if (logStats.length > 0) {
+    lines.push(`## Conversation Logs`);
+    for (const s of logStats) {
+      lines.push(`- \`${s.groupId.slice(0, 15)}...\` — ${s.messageCount} messages`);
+    }
+    lines.push('');
+  }
+
+  // Diary entries
+  if (dreamReport?.groups?.length > 0) {
+    lines.push(`## Diary Entries`);
+    for (const g of dreamReport.groups) {
+      const label = g.group_id.includes('_lid') ? 'DM' : `Group ${g.group_id.slice(0, 15)}...`;
+      lines.push(`### ${label}`);
+      if (g.message_count > 0) lines.push(`*${g.message_count} messages*\n`);
+      lines.push(g.diary || '*(no diary generated)*');
+      if (g.warnings?.length > 0) {
+        lines.push(`\n> Validation: ${g.warnings.join(', ')}`);
+      }
+      lines.push('');
+    }
+  }
+
+  // Facts
+  if (dreamReport?.groups?.length > 0) {
+    const allFacts = dreamReport.groups.flatMap(g =>
+      (g.facts || []).map(f => typeof f === 'string' ? f : f.fact)
+    );
+    if (allFacts.length > 0) {
+      lines.push(`## Facts Extracted (${allFacts.length})`);
+      allFacts.forEach((f, i) => lines.push(`${i + 1}. ${f}`));
+      lines.push('');
+    }
+  }
+
+  // Insights
+  if (dreamReport?.groups?.length > 0) {
+    const allInsights = dreamReport.groups.flatMap(g =>
+      (g.insights || []).map(i => typeof i === 'string' ? i : (i.insight || i.fact))
+    );
+    if (allInsights.length > 0) {
+      lines.push(`## Insights (${allInsights.length})`);
+      allInsights.forEach((ins, i) => lines.push(`${i + 1}. ${ins}`));
+      lines.push('');
+    }
+  }
+
+  // Verbatim excerpts
+  if (dreamReport?.groups?.length > 0) {
+    const allVerbatim = dreamReport.groups.flatMap(g =>
+      (g.verbatim || []).map(v => `**${v.speaker}**: "${v.quote}"${v.context ? ` — *${v.context}*` : ''}`)
+    );
+    if (allVerbatim.length > 0) {
+      lines.push(`## Verbatim Excerpts`);
+      allVerbatim.forEach(v => lines.push(`- ${v}`));
+      lines.push('');
+    }
+  }
+
+  // Soul observations
+  if (dreamReport?.groups?.length > 0) {
+    const allObs = dreamReport.groups.flatMap(g =>
+      (g.observations || []).map(o => `[${o.severity}] ${o.text}`)
+    );
+    if (allObs.length > 0) {
+      lines.push(`## Soul Observations (${allObs.length})`);
+      allObs.forEach(o => lines.push(`- ${o}`));
+      lines.push('');
+    }
+  }
+
+  // Project deep think
+  if (projectThink.length > 0) {
+    lines.push(`## Project Deep Think`);
+    for (const p of projectThink) {
+      lines.push(`### ${p.name}`);
+      if (p.date) lines.push(`*${p.date}*\n`);
+      if (p.models?.length) lines.push(`Models: ${p.models.join(', ')}\n`);
+      if (p.insights?.length) {
+        lines.push('Insights:');
+        p.insights.forEach(ins => lines.push(`- ${ins}`));
+      }
+      if (p.summary) lines.push(`\n${p.summary}`);
+      lines.push('');
+    }
+  }
+
+  // Self-improvement
+  if (selfImprove) {
+    lines.push(`## Self-Improvement`);
+    if (typeof selfImprove === 'object') {
+      for (const [k, v] of Object.entries(selfImprove)) {
+        lines.push(`- **${k}**: ${JSON.stringify(v)}`);
+      }
+    } else {
+      lines.push(String(selfImprove));
+    }
+    lines.push('');
+  }
+
+  // Trace analysis (Phase 2)
+  if (traceAnalysis) {
+    lines.push(`## Reasoning Trace Analysis`);
+    lines.push(`${traceAnalysis.totalTraces} traces analysed (${traceAnalysis.periodDays}d)\n`);
+
+    // Routing
+    const rp = traceAnalysis.routing?.percentages || {};
+    lines.push(`**Routing:** keywords ${rp.keywords || 0}%, 4B ${rp['4b_classifier'] || 0}%, fallback ${rp.fallback || 0}%`);
+
+    // Categories
+    const cats = Object.entries(traceAnalysis.categories || {}).slice(0, 5);
+    if (cats.length > 0) {
+      lines.push(`**Top categories:** ${cats.map(([k, v]) => `${k} (${v})`).join(', ')}`);
+    }
+
+    // Plans
+    if (traceAnalysis.plans?.totalPlans > 0) {
+      const p = traceAnalysis.plans;
+      lines.push(`**Plans:** ${p.totalPlans} executed, avg ${p.avgSteps} steps, avg ${p.avgTimeMs}ms`);
+      lines.push(`  Statuses: ${Object.entries(p.statuses).map(([k, v]) => `${k}: ${v}`).join(', ')}`);
+    }
+
+    // needsPlan accuracy
+    const np = traceAnalysis.needsPlan;
+    if (np && (np.predictedTrue + np.predictedFalse > 0)) {
+      lines.push(`**needsPlan accuracy:** precision ${np.precision}%, recall ${np.recall}%, F1 ${np.f1}%`);
+    }
+
+    // Timing
+    const t = traceAnalysis.timing;
+    if (t?.routingAvgMs) {
+      lines.push(`**Timing:** routing avg ${t.routingAvgMs}ms p95 ${t.routingP95Ms}ms | total avg ${t.totalAvgMs}ms p95 ${t.totalP95Ms}ms`);
+    }
+
+    // Anomalies
+    if (traceAnalysis.anomalies?.length > 0) {
+      lines.push('\n**Anomalies:**');
+      for (const a of traceAnalysis.anomalies) {
+        lines.push(`- [${a.severity}] ${a.detail}`);
+        if (a.suggestion) lines.push(`  *${a.suggestion}*`);
+      }
+    }
+    lines.push('');
+  }
+
+  // Weekly retrospective (if available and recent)
+  if (retrospective) {
+    lines.push(`## Weekly Retrospective`);
+    lines.push(`Health: **${retrospective.overallHealth}** — ${retrospective.healthReason}\n`);
+
+    if (retrospective.priorities?.length > 0) {
+      lines.push('**Improvement priorities:**');
+      for (const p of retrospective.priorities) {
+        lines.push(`${p.rank}. [${p.severity}] **${p.title}**`);
+        lines.push(`   ${p.issue}`);
+        lines.push(`   Fix: ${p.fix}`);
+      }
+    }
+
+    if (retrospective.evolutionTasksCreated?.length > 0) {
+      lines.push(`\n**Evolution tasks queued:** ${retrospective.evolutionTasksCreated.length}`);
+      for (const t of retrospective.evolutionTasksCreated) {
+        lines.push(`- ${t.title} (${t.taskId})`);
+      }
+    }
+    lines.push('');
+  }
+
+  lines.push('---');
+  lines.push(`*Generated ${new Date().toISOString()}*`);
+
+  return lines.join('\n');
+}
+
 export async function sendOvernightReport(sendFn, dateOverride = null) {
   let dateStr;
   if (dateOverride) {
@@ -473,12 +749,44 @@ export async function sendOvernightReport(sendFn, dateOverride = null) {
     memories: memoryStats.total || 'unknown',
   };
 
-  // 7. Always send full raw report via WhatsApp
-  if (sendFn) {
+  // 7. Load trace analysis and retrospective (Phase 2)
+  const traceAnalysis = getLatestAnalysis();
+  const retrospective = getLatestRetrospective();
+
+  // 8. Generate report and send as document attachments
+  const markdown = generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis, retrospective);
+  const docSender = getSendDocument();
+
+  if (docSender) {
+    const totalFacts = dreamReport?.totals?.facts || 0;
+    const totalInsights = dreamReport?.totals?.insights || 0;
+    const caption = `Overnight report for ${dateStr} — ${dreamReport?.groups_processed || 0} groups, ${totalFacts} facts, ${totalInsights} insights`;
+
+    try {
+      // Send as .txt (universally readable on phones)
+      const txtBuffer = Buffer.from(markdown, 'utf-8');
+      await docSender(txtBuffer, `clawd-report-${dateStr}.txt`, 'text/plain', caption);
+      logger.info({ dateStr, size: txtBuffer.length }, 'overnight-report: txt document sent');
+    } catch (err) {
+      logger.warn({ err: err.message }, 'overnight-report: txt send failed');
+    }
+
+    try {
+      // Send as PDF (via markdown-to-HTML-to-PDF on Pi)
+      const pdfBuffer = await generatePDF(markdown, dateStr);
+      if (pdfBuffer) {
+        await docSender(pdfBuffer, `clawd-report-${dateStr}.pdf`, 'application/pdf', caption);
+        logger.info({ dateStr, size: pdfBuffer.length }, 'overnight-report: pdf document sent');
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'overnight-report: pdf generation/send failed');
+    }
+  } else if (sendFn) {
+    // No document sender available — use chunked text
     await sendWhatsAppFullReport(sendFn, dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr);
   }
 
-  // 8. Try email (HTML via Claude synthesis)
+  // 9. Try email (HTML via Claude synthesis)
   let emailSent = false;
   if (config.googleClientId && config.googleRefreshToken) {
     const htmlBody = await synthesizeReport(dreamReport, projectThink, selfImprove, systemHealth, dateStr);

@@ -6,6 +6,7 @@ import config from './config.js';
 import logger from './logger.js';
 import { fetchAllWeather, fetchDailyForecast, extractLocation } from './weather.js';
 import { CircuitBreaker } from './circuit-breaker.js';
+import { broadcastSSE } from './sse.js';
 
 const googleBreaker = new CircuitBreaker('google', { threshold: 3, resetTimeout: 120000 });
 
@@ -37,24 +38,8 @@ let widgetCache = null;
 let cacheTimestamp = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// --- SSE subscribers ---
-const sseClients = new Set();
-
-export function addSSEClient(res) {
-  sseClients.add(res);
-  res.on('close', () => sseClients.delete(res));
-}
-
-export function getSSEClientCount() {
-  return sseClients.size;
-}
-
-export function broadcastSSE(event, data) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const client of sseClients) {
-    try { client.write(payload); } catch (_) { sseClients.delete(client); }
-  }
-}
+// SSE is now in sse.js — re-export for backward compatibility
+export { addSSEClient, getSSEClientCount, broadcastSSE } from './sse.js';
 
 // --- Henry Weekend parsing ---
 

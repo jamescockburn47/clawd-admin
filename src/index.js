@@ -1,35 +1,28 @@
-import { makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, downloadMediaMessage } from '@whiskeysockets/baileys';
+// src/index.js — Application entry point
+// Initialises WhatsApp socket, wires up message handler, starts HTTP server and scheduler.
+// No business logic — delegates to message-handler, http-server, and other modules.
+
+import { makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
-import { createServer } from 'http';
-import { execSync, exec } from 'child_process';
+import { execSync } from 'child_process';
 import { writeFileSync, readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
-const mammoth = require('mammoth');
+
 import config from './config.js';
 import logger from './logger.js';
-import { shouldRespond } from './trigger.js';
-import { pushMessage, buildContext, getRecentMessages, loadBuffers, saveBuffers, flushBufferTimer } from './buffer.js';
-import { getClawdResponse, getUsageStats, flushUsage, getLastToolsCalled } from './claude.js';
-import { summariseDocument, parseDocumentWithDocling, checkEvoHealth as checkEvoLlmHealth } from './evo-llm.js';
-import { getWidgetData, startWidgetRefresh, stopWidgetRefresh, addSSEClient, broadcastSSE, forceRefresh } from './widgets.js';
-import { getSoulData, resetSoul } from './tools/soul.js';
-import { setSendOwnerDM, setSendWhatsApp } from './tools/handler.js';
-import { getAllTodos, getActiveTodos, flushTodos } from './tools/todo.js';
-import { todoComplete, todoAdd } from './tools/todo.js';
-import { initScheduler, getSystemHealth } from './scheduler.js';
-import { getAuditLog, flushAudit } from './audit.js';
-import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, updateMemory, deleteMemory, logConversation, checkEvoHealth, getLastHealthData, storeDocument } from './memory.js';
+import { loadBuffers, saveBuffers, pushMessage, flushBufferTimer } from './buffer.js';
+import { flushUsage } from './claude.js';
+import { stopWidgetRefresh } from './widgets.js';
+import { setSendOwnerDM, setSendWhatsApp, setSendDocument } from './tools/handler.js';
+import { flushTodos } from './tools/todo.js';
+import { flushAudit } from './audit.js';
 import { seedSystemKnowledge } from './system-knowledge.js';
-import { logInteraction, handleReaction, isCorrection, logFeedback, getQualitySummary, getRecentFeedback } from './interaction-log.js';
-import { isMuteTrigger, activateMute, isMuted, clearMute, shouldEngage, detectNegativeSignal } from './engagement.js';
-import { scanMessage, getWorkingMemoryState } from './lquorum-rag.js';
-import { getAwaitingApproval, updateTask } from './evolution.js';
-import { deployApprovedTask, rejectTask } from './evolution-executor.js';
+import { initScheduler } from './scheduler.js';
+import { handleIncomingMessage, handleReaction, simulateTyping } from './message-handler.js';
+import { startHttpServer } from './http-server.js';
+import { cacheSentMessage, getCachedMessage, msgRetryCounterCache } from './message-cache.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +30,10 @@ const baileysLogger = pino({ level: 'warn' });
 
 // Track last activity for health status
 let lastActivityTimestamp = Date.now();
+
+// Shared socket reference for the HTTP API and proactive messages
+let activeSock = null;
+
 
 function printBanner() {
   const banner = `
@@ -50,481 +47,23 @@ function printBanner() {
   logger.info(banner);
 }
 
-function extractText(message) {
-  const msg = message.message;
-  if (!msg) return '';
-  return msg.conversation
-    || msg.extendedTextMessage?.text
-    || msg.imageMessage?.caption
-    || msg.videoMessage?.caption
-    || msg.documentMessage?.caption
-    || msg.documentWithCaptionMessage?.message?.documentMessage?.caption
-    || '';
-}
-
-function hasImageMsg(message) {
-  return !!message.message?.imageMessage;
-}
-
-function getDocumentInfo(message) {
-  const doc = message.message?.documentMessage
-    || message.message?.documentWithCaptionMessage?.message?.documentMessage;
-  if (!doc) return null;
-  return {
-    mimetype: doc.mimetype || 'application/octet-stream',
-    fileName: doc.fileName || 'unknown',
-  };
-}
-
-// Text-based mimetypes we can read and inject into context
-const TEXT_MIMETYPES = new Set([
-  'text/plain', 'text/markdown', 'text/csv', 'text/html',
-  'application/json', 'text/x-python', 'text/javascript',
-  'application/xml', 'text/xml',
-]);
-
-function isTextDocument(mimetype) {
-  if (TEXT_MIMETYPES.has(mimetype)) return true;
-  if (mimetype.startsWith('text/')) return true;
-  return false;
-}
-
-function isReplyToBot(message, botJid) {
-  const quoted = message.message?.extendedTextMessage?.contextInfo;
-  return quoted?.participant === botJid;
-}
-
-const MAX_MESSAGE_LENGTH = 3000;
-
-// Store last image/document per chat for follow-up questions (5 min TTL)
-const lastImageByChat = new Map();
-const lastDocByChat = new Map();
-
-function splitMessage(text) {
-  if (text.length <= MAX_MESSAGE_LENGTH) return [text];
-
-  const chunks = [];
-  let remaining = text;
-
-  while (remaining.length > MAX_MESSAGE_LENGTH) {
-    let splitIdx = remaining.lastIndexOf('\n\n', MAX_MESSAGE_LENGTH);
-    if (splitIdx < MAX_MESSAGE_LENGTH * 0.3) {
-      splitIdx = remaining.lastIndexOf('\n', MAX_MESSAGE_LENGTH);
-    }
-    if (splitIdx < MAX_MESSAGE_LENGTH * 0.3) {
-      splitIdx = remaining.lastIndexOf(' ', MAX_MESSAGE_LENGTH);
-    }
-    if (splitIdx < MAX_MESSAGE_LENGTH * 0.3) {
-      splitIdx = MAX_MESSAGE_LENGTH;
-    }
-
-    chunks.push(remaining.slice(0, splitIdx).trimEnd());
-    remaining = remaining.slice(splitIdx).trimStart();
-  }
-
-  if (remaining) chunks.push(remaining);
-  return chunks;
-}
-
-async function simulateTyping(sock, chatJid, responseLength) {
-  try {
-    await sock.presenceSubscribe(chatJid);
-    await sock.sendPresenceUpdate('composing', chatJid);
-    const delay = Math.min(500 + responseLength * 10, 4000);
-    await new Promise((r) => setTimeout(r, delay));
-    await sock.sendPresenceUpdate('paused', chatJid);
-  } catch (_) {}
-}
-
-// --- Owner JID resolution ---
-const ownerJids = new Set();
-if (config.ownerJid) ownerJids.add(config.ownerJid);
-if (config.ownerLid) ownerJids.add(config.ownerLid);
-
-function isOwnerJid(jid) {
-  if (!jid || ownerJids.size === 0) return true;
-  return ownerJids.has(jid);
-}
-
-function isOwnerChat(chatJid) {
-  return ownerJids.has(chatJid);
-}
-
-async function proposeSoulFromReaction(sock, signal, senderName, groupJid, messageText) {
-  const ownerJid = config.ownerJid;
-  if (!ownerJid) return;
-
-  const proposal = `Negative reaction in group.\n\n`
-    + `*${signal.type}* from ${senderName}: "${messageText.slice(0, 200)}"\n\n`
-    + `Reply with what I should learn from this and I'll propose a soul update. Or ignore to dismiss.`;
-
-  try {
-    await sock.sendMessage(ownerJid, { text: proposal });
-    logger.info({ signal: signal.type, sender: senderName, groupJid }, 'soul proposal DM sent');
-  } catch (err) {
-    logger.warn({ err: err.message }, 'failed to send soul proposal DM');
-  }
-}
-
-// Dedup guard — Baileys can deliver the same message multiple times via messages.upsert
-const recentMessageIds = new Set();
-const DEDUP_MAX = 200;
-
-function isDuplicate(msgId) {
-  if (!msgId) return false;
-  if (recentMessageIds.has(msgId)) return true;
-  recentMessageIds.add(msgId);
-  // Keep set bounded
-  if (recentMessageIds.size > DEDUP_MAX) {
-    const first = recentMessageIds.values().next().value;
-    recentMessageIds.delete(first);
-  }
-  return false;
-}
-
-async function handleMessage(sock, message, botJid) {
-  try {
-    const msgId = message.key.id;
-    if (isDuplicate(msgId)) {
-      logger.debug({ msgId }, 'duplicate message ignored');
-      return;
-    }
-
-    const chatJid = message.key.remoteJid;
-    const isGroup = chatJid?.endsWith('@g.us');
-    const senderJid = message.key.participant || chatJid;
-    const senderName = message.pushName || 'Unknown';
-    const text = extractText(message);
-    const msgHasImage = hasImageMsg(message);
-    const docInfo = getDocumentInfo(message);
-
-    logger.info({ sender: senderName, text: text || (msgHasImage ? '[photo]' : docInfo ? `[file: ${docInfo.fileName}]` : '[empty]') }, 'message received');
-    lastActivityTimestamp = Date.now();
-
-    if (!text && !msgHasImage && !docInfo) return;
-
-    pushMessage(chatJid, {
-      senderName,
-      text,
-      hasImage: msgHasImage,
-      isBot: false,
-    });
-
-    // Evolution approval check — owner DM replies to approval messages
-    if (!isGroup && (isOwnerChat(chatJid) || isOwnerJid(senderJid)) && text) {
-      const lower = text.toLowerCase().trim();
-      const isApproval = /^(approve|yes|deploy|merge|go ahead|do it|ship it)\b/i.test(lower);
-      const isRejection = /^(reject|no|discard|cancel|don't|nope)\b/i.test(lower);
-
-      if (isApproval || isRejection) {
-        const awaitingTasks = getAwaitingApproval();
-        if (awaitingTasks.length > 0) {
-          // Take the most recent awaiting task
-          const task = awaitingTasks[awaitingTasks.length - 1];
-
-          if (isApproval) {
-            updateTask(task.id, { status: 'approved' });
-            try {
-              await sock.sendMessage(chatJid, { text: `Deploying ${task.id}...` });
-              const result = await deployApprovedTask(task);
-              updateTask(task.id, { status: 'deployed', result: `Deployed ${result.files.length} file(s)` });
-              await sock.sendMessage(chatJid, { text: `Deployed. ${result.files.length} file(s) updated. Service healthy.` });
-            } catch (err) {
-              updateTask(task.id, { status: 'failed', result: err.message });
-              await sock.sendMessage(chatJid, { text: `Deploy failed: ${err.message}` });
-            }
-          } else {
-            await rejectTask(task);
-            updateTask(task.id, { status: 'rejected', result: `Rejected by James: ${text}` });
-            await sock.sendMessage(chatJid, { text: `Rejected and discarded (${task.id}).` });
-          }
-          return; // Don't process as a normal message
-        }
-      }
-    }
-
-    // Scan for lquorum topics — updates working memory for all group messages
-    if (isGroup && text) scanMessage(text);
-
-    if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
-      if (text) broadcastSSE('message', { sender: senderName, text, timestamp: Date.now() });
-    }
-
-    const repliedToBot = isReplyToBot(message, botJid);
-    const mentionedJids = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
-
-    const trigger = shouldRespond({
-      text,
-      hasImage: msgHasImage || !!docInfo,
-      isFromMe: message.key.fromMe,
-      isGroup,
-      senderJid,
-      botJid,
-      groupJid: chatJid,
-      mentionedJids,
-    });
-
-    if (!trigger.respond && repliedToBot && !message.key.fromMe) {
-      trigger.respond = true;
-      trigger.mode = 'direct';
-    }
-
-    // Log ALL group messages to conversation-logs BEFORE the respond gate.
-    // Dream mode needs every message, not just ones Clawd responds to.
-    if (isGroup && config.evoMemoryEnabled) {
-      try {
-        logConversation(chatJid, [
-          { senderName, text, isBot: false },
-        ]);
-      } catch {}
-    }
-
-    if (!trigger.respond) return;
-
-    // --- Engagement gate for group passive messages ---
-    if (trigger.mode === 'passive' && isGroup) {
-      // Check for mute trigger
-      if (isMuteTrigger(text)) {
-        activateMute(chatJid);
-        try {
-          await sock.sendMessage(chatJid, { text: 'Going quiet.' });
-          pushMessage(chatJid, { senderName: 'Clawd', text: 'Going quiet.', hasImage: false, isBot: true });
-        } catch {}
-        return;
-      }
-
-      // Detect negative signals → DM James
-      const negSignal = detectNegativeSignal(text);
-      if (negSignal) {
-        proposeSoulFromReaction(sock, negSignal, senderName, chatJid, text).catch(() => {});
-      }
-
-      // If muted, stay silent
-      if (isMuted(chatJid)) {
-        logger.debug({ groupJid: chatJid }, 'muted — skipping passive message');
-        return;
-      }
-
-      // Engagement classifier decides
-      if (config.engagementClassifierEnabled) {
-        const engage = await shouldEngage(chatJid, senderName, text);
-        if (!engage) {
-          logger.debug({ groupJid: chatJid, sender: senderName }, 'classifier: silent');
-          return;
-        }
-        logger.info({ groupJid: chatJid, sender: senderName }, 'classifier: respond');
-      } else {
-        // Classifier disabled — default silent for passive
-        return;
-      }
-    }
-
-    // Check mute trigger on direct messages too (e.g. "@clawd shut up")
-    if (trigger.mode === 'direct' && isGroup && isMuteTrigger(text)) {
-      activateMute(chatJid);
-      try {
-        await sock.sendMessage(chatJid, { text: 'Going quiet.' });
-        pushMessage(chatJid, { senderName: 'Clawd', text: 'Going quiet.', hasImage: false, isBot: true });
-      } catch {}
-      return;
-    }
-
-    logger.info({ mode: trigger.mode, chat: chatJid }, 'triggered');
-
-    let messageText = text;
-    if (messageText.toLowerCase().startsWith(config.triggerPrefix.toLowerCase())) {
-      messageText = messageText.slice(config.triggerPrefix.length).trim();
-    }
-
-    // Download image if present and bot should respond
-    let imageData = null;
-    if (msgHasImage) {
-      try {
-        const buffer = await downloadMediaMessage(message, 'buffer', {});
-        const mimeType = message.message.imageMessage.mimetype || 'image/jpeg';
-        imageData = {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: mimeType,
-            data: buffer.toString('base64'),
-          },
-        };
-        logger.info({ mime: mimeType, bytes: buffer.length }, 'image downloaded');
-      } catch (err) {
-        logger.warn({ err: err.message }, 'image download failed');
-      }
-    }
-
-    // Download document if present and bot should respond
-    if (docInfo && !imageData) {
-      try {
-        const buffer = await downloadMediaMessage(message, 'buffer', {});
-        let textContent = null;
-
-        if (isTextDocument(docInfo.mimetype)) {
-          textContent = buffer.toString('utf-8');
-        } else if (docInfo.mimetype === 'application/pdf') {
-          // Try Granite-Docling for structured parsing, fall back to pdf-parse
-          const doclingResult = await parseDocumentWithDocling(buffer, docInfo.fileName).catch(() => null);
-          if (doclingResult) {
-            textContent = doclingResult;
-            logger.info({ fileName: docInfo.fileName, chars: doclingResult.length }, 'PDF parsed via Granite-Docling');
-          } else {
-            const pdf = await pdfParse(buffer);
-            textContent = pdf.text;
-            logger.info({ fileName: docInfo.fileName, pages: pdf.numpages }, 'PDF parsed via pdf-parse (Docling fallback)');
-          }
-        } else if (docInfo.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-          const result = await mammoth.extractRawText({ buffer });
-          textContent = result.value;
-          logger.info({ fileName: docInfo.fileName }, 'DOCX parsed');
-        }
-
-        if (textContent) {
-          // If no caption, prompt natural engagement with the document
-          if (!messageText.trim()) {
-            messageText = `[Document shared: ${docInfo.fileName} — respond naturally. Engage with the content in context of the conversation. Do not just summarise unless asked.]`;
-          }
-
-          // Summarise via EVO to save Claude tokens, fall back to truncated raw
-          let docContext;
-          let docSummary = null;
-          const evoUp = await checkEvoHealth();
-          if (evoUp && textContent.length > 1000) {
-            docSummary = await summariseDocument(textContent.slice(0, 12000), docInfo.fileName);
-            if (docSummary) {
-              docContext = `--- Summary of ${docInfo.fileName} (${textContent.length} chars original, summarised locally) ---\n${docSummary}\n--- End of summary ---`;
-            }
-          }
-          if (!docContext) {
-            // EVO down or doc too short to bother summarising — use raw (truncated)
-            const maxChars = 4000;
-            const truncated = textContent.length > maxChars
-              ? textContent.slice(0, maxChars) + `\n\n[... truncated, ${textContent.length} chars total]`
-              : textContent;
-            docContext = `--- Attached file: ${docInfo.fileName} ---\n${truncated}\n--- End of file ---`;
-          }
-
-          // Cache raw text for follow-up questions
-          lastDocByChat.set(chatJid, { raw: textContent, fileName: docInfo.fileName, timestamp: Date.now() });
-
-          // Store document in memory service for long-term retrieval + dream mode (fire-and-forget)
-          storeDocument({
-            fileName: docInfo.fileName,
-            rawText: textContent,
-            summary: docSummary || textContent.slice(0, 2000),
-            sender: senderName,
-            chatJid,
-          }).catch(err => logger.warn({ err: err.message, fileName: docInfo.fileName }, 'document memory storage failed'));
-
-          messageText = `${messageText}\n\n${docContext}`;
-          logger.info({ fileName: docInfo.fileName, mime: docInfo.mimetype, chars: textContent.length, summarised: !!docSummary }, 'document content injected');
-        } else {
-          messageText = `${messageText}\n\n[Attached file: ${docInfo.fileName} (${docInfo.mimetype}) — unsupported format, cannot read contents]`;
-          logger.info({ fileName: docInfo.fileName, mime: docInfo.mimetype }, 'unsupported document format');
-        }
-      } catch (err) {
-        logger.warn({ err: err.message, fileName: docInfo.fileName }, 'document download/parse failed');
-      }
-    }
-
-    // Detect correction of previous response (implicit negative feedback)
-    if (isCorrection(messageText)) {
-      logFeedback({
-        interactionId: null, // can't easily correlate without more state
-        type: 'correction',
-        signal: 'negative',
-        detail: messageText.slice(0, 200),
-        sender: { name: senderName, jid: senderJid },
-      });
-    }
-
-    // If image sent with no caption, let the model respond naturally in context
-    if (imageData && !messageText.trim()) {
-      messageText = '[Photo shared — respond naturally as part of the conversation. React to what you see, relate it to the discussion if relevant. Do not just label or identify objects.]';
-    }
-
-    // Store last image per chat for follow-up questions
-    if (imageData) {
-      lastImageByChat.set(chatJid, { data: imageData, timestamp: Date.now() });
-    }
-
-    // If asking about "the image" / "the photo" with no image, check for recent image
-    if (!imageData && /\b(the\s+)?(image|photo|picture|pic|screenshot)\b/i.test(messageText)) {
-      const lastImg = lastImageByChat.get(chatJid);
-      if (lastImg && (Date.now() - lastImg.timestamp) < 5 * 60 * 1000) {
-        imageData = lastImg.data;
-        logger.info({ chatJid, ageMs: Date.now() - lastImg.timestamp }, 'reusing recent image for follow-up');
-      }
-    }
-
-    const context = buildContext(chatJid, messageText);
-    const responseStart = Date.now();
-    const response = await getClawdResponse(context, trigger.mode, senderJid, imageData, chatJid);
-    const responseLatency = Date.now() - responseStart;
-    if (!response || !response.trim() || response.trim() === '[SILENT]') {
-      if (response?.trim() === '[SILENT]') logger.debug({ chat: chatJid }, 'Claude chose silence');
-      return;
-    }
-
-    await simulateTyping(sock, chatJid, response.length);
-
-    const chunks = splitMessage(response);
-    const sentMsgIds = [];
-    for (const chunk of chunks) {
-      const sent = await sock.sendMessage(chatJid, { text: chunk });
-      if (sent?.key?.id) sentMsgIds.push(sent.key.id);
-      if (chunks.length > 1) await new Promise((r) => setTimeout(r, 300));
-    }
-
-    pushMessage(chatJid, {
-      senderName: 'Clawd',
-      text: response,
-      hasImage: false,
-      isBot: true,
-    });
-
-    if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
-      broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
-    }
-
-    // Log full interaction for evolution pipeline
-    logInteraction({
-      sender: { name: senderName, jid: senderJid },
-      source: 'whatsapp',
-      input: { text: messageText, hadImage: !!imageData },
-      routing: { mode: trigger.mode },
-      toolsCalled: getLastToolsCalled(),
-      response: { text: response, chars: response.length },
-      latencyMs: responseLatency,
-      messageIds: sentMsgIds,
-    });
-
-    // Log conversation for overnight memory extraction
-    if (config.evoMemoryEnabled) {
-      try {
-        logConversation(chatJid, [
-          { senderName: 'Clawd', text: response, isBot: true },
-        ]);
-      } catch {}
-    }
-
-    logger.info({ mode: trigger.mode, chars: response.length, latencyMs: responseLatency }, 'response sent');
-  } catch (err) {
-    logger.error({ err: err.message }, 'message handler error');
-  }
-}
-
-// Shared socket reference for the HTTP API
-let activeSock = null;
-
 async function sendProactiveMessage(jid, text) {
   if (!activeSock) throw new Error('Socket not connected');
   await simulateTyping(activeSock, jid, text.length);
-  await activeSock.sendMessage(jid, { text });
+  const sent = await activeSock.sendMessage(jid, { text });
+  if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
   pushMessage(jid, { senderName: 'Clawd', text, hasImage: false, isBot: true });
   logger.info({ jid, chars: text.length }, 'proactive message sent');
+}
+
+async function sendDocument(jid, buffer, fileName, mimetype = 'text/markdown', caption = '') {
+  if (!activeSock) throw new Error('Socket not connected');
+  const msg = { document: buffer, mimetype, fileName };
+  if (caption) msg.caption = caption;
+  const sent = await activeSock.sendMessage(jid, msg);
+  if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
+  logger.info({ jid, fileName, size: buffer.length }, 'document sent');
+  return sent;
 }
 
 async function startBot() {
@@ -538,12 +77,17 @@ async function startBot() {
 
   const sock = makeWASocket({
     version,
-    auth: state,
+    auth: {
+      creds: state.creds,
+      keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
+    },
     logger: baileysLogger,
     browser: ['Clawd', 'Chrome', '122.0.0'],
     markOnlineOnConnect: false,
     syncFullHistory: false,
     printQRInTerminal: false,
+    msgRetryCounterCache,
+    getMessage: async (key) => getCachedMessage(key.id),
   });
 
   let pairingRequested = false;
@@ -570,11 +114,13 @@ async function startBot() {
 
     if (connection === 'open') {
       const botJid = sock.user?.id;
+      const botLid = sock.user?.lid || null;
       activeSock = sock;
       globalThis._clawdWhatsAppConnected = true;
-      logger.info({ name: sock.user?.name, jid: botJid }, 'WhatsApp connected');
+      globalThis._clawdBotLid = botLid;
+      logger.info({ name: sock.user?.name, jid: botJid, lid: botLid }, 'WhatsApp connected');
 
-      // Wire up owner DM callback for soul proposals
+      // Wire up owner DM callback for soul proposals and tool handler
       if (config.ownerJid) {
         setSendOwnerDM(async (text) => {
           await sock.sendMessage(config.ownerJid, { text });
@@ -582,12 +128,17 @@ async function startBot() {
         setSendWhatsApp(async (text) => {
           await sendProactiveMessage(config.ownerJid, text);
         });
+        setSendDocument(async (buffer, fileName, mimetype, caption) => {
+          await sendDocument(config.ownerJid, buffer, fileName, mimetype, caption);
+        });
       }
 
+      // Wire up message handler
       sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (type !== 'notify') return;
         for (const msg of messages) {
-          handleMessage(sock, msg, botJid);
+          lastActivityTimestamp = Date.now();
+          handleIncomingMessage(sock, msg, botJid);
         }
       });
 
@@ -601,11 +152,13 @@ async function startBot() {
         }
       });
 
+      // Start scheduler (once only, guard against reconnects)
       if (config.ownerJid && !schedulerStarted) {
         schedulerStarted = true;
         initScheduler(async (text) => sendProactiveMessage(config.ownerJid, text));
       }
 
+      // Startup notification (version change only)
       if (!startupNotified && config.ownerJid) {
         startupNotified = true;
         setTimeout(async () => {
@@ -625,7 +178,6 @@ async function startBot() {
               }
             }
 
-            // Only notify on version changes, not every restart
             if (message) await sendProactiveMessage(config.ownerJid, message);
 
             // Seed system knowledge into EVO memory (fire-and-forget)
@@ -679,618 +231,12 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('unhandledRejection', (err) => logger.error({ err: err?.message || err }, 'unhandled rejection'));
 
-// --- Dashboard auth ---
-function checkDashboardAuth(req) {
-  if (!config.dashboardToken) return true;
-  const url = new URL(req.url, 'http://localhost');
-  const tokenParam = url.searchParams.get('token');
-  const authHeader = req.headers.authorization;
-  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  return (tokenParam === config.dashboardToken) || (bearerToken === config.dashboardToken);
-}
-
-function readBody(req) {
-  return new Promise((resolve) => {
-    let body = '';
-    req.on('data', (chunk) => { body += chunk; });
-    req.on('end', () => resolve(body));
-  });
-}
-
-function jsonResponse(res, status, data) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(data));
-}
-
-function getUrlPath(req) {
-  return new URL(req.url, 'http://localhost').pathname;
-}
-
-createServer(async (req, res) => {
-  const path = getUrlPath(req);
-
-  // --- Public endpoints ---
-
-  if (req.method === 'POST' && path === '/api/send') {
-    try {
-      const { jid, message } = JSON.parse(await readBody(req));
-      if (!jid || !message) return jsonResponse(res, 400, { error: 'jid and message required' });
-      await sendProactiveMessage(jid, message);
-      jsonResponse(res, 200, { ok: true });
-    } catch (err) {
-      jsonResponse(res, 500, { error: err.message });
-    }
-    return;
-  }
-
-  if (path === '/api/status') {
-    return jsonResponse(res, 200, {
-      connected: !!activeSock,
-      name: activeSock?.user?.name || null,
-      jid: activeSock?.user?.id || null,
-      lastActivity: lastActivityTimestamp,
-      uptime: Math.round(process.uptime()),
-      memoryMB: Math.round(process.memoryUsage().heapUsed / 1048576),
-    });
-  }
-
-  if (path === '/api/usage') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    return jsonResponse(res, 200, getUsageStats());
-  }
-
-  if (path === '/api/working-memory') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    return jsonResponse(res, 200, getWorkingMemoryState());
-  }
-
-  // --- Dashboard endpoints (auth required) ---
-
-  if (path === '/dashboard') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    const htmlPath = join(__dirname, '..', 'public', 'dashboard.html');
-    if (existsSync(htmlPath)) {
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      return res.end(readFileSync(htmlPath, 'utf-8'));
-    }
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    return res.end('Dashboard not found');
-  }
-
-  if (path === '/api/system-health') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const health = getSystemHealth();
-      // Add memory stats if EVO is online
-      try {
-        const memStats = await getMemoryStats();
-        health.memory = { total: memStats.total || 0, categories: memStats.categories || {} };
-      } catch { health.memory = { total: 0, categories: {} }; }
-      health.uptime = Math.round(process.uptime());
-      health.memoryMB = Math.round(process.memoryUsage().heapUsed / 1048576);
-      return jsonResponse(res, 200, health);
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  if (path === '/api/widgets') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const data = await getWidgetData();
-      jsonResponse(res, 200, data);
-    } catch (err) {
-      jsonResponse(res, 500, { error: err.message });
-    }
-    return;
-  }
-
-  if (req.method === 'POST' && path === '/api/widgets/refresh') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      await forceRefresh();
-      const data = await getWidgetData();
-      jsonResponse(res, 200, data);
-    } catch (err) {
-      jsonResponse(res, 500, { error: err.message });
-    }
-    return;
-  }
-
-  if (path === '/api/soul') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    return jsonResponse(res, 200, getSoulData());
-  }
-
-  if (req.method === 'POST' && path === '/api/soul/reset') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    await resetSoul();
-    return jsonResponse(res, 200, { ok: true, message: 'Soul reset to defaults' });
-  }
-
-  // Dream mode observation endpoint
-  if (req.method === 'POST' && path === '/api/soul/observe') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const { addObservation } = await import('./tools/soul.js');
-      const body = JSON.parse(await readBody(req));
-      // Accept single observation or array
-      const observations = Array.isArray(body) ? body : [body];
-      const results = [];
-      for (const obs of observations) {
-        const result = await addObservation(obs);
-        results.push(result);
-      }
-      return jsonResponse(res, 200, { ok: true, results });
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  if (path === '/api/todos') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    return jsonResponse(res, 200, { todos: getAllTodos() });
-  }
-
-  if (req.method === 'POST' && path === '/api/todos/complete') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const { id } = JSON.parse(await readBody(req));
-      if (!id) return jsonResponse(res, 400, { error: 'id required' });
-      const result = await todoComplete({ id });
-      broadcastSSE('todos', { todos: getAllTodos() });
-      return jsonResponse(res, 200, { ok: true, message: result, todos: getAllTodos() });
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  // Evolution task endpoint — dream mode creates coding tasks
-  if (req.method === 'POST' && path === '/api/evolution/task') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const { createTask: createEvoTask } = await import('./evolution.js');
-      const body = JSON.parse(await readBody(req));
-      if (!body.instruction) return jsonResponse(res, 400, { error: 'instruction required' });
-      const task = createEvoTask(body.instruction, body.source || 'dream', body.priority || 'normal');
-      return jsonResponse(res, 200, { ok: true, task });
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  if (path === '/api/messages') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    const messages = config.ownerJid ? getRecentMessages(config.ownerJid) : [];
-    return jsonResponse(res, 200, { messages });
-  }
-
-  // GET /api/audit — recent tool execution audit log
-  if (path === '/api/audit') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    const log = await getAuditLog(50);
-    return jsonResponse(res, 200, { audit: log });
-  }
-
-  // GET /api/quality — interaction quality summary for evolution pipeline
-  if (path === '/api/quality') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    const days = parseInt(new URL(req.url, 'http://localhost').searchParams.get('days') || '7');
-    const summary = getQualitySummary(days);
-    const recentFeedback = getRecentFeedback(20);
-    return jsonResponse(res, 200, { summary, recentFeedback });
-  }
-
-  // GET /api/evo — EVO X2 llama-server health check
-  if (path === '/api/evo' || path === '/api/ollama') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    const available = await checkEvoLlmHealth();
-    return jsonResponse(res, 200, { available, url: config.evoLlmUrl });
-  }
-
-  // --- Memory endpoints ---
-
-  // GET /api/memory/status — EVO X2 + memory stats
-  if (path === '/api/memory/status') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    const evo = getEvoStatus();
-    const stats = await getMemoryStats();
-    const health = getLastHealthData();
-    return jsonResponse(res, 200, { evo, stats, health });
-  }
-
-  // GET /api/memory/list — all memories
-  if (path === '/api/memory/list') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    const memories = await listMemories();
-    return jsonResponse(res, 200, { memories, count: memories.length });
-  }
-
-  // POST /api/memory/search — search memories
-  if (req.method === 'POST' && path === '/api/memory/search') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const body = JSON.parse(await readBody(req));
-      if (!body.query) return jsonResponse(res, 400, { error: 'query required' });
-      const results = await searchMemory(body.query, body.category, body.limit || 10);
-      return jsonResponse(res, 200, { results });
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  // POST /api/memory/note — store a quick note
-  if (req.method === 'POST' && path === '/api/memory/note') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const { text } = JSON.parse(await readBody(req));
-      if (!text) return jsonResponse(res, 400, { error: 'text required' });
-      const result = await storeNote(text, 'dashboard_note');
-      return jsonResponse(res, 200, result);
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  // PUT /api/memory/:id — update a memory
-  if (req.method === 'PUT' && path.startsWith('/api/memory/mem_')) {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const memoryId = path.split('/').pop();
-      const updates = JSON.parse(await readBody(req));
-      const result = await updateMemory(memoryId, updates);
-      return jsonResponse(res, 200, result);
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  // DELETE /api/memory/:id — delete a memory
-  if (req.method === 'DELETE' && path.startsWith('/api/memory/mem_')) {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const memoryId = path.split('/').pop();
-      const result = await deleteMemory(memoryId);
-      return jsonResponse(res, 200, result);
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  // POST /api/voice-local — fast locally-routed voice commands (no Claude call)
-  if (req.method === 'POST' && path === '/api/voice-local') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const { action, params = {}, text, tier } = JSON.parse(await readBody(req));
-      if (!action) return jsonResponse(res, 400, { error: 'action required' });
-
-      logger.info({ action, params, text, tier }, 'voice-local command');
-
-      let message = '';
-      let data = null;
-
-      switch (action) {
-        case 'navigate': {
-          const panel = params.panel || 'todos';
-          broadcastSSE('voice', { event: 'navigate', panel });
-          broadcastSSE('voice', { event: 'toast', message: `Showing ${panel}` });
-          message = `Navigated to ${panel}`;
-          break;
-        }
-
-        case 'todo_add': {
-          const todoText = params.text || text;
-          if (!todoText) return jsonResponse(res, 400, { error: 'text required for todo_add' });
-          const result = await todoAdd({ text: todoText, priority: params.priority || 'normal', due_date: params.due_date, reminder: params.reminder });
-          broadcastSSE('voice', { event: 'toast', message: `Added: ${todoText}` });
-          broadcastSSE('todos', { todos: getAllTodos() });
-          message = result;
-          break;
-        }
-
-        case 'todo_complete': {
-          const searchText = (params.text || text || '').toLowerCase();
-          if (!searchText) return jsonResponse(res, 400, { error: 'text required for todo_complete' });
-          const activeTodos = getActiveTodos();
-          // Fuzzy match: case-insensitive substring, prefer shorter todos (more specific match)
-          let bestMatch = null;
-          let bestScore = -1;
-          for (const todo of activeTodos) {
-            const todoLower = todo.text.toLowerCase();
-            if (todoLower.includes(searchText) || searchText.includes(todoLower)) {
-              // Score: exact match > substring in todo > substring in search
-              const score = todoLower === searchText ? 3 : todoLower.includes(searchText) ? 2 : 1;
-              if (score > bestScore) {
-                bestScore = score;
-                bestMatch = todo;
-              }
-            }
-          }
-          if (!bestMatch) {
-            // Fallback: token overlap
-            const searchTokens = searchText.split(/\s+/);
-            for (const todo of activeTodos) {
-              const todoLower = todo.text.toLowerCase();
-              const overlap = searchTokens.filter(t => todoLower.includes(t)).length;
-              if (overlap > bestScore) {
-                bestScore = overlap;
-                bestMatch = todo;
-              }
-            }
-          }
-          if (!bestMatch) {
-            message = `No matching todo found for: "${params.text || text}"`;
-            broadcastSSE('voice', { event: 'toast', message: 'No matching todo found' });
-          } else {
-            const result = await todoComplete({ id: bestMatch.id });
-            broadcastSSE('voice', { event: 'toast', message: `Done: ${bestMatch.text}` });
-            broadcastSSE('todos', { todos: getAllTodos() });
-            message = result;
-          }
-          break;
-        }
-
-        case 'calendar_list': {
-          const widgets = await getWidgetData();
-          data = widgets.calendar || [];
-          broadcastSSE('voice', { event: 'info', data });
-          // Build spoken summary from calendar data
-          if (data.length === 0) {
-            message = 'Nothing coming up';
-          } else {
-            const lines = data.slice(0, 5).map(ev => {
-              const title = ev.summary || ev.title || 'Event';
-              const when = ev.when || ev.start || '';
-              return when ? `${title}, ${when}` : title;
-            });
-            message = lines.join('. ');
-            if (data.length > 5) message += `. Plus ${data.length - 5} more`;
-          }
-          break;
-        }
-
-        case 'remember': {
-          const noteText = params.text || text;
-          if (!noteText) return jsonResponse(res, 400, { error: 'text required for remember' });
-          const result = await storeNote(noteText, 'voice_note');
-          broadcastSSE('voice', { event: 'toast', message: 'Noted' });
-          message = result.stored === false ? 'Queued for memory' : 'Stored in memory';
-          data = result;
-          break;
-        }
-
-        case 'refresh': {
-          await forceRefresh();
-          const freshData = await getWidgetData();
-          broadcastSSE('voice', { event: 'toast', message: 'Refreshed' });
-          message = 'Dashboard refreshed';
-          data = { lastRefresh: freshData.lastRefresh };
-          break;
-        }
-
-        case 'status': {
-          const uptime = process.uptime();
-          const mem = process.memoryUsage();
-          const hours = Math.floor(uptime / 3600);
-          const mins = Math.floor((uptime % 3600) / 60);
-          const mbRss = (mem.rss / 1048576).toFixed(0);
-          const statusMsg = `Running for ${hours}h ${mins}m. Memory: ${mbRss}MB. WhatsApp: ${activeSock ? 'connected' : 'disconnected'}.`;
-          broadcastSSE('voice', { event: 'response', text: statusMsg, command: text, panel: 'admin' });
-          message = statusMsg;
-          break;
-        }
-
-        case 'claude': {
-          // Forward to the full Claude pipeline by making an internal-style call
-          // We replicate what /api/voice-command does
-          const jid = config.ownerJid || 'dashboard';
-          const cmdText = params.text || text;
-          if (!cmdText) return jsonResponse(res, 400, { error: 'text required for claude action' });
-
-          pushMessage(jid, { senderName: 'James (voice)', text: cmdText, hasImage: false, isBot: false });
-          broadcastSSE('message', { sender: 'James (voice)', text: cmdText, timestamp: Date.now() });
-          broadcastSSE('voice', { event: 'command', text: cmdText });
-
-          const context = buildContext(jid, cmdText);
-          const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
-
-          if (response) {
-            pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
-            broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
-
-            const lc = (cmdText + ' ' + response).toLowerCase();
-            const panels = [];
-            if (/\b(calendar|schedule|meeting|event|appointment|diary|tomorrow|today)\b/.test(lc)) panels.push('calendar');
-            if (/\b(todo|task|reminder|to.do|shopping)\b/.test(lc)) panels.push('todos');
-            if (/\b(email|inbox|gmail|message|draft|send)\b/.test(lc)) panels.push('email');
-            if (/\b(weather|rain|temperature|forecast|sun)\b/.test(lc)) panels.push('weather');
-            if (/\b(henry|weekend|custody)\b/.test(lc)) panels.push('henry');
-            if (/\b(train|travel|hotel|fare|depart)\b/.test(lc)) panels.push('travel');
-
-            broadcastSSE('voice', { event: 'response', text: response, panels, panel: panels[0], command: cmdText });
-
-            if (config.ownerJid && activeSock) {
-              try { await sendProactiveMessage(config.ownerJid, response); } catch {}
-            }
-
-            return jsonResponse(res, 200, { ok: true, action: 'claude', message: response, data: { panels } });
-          } else {
-            broadcastSSE('voice', { event: 'no_result' });
-            return jsonResponse(res, 200, { ok: true, action: 'claude', message: 'No response', data: null });
-          }
-        }
-
-        default:
-          return jsonResponse(res, 400, { error: `Unknown action: ${action}` });
-      }
-
-      return jsonResponse(res, 200, { ok: true, action, message, data });
-    } catch (err) {
-      logger.error({ err: err.message }, 'voice-local error');
-      broadcastSSE('voice', { event: 'toast', message: 'Voice command failed' });
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  // POST /api/voice-command — receive transcribed voice command from wake listener
-  if (req.method === 'POST' && path === '/api/voice-command') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const { text, source } = JSON.parse(await readBody(req));
-      if (!text) return jsonResponse(res, 400, { error: 'text required' });
-
-      logger.info({ text, source }, 'voice command received');
-      const voiceStart = Date.now();
-      const jid = config.ownerJid || 'dashboard';
-      pushMessage(jid, { senderName: 'James (voice)', text, hasImage: false, isBot: false });
-      broadcastSSE('message', { sender: 'James (voice)', text, timestamp: Date.now() });
-      broadcastSSE('voice', { event: 'command', text });
-
-      const context = buildContext(jid, text);
-      const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
-
-      if (response) {
-        pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
-        broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
-
-        // Detect context for dashboard panel highlighting
-        const lc = (text + ' ' + response).toLowerCase();
-        const panels = [];
-        if (/\b(calendar|schedule|meeting|event|appointment|diary|tomorrow|today)\b/.test(lc)) panels.push('calendar');
-        if (/\b(todo|task|reminder|to.do|shopping)\b/.test(lc)) panels.push('todos');
-        if (/\b(email|inbox|gmail|message|draft|send)\b/.test(lc)) panels.push('email');
-        if (/\b(weather|rain|temperature|forecast|sun)\b/.test(lc)) panels.push('weather');
-        if (/\b(henry|weekend|custody)\b/.test(lc)) panels.push('henry');
-        if (/\b(train|travel|hotel|fare|depart)\b/.test(lc)) panels.push('travel');
-
-        broadcastSSE('voice', { event: 'response', text: response, panels, panel: panels[0], command: text });
-
-        // Log voice interaction
-        logInteraction({
-          sender: { name: 'James', jid },
-          source: 'voice',
-          input: { text, hadImage: false },
-          routing: { mode: 'direct', source: source || 'wake_word' },
-          toolsCalled: getLastToolsCalled(),
-          response: { text: response, chars: response.length },
-          latencyMs: Date.now() - voiceStart,
-          messageIds: [],
-        });
-
-        if (config.ownerJid && activeSock) {
-          try {
-            await sendProactiveMessage(config.ownerJid, response);
-          } catch (err) {
-            logger.error({ err: err.message }, 'voice command WhatsApp relay failed');
-          }
-        }
-
-        jsonResponse(res, 200, { response, panels });
-      } else {
-        broadcastSSE('voice', { event: 'no_result' });
-        jsonResponse(res, 200, { response: null });
-      }
-    } catch (err) {
-      broadcastSSE('voice', { event: 'error', message: err.message });
-      jsonResponse(res, 500, { error: err.message });
-    }
-    return;
-  }
-
-  // POST /api/voice-status — voice listener status updates for dashboard SSE
-  if (req.method === 'POST' && path === '/api/voice-status') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const body = JSON.parse(await readBody(req));
-      // Record heartbeats for system_status self-awareness
-      if (body.event === 'heartbeat') {
-        const { recordVoiceHeartbeat } = await import('./tools/handler.js');
-        recordVoiceHeartbeat(body);
-      }
-      broadcastSSE('voice', body);
-      return jsonResponse(res, 200, { ok: true });
-    } catch (err) {
-      return jsonResponse(res, 500, { error: err.message });
-    }
-  }
-
-  // POST /api/desktop-mode — kill kiosk Chromium to expose Pi desktop
-  if (req.method === 'POST' && path === '/api/desktop-mode') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      logger.info('desktop mode requested — killing kiosk Chromium');
-      exec('touch /tmp/clawd-desktop-mode && pkill chromium', (err) => {
-        if (err) logger.warn({ err: err.message }, 'chromium kill returned non-zero (may already be dead)');
-      });
-      jsonResponse(res, 200, { ok: true, message: 'Kiosk hidden. Use Clawd Desktop shortcut to return.' });
-    } catch (err) {
-      jsonResponse(res, 500, { error: err.message });
-    }
-    return;
-  }
-
-  if (req.method === 'POST' && path === '/api/chat') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    try {
-      const { message } = JSON.parse(await readBody(req));
-      if (!message) return jsonResponse(res, 400, { error: 'message required' });
-
-      const jid = config.ownerJid || 'dashboard';
-      pushMessage(jid, { senderName: 'James', text: message, hasImage: false, isBot: false });
-      broadcastSSE('message', { sender: 'James', text: message, timestamp: Date.now() });
-
-      const context = buildContext(jid, message);
-      const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
-
-      if (response) {
-        pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
-        broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
-
-        if (config.ownerJid && activeSock) {
-          try {
-            await sendProactiveMessage(config.ownerJid, response);
-          } catch (err) {
-            logger.error({ err: err.message }, 'dashboard WhatsApp relay failed');
-          }
-        }
-
-        jsonResponse(res, 200, { response });
-      } else {
-        jsonResponse(res, 200, { response: null });
-      }
-    } catch (err) {
-      jsonResponse(res, 500, { error: err.message });
-    }
-    return;
-  }
-
-  if (path === '/api/events') {
-    if (!checkDashboardAuth(req)) return jsonResponse(res, 401, { error: 'Unauthorized' });
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-    });
-    res.write(`event: connected\ndata: ${JSON.stringify({ time: new Date().toISOString() })}\n\n`);
-    addSSEClient(res);
-    return;
-  }
-
-  // Default: QR code page
-  if (activeSock?.user?.id) {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(`<html><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Connected as ${activeSock.user.name || 'Clawd'}</h2><p>Dashboard: <a href="/dashboard?token=${config.dashboardToken}">/dashboard</a></p></body></html>`);
-  } else if (existsSync('/tmp/qr.png')) {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    const img = readFileSync('/tmp/qr.png').toString('base64');
-    res.end(`<html><head><meta http-equiv="refresh" content="5"></head><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Scan QR to link WhatsApp</h2><img src="data:image/png;base64,${img}" style="width:400px"/><p style="color:#888">Auto-refreshing every 5s</p></body></html>`);
-  } else {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end('<html><head><meta http-equiv="refresh" content="3"></head><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Waiting for QR...</h2><p style="color:#888">Auto-refreshing</p></body></html>');
-  }
-}).listen(config.httpPort, () => logger.info({ port: config.httpPort }, 'HTTP server started'));
-
-startWidgetRefresh();
+// --- Start HTTP server and bot ---
+
+startHttpServer(config.httpPort, {
+  getActiveSock: () => activeSock,
+  sendProactiveMessage,
+  getLastActivity: () => lastActivityTimestamp,
+});
 
 startBot();

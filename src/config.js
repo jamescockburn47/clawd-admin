@@ -10,6 +10,12 @@ for (const key of required) {
 const config = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
   claudeModel: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
+
+  // MiniMax M2.7 — default cloud model (Anthropic-compatible API)
+  minimaxApiKey: process.env.MINIMAX_API_KEY || '',
+  minimaxBaseUrl: process.env.MINIMAX_BASE_URL || 'https://api.minimax.io/anthropic',
+  minimaxModel: process.env.MINIMAX_MODEL || 'MiniMax-M2.7',
+  minimaxEnabled: process.env.MINIMAX_ENABLED !== 'false',
   whatsappGroupJid: process.env.WHATSAPP_GROUP_JID || '',
   triggerPrefix: process.env.TRIGGER_PREFIX || '/clawd',
   randomReplyChance: parseFloat(process.env.RANDOM_REPLY_CHANCE) || 0.05,
@@ -45,11 +51,16 @@ const config = {
   // Human-readable labels for system_status tool (override if models change)
   evoMainModelLabel: process.env.EVO_MAIN_MODEL_LABEL || 'llama-server :8080 (EVO X2, main LLM)',
   evoClassifierLabel: process.env.EVO_CLASSIFIER_LABEL || 'llama-server :8081 (EVO X2, classifier)',
+  evoPlannerLabel: process.env.EVO_PLANNER_LABEL || 'llama-server :8085 (EVO X2, 4B planner/classifier)',
 
   // EVO X2 local models via llama.cpp (OpenAI-compatible API)
   evoLlmUrl: process.env.EVO_LLM_URL || 'http://10.0.0.2:8080',           // Main tool-calling server (direct ethernet)
-  evoClassifierUrl: process.env.EVO_CLASSIFIER_URL || 'http://10.0.0.2:8081', // Fast classifier server
+  evoClassifierUrl: process.env.EVO_CLASSIFIER_URL || 'http://10.0.0.2:8081', // Fast classifier server (0.6B engagement)
+  evoPlannerUrl: process.env.EVO_PLANNER_URL || 'http://10.0.0.2:8085',      // 4B category + needsPlan classifier
   evoToolEnabled: process.env.EVO_TOOL_ENABLED !== 'false',
+  evoEmbedUrl: process.env.EVO_EMBED_URL || 'http://10.0.0.2:8083',         // nomic-embed-text embeddings
+  evoDoclingUrl: process.env.EVO_DOCLING_URL || 'http://10.0.0.2:8084',     // Granite-Docling document parsing
+  evoSearxngUrl: process.env.EVO_SEARXNG_URL || 'http://10.0.0.2:8888',    // SearXNG web search (Docker)
 
   // Weather (Open-Meteo — free, no API key)
   weatherEnabled: process.env.WEATHER_ENABLED !== 'false',
@@ -68,6 +79,11 @@ const config = {
   evoMemoryUrl: process.env.EVO_MEMORY_URL || 'http://10.0.0.2:5100',
   evoMemoryEnabled: process.env.EVO_MEMORY_ENABLED !== 'false',
 
+  // EVO SSH access (for evolution executor, overnight report, etc.)
+  evoSshHost: process.env.EVO_SSH_HOST || '10.0.0.2',
+  evoSshUser: process.env.EVO_SSH_USER || 'james',
+  evoRepoPath: process.env.EVO_REPO_PATH || '/home/james/clawdbot-claude-code',
+
   // Group type classification — gates personal content from professional groups
   // Format: comma-separated JID:type pairs. Types: personal, professional
   // Groups not listed default to 'personal' (full access)
@@ -75,4 +91,5 @@ const config = {
   professionalGroups: (process.env.PROFESSIONAL_GROUPS || '').split(',').map(s => s.trim()).filter(Boolean),
 };
 
+Object.freeze(config);
 export default config;

@@ -160,8 +160,8 @@ def store_calibration_log(result, message_count):
             },
             timeout=10,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        print(f'Warning: failed to store calibration log: {e}', file=sys.stderr)
 
 
 def main():
