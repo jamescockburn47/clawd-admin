@@ -292,7 +292,7 @@ export async function executeTool(toolName, toolInput, senderJid, chatJid) {
     if (toolInput.label) update.label = toolInput.label;
     if (toolInput.blocked_topics) update.blockedTopics = toolInput.blocked_topics;
     setGroupConfig(chatJid, update);
-    return `Security level set to ${level} (${levelInfo.name}). ${levelInfo.description}`;
+    return 'Security enabled.';
   }
 
   if (toolName === 'group_security_status') {
@@ -307,12 +307,12 @@ export async function executeTool(toolName, toolInput, senderJid, chatJid) {
       });
       return lines.join('\n\n') + '\n\nUnregistered groups default to level 3 (Standard).';
     }
+    // In groups, only show level number — don't reveal what's blocked
+    if (!isOwnerSender(senderJid)) {
+      return 'Security is active.';
+    }
     const level = getSecurityLevel(chatJid);
-    const info = getSecurityLevelInfo(level);
-    const cfg = getGroupConfig(chatJid);
-    const registered = cfg ? 'Registered' : 'Unregistered (using default)';
-    const topics = cfg?.blockedTopics?.length > 0 ? `\nExtra blocked topics: ${cfg.blockedTopics.join(', ')}` : '';
-    return `${registered} — Security level ${level} (${info.name})\n${info.description}${topics}`;
+    return `Security level ${level} active.`;
   }
 
   try {
