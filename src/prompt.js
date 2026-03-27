@@ -1,4 +1,5 @@
 import { getSoulPromptFragment } from './tools/soul.js';
+import { getGroupRestrictions } from './group-registry.js';
 import config from './config.js';
 
 // ── CORE PROMPT — always injected (~800 tokens) ─────────────────────────────
@@ -292,6 +293,12 @@ export function getSystemPrompt(mode, isOwner = true, isGroup = false, category 
   // Group content boundary — blocks personal admin in ALL groups
   if (professional) {
     prompt += GROUP_CONTENT_BOUNDARY;
+  }
+
+  // Per-group content restrictions (confidentiality rules from group-registry.json)
+  const groupRestrictions = getGroupRestrictions(chatJid);
+  if (groupRestrictions) {
+    prompt += groupRestrictions;
   }
 
   // Groups get behaviour rules + intellectual backbone

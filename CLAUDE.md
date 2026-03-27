@@ -204,6 +204,11 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 109. **Groups: @mention only.** No passive engagement. Bot name in text without @mention → silent. Reply-to-bot and prefix commands (`clawd ...`, `clawdsec ...`) also trigger. Future: autonomous participation with restraint.
 110. **Passive mode removed from trigger.js.** Engagement classifier still exists but only fires for future autonomous mode. Current groups are @mention-gated.
 
+### Per-Group Content Restrictions (2026-03-27)
+111. **Group registry (`data/group-registry.json`) maps JIDs to confidentiality rules.** Hot-reloaded every 5 minutes. Each group can have `blockedTopics` (auto-generates restriction text) and/or a `confidentialityPrompt` (free-form). Injected into system prompt via `getGroupRestrictions()`.
+112. **Restrictions are prompt-level enforcement.** Appended after `GROUP_CONTENT_BOUNDARY` in `prompt.js`. Model instructed to refuse discussion, not confirm or deny existence.
+113. **To add a restricted group:** find its JID from `data/conversation-logs/` filenames, add entry to `data/group-registry.json` with label, blockedTopics, and/or confidentialityPrompt. No restart needed (5 min hot-reload).
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.
