@@ -58,16 +58,19 @@ function generateKnowledgeEntries() {
 
   // Router layers
   const router = doc.messageFlow.router;
+  const routerFacts = [router.layer1, router.layer2, router.layer3, router.layer4]
+    .filter(Boolean).join(' ');
   entries.push({
-    fact: `Smart router: ${router.layer0}. ${router.layer1}. ${router.layer2}. ${router.layer3}. ${router.writeDetection}. ${router.learnedRules}`,
+    fact: `Router: ${routerFacts}${router.writeDetection ? ' ' + router.writeDetection : ''}${router.learnedRules ? ' ' + router.learnedRules : ''}`,
     tags: ['router', 'classifier', 'keywords', 'llm'],
   });
 
   // Model selection
   const models = doc.messageFlow.modelSelection;
+  const modelFacts = Object.values(models).filter(Boolean).join(' ');
   entries.push({
-    fact: `Model routing: Local conversational — ${models.local_conversational}. Complex/write — ${models.claude_complex}. Classifier — ${models.classifier}.`,
-    tags: ['models', 'routing', 'llama-server', 'claude'],
+    fact: `Model routing: ${modelFacts}`,
+    tags: ['models', 'routing', 'minimax', 'claude'],
   });
 
   // Tools (grouped)
@@ -214,7 +217,7 @@ function generateKnowledgeEntries() {
 function generateFallbackEntries() {
   return [
     {
-      fact: 'Clawd is a distributed WhatsApp admin assistant: Raspberry Pi 5 runs Node.js (Baileys, HTTP API, scheduler). EVO X2 runs llama-server (OpenAI-compatible, tools + classifier), memory service (port 5100), Whisper + voice listener, and optional Ollama for embeddings. The Pi touchscreen runs a Rust (egui) dashboard against localhost:3000.',
+      fact: 'Clawd is a distributed WhatsApp admin assistant: Raspberry Pi 5 runs Node.js (Baileys, HTTP API, scheduler). EVO X2 runs llama-server (OpenAI-compatible, tools + classifier + embeddings via nomic-embed-text on port 8083), memory service (port 5100), and Whisper + voice listener. Cloud: MiniMax M2.7 (default chat), Claude Opus 4.6 (quality gate + explicit request). The Pi touchscreen runs a Rust (egui) dashboard against localhost:3000.',
       tags: ['architecture', 'overview'],
     },
   ];
