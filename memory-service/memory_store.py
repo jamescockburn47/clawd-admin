@@ -1,6 +1,11 @@
-"""Memory storage and retrieval with hybrid search."""
+"""Memory storage and retrieval with hybrid search.
+
+Frontal lobe: source-weighted scoring, confidence decay for volatile categories,
+contradiction suppression at retrieval, and auto-supersession at store time.
+"""
 
 import json
+import logging
 import os
 import re
 import time
@@ -11,11 +16,55 @@ import numpy as np
 
 import config
 
+logger = logging.getLogger("memory-service")
+
 # Categories that are never expired, deduplicated, or superseded
 PROTECTED_CATEGORIES = {"identity"}
 
 # Cosine similarity threshold for pre-store and batch deduplication
 DEDUP_THRESHOLD = 0.92
+
+# --- Frontal lobe: source weights ---
+# Authoritative sources score higher. Multiplicative on combined score.
+SOURCE_WEIGHTS = {
+    "system_knowledge": 1.25,
+    "system_knowledge_seed": 1.25,
+    "manual_note": 1.15,
+    "conversation": 1.0,
+    "voice_note": 1.0,
+    "diary_extraction": 0.95,
+    "diary_insight": 0.95,
+    "dream_mode": 0.90,
+    "project_thinker": 0.95,
+    "image_analysis": 0.90,
+    "api": 1.0,
+}
+
+# --- Frontal lobe: confidence decay ---
+# Only volatile categories decay. Stable facts (identity, preference, legal, etc.) never decay.
+# Half-life in days: confidence halves every N days for these categories.
+VOLATILE_CATEGORIES = {
+    "system": 30,
+    "schedule": 7,
+    "travel": 14,
+    "accommodation": 60,
+    "henry": 30,
+    "dream": 45,
+    "document_chunk": 60,
+}
+
+# Sources that produce ephemeral/inferred facts (used for "general" category decay)
+EPHEMERAL_SOURCES = {"diary_extraction", "diary_insight", "dream_mode", "image_analysis"}
+
+# General memories from ephemeral sources decay at this half-life
+GENERAL_EPHEMERAL_HALF_LIFE = 60
+
+# --- Frontal lobe: contradiction suppression ---
+CONTRADICTION_THRESHOLD = 0.75
+
+# --- Frontal lobe: auto-supersession ---
+SUPERSESSION_THRESHOLD_LOW = 0.70
+SUPERSESSION_THRESHOLD_HIGH = 0.91
 
 
 def _load_json(path):
@@ -31,6 +80,21 @@ def _save_json(path, data):
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+
+
+def _effective_confidence(confidence, category, source, days_old):
+    """Compute confidence with decay for volatile categories. Stable categories return stored confidence."""
+    half_life = VOLATILE_CATEGORIES.get(category)
+
+    # General memories: decay only if from an ephemeral source
+    if category == "general" and source in EPHEMERAL_SOURCES:
+        half_life = GENERAL_EPHEMERAL_HALF_LIFE
+    elif category == "general":
+        half_life = None  # Explicit general facts are stable
+
+    if half_life and days_old > 0:
+        return confidence * (0.5 ** (days_old / half_life))
+    return confidence
 
 
 class MemoryStore:
@@ -65,6 +129,44 @@ class MemoryStore:
     def _save(self):
         _save_json(config.MEMORIES_FILE, self.memories)
 
+    def _check_supersession(self, embedding, category, source):
+        """Find an existing same-category memory that the new one should supersede.
+
+        Looks for memories in the 0.70-0.91 cosine similarity range (same topic,
+        different content). Below dedup threshold but clearly related.
+        Protected categories and older-than-existing facts are exempt.
+        """
+        if (not embedding or category in PROTECTED_CATEGORIES
+                or self._embeddings_matrix is None or len(self.memories) == 0):
+            return None
+
+        qvec = np.array(embedding, dtype=np.float32)
+        qnorm = np.linalg.norm(qvec)
+        if qnorm <= 0:
+            return None
+
+        qvec = qvec / qnorm
+        similarities = self._embeddings_matrix @ qvec
+
+        best_idx = int(np.argmax(similarities))
+        best_sim = float(similarities[best_idx])
+
+        if SUPERSESSION_THRESHOLD_LOW <= best_sim < SUPERSESSION_THRESHOLD_HIGH:
+            candidate = self.memories[best_idx]
+            # Only supersede within same category
+            if candidate["category"] != category:
+                return None
+            # Only supersede if new memory is newer
+            try:
+                old_date = datetime.strptime(candidate["sourceDate"], "%Y-%m-%d")
+                if datetime.utcnow() < old_date:
+                    return None
+            except (ValueError, KeyError):
+                pass
+            return candidate["id"]
+
+        return None
+
     def store(self, fact, category, tags, embedding=None, confidence=0.9,
               source="unknown", supersedes=None, expires=None):
         """Store a new memory. Returns the record, or a duplicate marker if skipped."""
@@ -88,6 +190,13 @@ class MemoryStore:
                         "matchedFact": existing["fact"],
                         "similarity": round(best_sim, 4),
                     }
+
+        # Auto-supersession: if caller didn't specify, check for same-topic older memory
+        if not supersedes:
+            auto_target = self._check_supersession(embedding, safe_category, source)
+            if auto_target:
+                supersedes = auto_target
+                logger.info(f"Auto-supersession: new fact supersedes {auto_target}")
 
         mem_id = f"mem_{uuid.uuid4().hex[:8]}"
         now = datetime.utcnow().isoformat() + "Z"
@@ -123,8 +232,57 @@ class MemoryStore:
         self._build_index()
         return record
 
+    def _suppress_contradictions(self, results):
+        """Remove lower-ranked memories that cover the same topic as higher-ranked ones.
+
+        Results are already sorted by score (best first). For each candidate, check if
+        it's semantically very similar (>= 0.75 cosine) to an already-accepted memory.
+        If so, the lower-scoring version is suppressed — the higher one already covers
+        that topic with more authority.
+        """
+        if len(results) < 2:
+            return results
+
+        kept = []
+        kept_vecs = []
+
+        for score, mem in results:
+            emb = mem.get("embedding")
+            if not emb:
+                kept.append((score, mem))
+                continue
+
+            mvec = np.array(emb, dtype=np.float32)
+            mnorm = np.linalg.norm(mvec)
+            if mnorm <= 0:
+                kept.append((score, mem))
+                continue
+            mvec = mvec / mnorm
+
+            # Check against all already-kept memories
+            dominated = False
+            for kvec in kept_vecs:
+                sim = float(np.dot(mvec, kvec))
+                if sim >= CONTRADICTION_THRESHOLD:
+                    dominated = True
+                    break
+
+            if not dominated:
+                kept.append((score, mem))
+                kept_vecs.append(mvec)
+
+        return kept
+
     def search(self, query_embedding=None, query_text="", category=None, limit=8):
-        """Hybrid search: keyword + vector + recency + frequency."""
+        """Hybrid search: keyword + vector + recency + effective_confidence.
+
+        Scoring formula:
+            base = 0.30 * keyword + 0.40 * vector + 0.10 * recency + 0.20 * eff_confidence
+            combined = base * source_weight
+
+        Then contradiction suppression removes lower-scored entries that cover the
+        same topic as a higher-scored entry (cosine >= 0.75).
+        """
         now = datetime.utcnow()
         results = []
 
@@ -169,20 +327,38 @@ class MemoryStore:
                 days_old = (now - created).days
                 recency_score = max(0.0, 1.0 - days_old / 90)
             except (ValueError, KeyError):
+                days_old = 0
                 recency_score = 0.5
 
-            # Frequency score
-            freq_score = min(1.0, m.get("accessCount", 0) / 10)
+            # Effective confidence (decays for volatile categories only)
+            eff_conf = _effective_confidence(
+                m.get("confidence", 0.5),
+                m["category"],
+                m.get("source", "unknown"),
+                days_old,
+            )
 
-            combined = (0.35 * keyword_score +
-                        0.40 * vector_score +
-                        0.15 * recency_score +
-                        0.10 * freq_score)
+            # Combined score with source weight
+            base = (0.30 * keyword_score +
+                    0.40 * vector_score +
+                    0.10 * recency_score +
+                    0.20 * eff_conf)
+
+            source_weight = SOURCE_WEIGHTS.get(m.get("source", "unknown"), 1.0)
+            combined = base * source_weight
 
             results.append((combined, m))
 
         results.sort(key=lambda x: x[0], reverse=True)
-        top = results[:limit]
+
+        # Overshoot: fetch extra candidates to compensate for contradiction suppression
+        overshoot_limit = min(len(results), int(limit * 1.5) + 1)
+        candidates = results[:overshoot_limit]
+
+        # Contradiction suppression: drop lower-scored entries on the same topic
+        candidates = self._suppress_contradictions(candidates)
+
+        top = candidates[:limit]
 
         # Update access counts
         for _, m in top:

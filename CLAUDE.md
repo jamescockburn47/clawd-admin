@@ -230,6 +230,13 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 129. **Embedding upgrade planned: Qwen3-Embedding-8B.** Replaces nomic-embed-text (137M) for higher retrieval quality. Phase 2.
 130. **EVO memory service DATA_DIR is `~/clawdbot-memory/data`.** NOT `~/clawdbot-memory`. The repo config.py must match.
 
+### Memory Frontal Lobe (2026-03-28)
+131. **Memory scoring uses source weights.** system_knowledge × 1.25, conversation × 1.0, dream × 0.90. Authoritative sources win ties.
+132. **Confidence decays for volatile categories only.** system (30d), schedule (7d), travel (14d), dream (45d), general-from-ephemeral-sources (60d). Stable categories (identity, preference, person, legal, insight) never decay — intelligent ageing, not dementia.
+133. **Contradiction suppression at retrieval.** Cosine ≥ 0.75 between results = same topic. Lower-scoring entry dropped. Prevents conflicting memories both reaching the prompt.
+134. **Frequency score removed from search.** Access count created feedback loops rewarding stale popular memories. Replaced by effective_confidence.
+135. **Auto-supersession at store time.** New memories with 0.70–0.91 cosine similarity to existing same-category memories auto-supersede the older one. Protected categories exempt. Activates the dormant `supersedes` field.
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.
