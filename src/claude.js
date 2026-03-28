@@ -185,6 +185,23 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     }
   }
 
+  // Token budget enforcement — prevent memory overflow into context window
+  // ~4 chars per token, cap at 3000 tokens (~12000 chars) for all memory combined
+  const MEMORY_TOKEN_BUDGET = 12000;
+  if (memoryFragment.length > MEMORY_TOKEN_BUDGET) {
+    const overBy = memoryFragment.length - MEMORY_TOKEN_BUDGET;
+    logger.warn({ totalChars: memoryFragment.length, overBy, approxTokens: Math.round(memoryFragment.length / 4) },
+      'memory fragment exceeds token budget — truncating');
+    // Truncate from the end (lowest-priority sections: insights, lquorum, dreams)
+    // Identity and relevance memories at the top are preserved
+    memoryFragment = memoryFragment.slice(0, MEMORY_TOKEN_BUDGET);
+    // Clean cut at last complete section boundary to avoid partial content
+    const lastSection = memoryFragment.lastIndexOf('\n\n## ');
+    if (lastSection > MEMORY_TOKEN_BUDGET * 0.5) {
+      memoryFragment = memoryFragment.slice(0, lastSection);
+    }
+  }
+
   // --- Task planner: multi-step requests ---
   if (route.needsPlan && (route.confidence || 0) >= PLANNING.MIN_CONFIDENCE) {
     try {

@@ -7,7 +7,7 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { runImprovementCycle } from '../self-improve/cycle.js';
-import { extractFromConversation, isEvoOnline } from '../memory.js';
+import { extractFromConversation, isEvoOnline, triggerMaintenance } from '../memory.js';
 import { runProjectDeepThink } from '../project-thinker.js';
 import { sendOvernightReport } from '../overnight-report.js';
 import { indexDayTopics, pruneTopicIndex } from '../topic-index.js';
@@ -97,6 +97,20 @@ export async function checkOvernightExtraction(todayStr, hours) {
 
     if (totalExtracted > 0) {
       logger.info({ date: yStr, extracted: totalExtracted }, 'overnight extraction complete');
+    }
+
+    // Memory maintenance — expire old memories, deduplicate
+    try {
+      const maintResult = await triggerMaintenance();
+      if (maintResult && !maintResult.error) {
+        logger.info({
+          expired: maintResult.expired,
+          deduplicated: maintResult.deduplicated,
+          total: maintResult.total_after,
+        }, 'overnight memory maintenance complete');
+      }
+    } catch (maintErr) {
+      logger.error({ err: maintErr.message }, 'overnight memory maintenance failed');
     }
 
     // Topic indexing — cluster yesterday's group conversations into topics

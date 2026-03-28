@@ -88,7 +88,7 @@ async def health():
 @app.post("/memory/store")
 async def memory_store(req: StoreRequest):
     embedding = await llm_client.embed_single(req.fact)
-    record = store.store(
+    result = store.store(
         fact=req.fact,
         category=req.category,
         tags=req.tags,
@@ -98,7 +98,11 @@ async def memory_store(req: StoreRequest):
         supersedes=req.supersedes,
         expires=req.expires,
     )
-    return {"stored": True, "memory": {k: v for k, v in record.items() if k != "embedding"}}
+    # Pre-store dedup may return a duplicate marker instead of a record
+    if isinstance(result, dict) and result.get("duplicate"):
+        logger.info(f"Pre-store dedup: skipped (sim={result['similarity']}, matched={result['matchedId']})")
+        return {"stored": False, "duplicate": True, **result}
+    return {"stored": True, "memory": {k: v for k, v in result.items() if k != "embedding"}}
 
 
 @app.post("/memory/search")
@@ -170,13 +174,14 @@ async def extract_facts(req: ExtractRequest):
     facts = await llm_client.extract_facts(req.conversation, today)
 
     stored = []
+    skipped = 0
     if req.store_results and facts:
         for fact_data in facts:
             if not isinstance(fact_data, dict) or "fact" not in fact_data:
                 continue
             try:
                 embedding = await llm_client.embed_single(fact_data["fact"])
-                record = store.store(
+                result = store.store(
                     fact=fact_data["fact"],
                     category=fact_data.get("category", "general"),
                     tags=fact_data.get("tags", []),
@@ -184,7 +189,10 @@ async def extract_facts(req: ExtractRequest):
                     confidence=fact_data.get("confidence", 0.8),
                     source=req.source,
                 )
-                stored.append({k: v for k, v in record.items() if k != "embedding"})
+                if isinstance(result, dict) and result.get("duplicate"):
+                    skipped += 1
+                else:
+                    stored.append({k: v for k, v in result.items() if k != "embedding"})
             except Exception as e:
                 logger.error(f"Failed to store extracted fact: {e}")
 
@@ -193,6 +201,7 @@ async def extract_facts(req: ExtractRequest):
         "stored": stored,
         "count": len(facts),
         "stored_count": len(stored),
+        "skipped_duplicates": skipped,
     }
 
 

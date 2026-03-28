@@ -11,6 +11,12 @@ import numpy as np
 
 import config
 
+# Categories that are never expired, deduplicated, or superseded
+PROTECTED_CATEGORIES = {"identity"}
+
+# Cosine similarity threshold for pre-store and batch deduplication
+DEDUP_THRESHOLD = 0.92
+
 
 def _load_json(path):
     if not os.path.exists(path):
@@ -61,7 +67,28 @@ class MemoryStore:
 
     def store(self, fact, category, tags, embedding=None, confidence=0.9,
               source="unknown", supersedes=None, expires=None):
-        """Store a new memory."""
+        """Store a new memory. Returns the record, or a duplicate marker if skipped."""
+        # Pre-store dedup: skip if a near-identical memory already exists
+        safe_category = category if category in config.CATEGORIES else "general"
+        if (embedding and safe_category not in PROTECTED_CATEGORIES
+                and self._embeddings_matrix is not None and len(self.memories) > 0):
+            qvec = np.array(embedding, dtype=np.float32)
+            qnorm = np.linalg.norm(qvec)
+            if qnorm > 0:
+                qvec = qvec / qnorm
+                similarities = self._embeddings_matrix @ qvec
+                best_idx = int(np.argmax(similarities))
+                best_sim = float(similarities[best_idx])
+                if best_sim >= DEDUP_THRESHOLD:
+                    existing = self.memories[best_idx]
+                    return {
+                        "duplicate": True,
+                        "skipped": True,
+                        "matchedId": existing["id"],
+                        "matchedFact": existing["fact"],
+                        "similarity": round(best_sim, 4),
+                    }
+
         mem_id = f"mem_{uuid.uuid4().hex[:8]}"
         now = datetime.utcnow().isoformat() + "Z"
 
@@ -216,7 +243,7 @@ class MemoryStore:
             "newest": max((m["sourceDate"] for m in self.memories), default=None),
         }
 
-    def deduplicate(self, similarity_threshold=0.85):
+    def deduplicate(self, similarity_threshold=DEDUP_THRESHOLD):
         """Find and merge duplicate memories based on vector similarity."""
         if self._embeddings_matrix is None or len(self.memories) < 2:
             return 0

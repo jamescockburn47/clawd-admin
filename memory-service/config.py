@@ -24,6 +24,8 @@ PORT = int(os.environ.get("MEMORY_SERVICE_PORT", "5100"))
 CATEGORIES = [
     "preference", "person", "legal", "travel", "accommodation",
     "henry", "ai_consultancy", "schedule", "general",
+    "identity", "dream", "system", "insight",
+    "document", "document_chunk", "document_index",
 ]
 
 # Default TTL in days per category (0 = permanent)
@@ -37,6 +39,13 @@ DEFAULT_TTL = {
     "ai_consultancy": 0,
     "schedule": 7,
     "general": 90,
+    "identity": 0,
+    "dream": 0,
+    "system": 7,
+    "insight": 0,
+    "document": 0,
+    "document_chunk": 90,
+    "document_index": 0,
 }
 
 EXTRACTION_PROMPT = """You are a memory extraction system for a personal assistant serving James Cockburn, a UK-based solicitor. Extract ALL key facts worth remembering from this conversation.
@@ -50,6 +59,6 @@ Rules:
 - Convert relative dates to absolute dates using today's date: {today}
 - Confidence: 0.9+ for explicit statements, 0.7-0.9 for inferences, <0.7 for uncertain
 
-Categories: preference, person, legal, travel, accommodation, henry, ai_consultancy, schedule, general
+Categories: preference, person, legal, travel, accommodation, henry, ai_consultancy, schedule, general, identity, dream, system, insight
 
 Output ONLY the JSON array. No markdown, no explanation."""
