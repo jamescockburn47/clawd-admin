@@ -93,7 +93,24 @@ async function indexGroupDay(groupJid, dateStr, filename) {
   const humanMsgs = messages.filter(m => !m.isBot);
   if (humanMsgs.length < 3) return 0;
 
-  const transcript = formatTranscript(messages);
+  // Truncate from the end to fit EVO's 16K context (~4 chars/token, ~12K tokens budget)
+  const MAX_TRANSCRIPT_CHARS = 40000;
+  let trimmedMessages = messages;
+  let transcript = formatTranscript(trimmedMessages);
+
+  if (transcript.length > MAX_TRANSCRIPT_CHARS) {
+    // Take last N messages that fit within budget
+    trimmedMessages = [];
+    let chars = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const line = `[00:00] ${messages[i].sender || 'Unknown'}: ${messages[i].text}`;
+      if (chars + line.length > MAX_TRANSCRIPT_CHARS) break;
+      trimmedMessages.unshift(messages[i]);
+      chars += line.length;
+    }
+    transcript = formatTranscript(trimmedMessages);
+    logger.info({ groupJid, original: messages.length, trimmed: trimmedMessages.length }, 'topic-index: transcript trimmed for context limit');
+  }
 
   // Use EVO 30B for topic clustering (free)
   const segPrompt = buildSegmentationPrompt(transcript);
