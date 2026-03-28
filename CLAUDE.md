@@ -222,6 +222,14 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 123. **Output filter applies to group mode responses.** Same three-layer defense as regular messages.
 124. **Files: `topic-index.js` (overnight + retrieval), `topic-scan.js` (shared formatting/parsing), `pending-action.js`, `group-modes.js`.** Plus `getGroupModeResponse()` in `claude.js` and wiring in `message-handler.js`.
 
+### Memory System Hardening (2026-03-28)
+125. **Pre-store dedup at 0.92 cosine threshold.** Every memory is checked against existing embeddings before storing. Protected categories (identity) bypass. Batch dedup also at 0.92.
+126. **Scheduled maintenance runs overnight at 2 AM.** After extraction, before topic indexing. Expires old memories and deduplicates in one pass.
+127. **Memory categories must match between Pi and EVO.** All categories used in code (identity, dream, system, insight, document, document_chunk, document_index) registered in config.py with correct TTLs.
+128. **Memory injection token budget: 3000 tokens (~12000 chars).** Truncates at section boundaries. Identity and relevance memories preserved; insights, lquorum, dreams truncated first.
+129. **Embedding upgrade planned: Qwen3-Embedding-8B.** Replaces nomic-embed-text (137M) for higher retrieval quality. Phase 2.
+130. **EVO memory service DATA_DIR is `~/clawdbot-memory/data`.** NOT `~/clawdbot-memory`. The repo config.py must match.
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.

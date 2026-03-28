@@ -14,7 +14,7 @@ WHISPER_MODEL_SIZE = os.environ.get("WHISPER_MODEL_SIZE", "large-v3")
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "auto")  # auto, cpu, cuda
 WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
 
-DATA_DIR = os.environ.get("DATA_DIR", os.path.expanduser("~/clawdbot-memory"))
+DATA_DIR = os.environ.get("DATA_DIR", os.path.expanduser("~/clawdbot-memory/data"))
 MEMORIES_FILE = os.path.join(DATA_DIR, "memories.json")
 ARCHIVE_FILE = os.path.join(DATA_DIR, "memories_archive.json")
 PROCESSED_DIR = os.path.join(DATA_DIR, "processed")
