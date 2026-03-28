@@ -1,13 +1,38 @@
 {
-  "_comment": "Group registry — modes (open/project/colleague) and optional blocked topics. Default for unregistered groups is colleague.",
   "groups": {
-    "120363426226720044@g.us": {
-      "label": "AGI (Tom Glover)",
+    "open@g.us": {
+      "label": "Open",
+      "mode": "open"
+    },
+    "project@g.us": {
+      "label": "Project",
+      "mode": "project"
+    },
+    "colleague@g.us": {
+      "label": "Colleague",
+      "mode": "colleague"
+    },
+    "colleague-topics@g.us": {
+      "label": "Colleague+Topics",
       "mode": "colleague",
       "blockedTopics": [
         "Learned Hand",
-        "Shlomo",
-        "Legal Quants"
+        "Shlomo"
+      ]
+    },
+    "project-topics@g.us": {
+      "label": "Project+Topics",
+      "mode": "project",
+      "blockedTopics": [
+        "Legal Quants",
+        "Project Phoenix"
+      ]
+    },
+    "open-topics@g.us": {
+      "label": "Open+Topics",
+      "mode": "open",
+      "blockedTopics": [
+        "Secret Sauce"
       ]
     }
   }

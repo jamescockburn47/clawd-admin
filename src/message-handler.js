@@ -6,7 +6,7 @@ import config from './config.js';
 import logger from './logger.js';
 import { shouldRespond } from './trigger.js';
 import { pushMessage, buildContext } from './buffer.js';
-import { getClawdResponse, getLastToolsCalled } from './claude.js';
+import { getClawdResponse, getLastToolsCalled, getGroupModeResponse } from './claude.js';
 import { broadcastSSE } from './sse.js';
 import { logInteraction, handleReaction, isCorrection, logFeedback } from './interaction-log.js';
 import { isMuteTrigger, activateMute, isMuted, shouldEngage, detectNegativeSignal, recordGroupResponse, isInCooldown } from './engagement.js';
@@ -17,6 +17,8 @@ import { handleEvolutionConfirmation, handleEvolutionApproval } from './evolutio
 import { cacheSentMessage } from './message-cache.js';
 import { recordDecryptionFailure } from './session-repair.js';
 import { filterResponse, getBlockedResponse } from './output-filter.js';
+import { detectGroupMode, detectTopicSelection, runTopicSegmentation, executeGroupMode, buildExecutionPrompt } from './group-modes.js';
+import { clearPendingAction, getPendingAction } from './pending-action.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -234,6 +236,71 @@ export async function handleIncomingMessage(sock, message, botJid) {
     }
     if (messageText.toLowerCase().startsWith(config.triggerPrefix.toLowerCase())) {
       messageText = messageText.slice(config.triggerPrefix.length).trim();
+    }
+
+    // ── GROUP ANALYSIS MODES (devil's advocate, summary) ──────────────────
+    if (isGroup) {
+      // Check for pending topic selection first (reply to numbered list)
+      const topicSel = detectTopicSelection(messageText, chatJid);
+      if (topicSel) {
+        logger.info({ chatJid, mode: topicSel.action.mode, selection: topicSel.selectedTopics }, 'topic selection received');
+        await simulateTyping(sock, chatJid, 500);
+
+        const execPrompt = buildExecutionPrompt(topicSel.action, topicSel.selectedTopics);
+        const execResponse = await getGroupModeResponse(
+          execPrompt, 'Execute the analysis on the selected topics.',
+          true, // useOpus — accuracy matters
+          senderJid, chatJid
+        );
+
+        clearPendingAction(chatJid);
+        const finalText = execResponse || 'Failed to complete the analysis. Try again.';
+
+        // Apply output filter
+        const filterResult = filterResponse(finalText, chatJid);
+        const safeText = filterResult.safe ? finalText : getBlockedResponse(filterResult.reason);
+
+        await simulateTyping(sock, chatJid, safeText.length);
+        const chunks = splitMessage(safeText);
+        for (const chunk of chunks) {
+          const sent = await sock.sendMessage(chatJid, { text: chunk });
+          if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
+          if (chunks.length > 1) await new Promise(r => setTimeout(r, 300));
+        }
+        pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
+        if (config.evoMemoryEnabled) {
+          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch {}
+        }
+        return;
+      }
+
+      // Check for new group mode trigger (devil's advocate, summarise)
+      const groupMode = detectGroupMode(messageText);
+      if (groupMode) {
+        logger.info({ chatJid, mode: groupMode.mode }, 'group analysis mode triggered');
+        await simulateTyping(sock, chatJid, 200);
+
+        const segResponse = await runTopicSegmentation(
+          chatJid, groupMode.mode,
+          (prompt) => getGroupModeResponse(
+            'You are a conversation analyst. Follow the instructions precisely.',
+            prompt, false, senderJid, chatJid
+          )
+        );
+
+        // Apply output filter to the topic list too
+        const filterResult = filterResponse(segResponse, chatJid);
+        const safeText = filterResult.safe ? segResponse : getBlockedResponse(filterResult.reason);
+
+        await simulateTyping(sock, chatJid, safeText.length);
+        const sent = await sock.sendMessage(chatJid, { text: safeText });
+        if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
+        pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
+        if (config.evoMemoryEnabled) {
+          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch {}
+        }
+        return;
+      }
     }
 
     // Download image if present

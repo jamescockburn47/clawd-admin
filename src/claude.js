@@ -381,3 +381,85 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     return null;
   }
 }
+
+// ── GROUP MODE RESPONSE (segmentation + critique/summary execution) ─────────
+// Simpler path: custom system prompt, limited tools (memory + web), no routing.
+// Used for devil's advocate and summary modes.
+
+const GROUP_MODE_TOOLS = TOOL_DEFINITIONS.filter(t =>
+  ['memory_search', 'web_search', 'web_fetch'].includes(t.name)
+);
+
+/**
+ * Generate a response for group analysis modes (segmentation, critique, summary).
+ * Uses MiniMax for segmentation (fast), Opus for execution (accuracy matters).
+ *
+ * @param {string} systemPrompt - Custom system prompt for this step
+ * @param {string} userMessage - The user-facing message/prompt
+ * @param {boolean} useOpus - Whether to force Claude Opus (for execution step)
+ * @param {string} senderJid - Sender JID for tool execution
+ * @param {string} chatJid - Chat JID for tool execution
+ * @returns {string|null} - Response text
+ */
+export async function getGroupModeResponse(systemPrompt, userMessage, useOpus = false, senderJid = null, chatJid = null) {
+  const activeClient = useOpus ? claudeClient : client;
+  const activeModel = useOpus ? config.claudeModel : defaultModel;
+  const breaker = useOpus ? claudeBreaker : (minimaxClient ? minimaxBreaker : claudeBreaker);
+
+  const system = [{ type: 'text', text: systemPrompt }];
+  const messages = [{ role: 'user', content: userMessage }];
+  const tools = useOpus ? GROUP_MODE_TOOLS : []; // only give tools on execution step
+
+  try {
+    let response = await breaker.call(
+      () => activeClient.messages.create({
+        model: activeModel,
+        max_tokens: 4000,
+        system,
+        messages,
+        ...(tools.length > 0 ? { tools } : {}),
+      }),
+      null,
+    );
+
+    if (!response) return null;
+    trackTokens(response);
+
+    // Tool loop (only during execution with Opus)
+    let loopCount = 0;
+    while (response.stop_reason === 'tool_use' && loopCount < 5) {
+      loopCount++;
+      const toolUseBlocks = response.content.filter(b => b.type === 'tool_use');
+      if (toolUseBlocks.length === 0) break;
+
+      messages.push({ role: 'assistant', content: response.content });
+      const toolResults = [];
+      for (const toolUse of toolUseBlocks) {
+        logger.info({ tool: toolUse.name, mode: 'group_mode' }, 'group-mode tool call');
+        let result = await executeTool(toolUse.name, toolUse.input, senderJid, chatJid);
+        if (result.length > 1500) result = result.slice(0, 1500) + '\n[...truncated]';
+        toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: result });
+      }
+      messages.push({ role: 'user', content: toolResults });
+
+      response = await breaker.call(
+        () => activeClient.messages.create({
+          model: activeModel,
+          max_tokens: 4000,
+          system,
+          messages,
+          ...(tools.length > 0 ? { tools } : {}),
+        }),
+        null,
+      );
+      if (!response) break;
+      trackTokens(response);
+    }
+
+    const textBlocks = response.content.filter(b => b.type === 'text');
+    return textBlocks.map(b => b.text).join('\n') || null;
+  } catch (err) {
+    logger.error({ err: err.message, model: activeModel }, 'group-mode API error');
+    return null;
+  }
+}

@@ -212,6 +212,16 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 115. **Three-layer defense: prompt + output filter + canary.** Prompt-level restrictions tell the model what not to say. `output-filter.js` scans every response with deterministic regex BEFORE sending — blocks personal life patterns (project+colleague modes) and side project names (colleague mode). Per-group blockedTopics always scanned. Canary token detects prompt leakage. Cannot be prompt-injected.
 116. **Anti-prompt-injection hardening in group prompts.** Identity lock (always Clawd), instruction hierarchy (system overrides user), anti-extraction instruction, anti-role-play instruction. Injected for all groups.
 
+### Group Analysis Modes (2026-03-27)
+117. **Devil's advocate and summary modes are two-step.** Step 1: topic segmentation (scan last ~50 messages from JSONL logs, cluster into topics, present numbered list). Step 2: user selects topics ("1 and 3" or "all"), Clawd executes critique or summary.
+118. **Trigger phrases.** Devil's advocate: "devil's advocate". Summary: "summarise", "summary", "recap", "catch me up", "what did I miss".
+119. **Pending action system.** In-memory Map with 5-minute expiry per group. Stores topics, transcript, and mode between steps. Cleared after execution or on timeout.
+120. **Topic segmentation uses MiniMax, execution uses Opus.** Fast segmentation, accurate analysis.
+121. **Devil's advocate uses Nemeth/Klein framework.** Key assumptions (CIA), pre-mortem (Klein), steelman opposition, blind spots, constructive close. Grounded in evidence, not theatrical.
+122. **Both modes use memory_search and web_search tools.** Accuracy and context from memories and web search.
+123. **Output filter applies to group mode responses.** Same three-layer defense as regular messages.
+124. **Files: `topic-scan.js`, `pending-action.js`, `group-modes.js`.** Plus `getGroupModeResponse()` in `claude.js` and wiring in `message-handler.js`.
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.
