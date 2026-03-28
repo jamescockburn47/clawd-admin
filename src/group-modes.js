@@ -10,6 +10,25 @@ import logger from './logger.js';
 
 const DEVILS_ADVOCATE_PATTERN = /\bdevil[\u2018\u2019'']?s?\s*advocate\b/i;
 const SUMMARY_PATTERN = /\b(summari[sz]e|summary|recap|catch me up|what did i miss|what have i missed)\b/i;
+const EXIT_PATTERN = /\b(exit|stop|cancel|quit|leave|drop|never\s*mind|forget\s*it)\b.*\b(mode|advocate|summary|summari[sz]e|critique|analysis)\b/i;
+const EXIT_PATTERN_REVERSE = /\b(mode|advocate|summary|summari[sz]e|critique|analysis)\b.*\b(exit|stop|cancel|quit|off)\b/i;
+
+/**
+ * Check if a message is an exit/cancel command for group analysis mode.
+ * Must be checked BEFORE detectGroupMode since "exit devil's advocate" contains the trigger.
+ * Also clears any pending action for the group.
+ * @param {string} text - Message text (after bot prefix stripping)
+ * @param {string} chatJid - Group JID
+ * @returns {boolean}
+ */
+export function detectGroupModeExit(text, chatJid) {
+  if (!text) return false;
+  if (EXIT_PATTERN.test(text) || EXIT_PATTERN_REVERSE.test(text)) {
+    clearPendingAction(chatJid);
+    return true;
+  }
+  return false;
+}
 
 /**
  * Check if a message triggers a group analysis mode.

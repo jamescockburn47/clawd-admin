@@ -17,7 +17,7 @@ import { handleEvolutionConfirmation, handleEvolutionApproval } from './evolutio
 import { cacheSentMessage } from './message-cache.js';
 import { recordDecryptionFailure } from './session-repair.js';
 import { filterResponse, getBlockedResponse } from './output-filter.js';
-import { detectGroupMode, detectTopicSelection, runTopicRetrieval, executeGroupMode, buildExecutionPrompt } from './group-modes.js';
+import { detectGroupMode, detectGroupModeExit, detectTopicSelection, runTopicRetrieval, executeGroupMode, buildExecutionPrompt } from './group-modes.js';
 import { clearPendingAction, getPendingAction } from './pending-action.js';
 
 // --- Owner JID resolution ---
@@ -241,8 +241,14 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     // ── GROUP ANALYSIS MODES (devil's advocate, summary) ──────────────────
     if (isGroup) {
-      // Check for pending topic selection first (reply to numbered list)
-      const topicSel = detectTopicSelection(messageText, chatJid);
+      const isExitRequest = detectGroupModeExit(messageText, chatJid);
+      if (isExitRequest) {
+        logger.info({ chatJid }, 'group analysis mode exit — falling through to normal handling');
+        // Pending action already cleared by detectGroupModeExit. Fall through to classifier.
+      }
+
+      // Check for pending topic selection (skip if exit requested)
+      const topicSel = !isExitRequest && detectTopicSelection(messageText, chatJid);
       if (topicSel) {
         logger.info({ chatJid, mode: topicSel.action.mode, selection: topicSel.selectedTopics }, 'topic selection received');
         await simulateTyping(sock, chatJid, 500);
@@ -275,8 +281,8 @@ export async function handleIncomingMessage(sock, message, botJid) {
         return;
       }
 
-      // Check for new group mode trigger (devil's advocate, summarise)
-      const groupMode = detectGroupMode(messageText);
+      // Check for new group mode trigger (skip if exit request — "exit devil's advocate" contains the trigger)
+      const groupMode = !isExitRequest && detectGroupMode(messageText);
       if (groupMode) {
         logger.info({ chatJid, mode: groupMode.mode }, 'group analysis mode triggered');
         await simulateTyping(sock, chatJid, 200);

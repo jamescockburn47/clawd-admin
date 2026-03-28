@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectGroupMode, detectTopicSelection, buildExecutionPrompt } from '../src/group-modes.js';
-import { setPendingAction, clearPendingAction } from '../src/pending-action.js';
+import { detectGroupMode, detectGroupModeExit, detectTopicSelection, buildExecutionPrompt } from '../src/group-modes.js';
+import { setPendingAction, clearPendingAction, getPendingAction } from '../src/pending-action.js';
 
 describe('group-modes', () => {
   const CHAT_JID = '120363001234567890@g.us';
@@ -96,6 +96,55 @@ describe('group-modes', () => {
     it('prefers critique over summary when both present', () => {
       const result = detectGroupMode("devil's advocate and summarise this");
       assert.deepEqual(result, { mode: 'critique' });
+    });
+  });
+
+  describe('detectGroupModeExit', () => {
+    it('detects "exit devil\'s advocate mode"', () => {
+      assert.equal(detectGroupModeExit("exit devil's advocate mode", CHAT_JID), true);
+    });
+
+    it('detects "stop critique mode"', () => {
+      assert.equal(detectGroupModeExit('stop critique mode', CHAT_JID), true);
+    });
+
+    it('detects "cancel analysis"', () => {
+      assert.equal(detectGroupModeExit('cancel analysis', CHAT_JID), true);
+    });
+
+    it('detects "advocate mode off" (reverse order)', () => {
+      assert.equal(detectGroupModeExit('advocate mode off', CHAT_JID), true);
+    });
+
+    it('detects "never mind the summary"', () => {
+      assert.equal(detectGroupModeExit('never mind the summary', CHAT_JID), true);
+    });
+
+    it('detects "forget it, drop the critique"', () => {
+      assert.equal(detectGroupModeExit('forget it, drop the critique', CHAT_JID), true);
+    });
+
+    it('clears pending action on exit', () => {
+      setPendingAction(CHAT_JID, 'critique', TOPICS, TRANSCRIPT);
+      assert.ok(getPendingAction(CHAT_JID));
+      detectGroupModeExit("exit devil's advocate mode", CHAT_JID);
+      assert.equal(getPendingAction(CHAT_JID), null);
+    });
+
+    it('returns false for null', () => {
+      assert.equal(detectGroupModeExit(null, CHAT_JID), false);
+    });
+
+    it('returns false for empty string', () => {
+      assert.equal(detectGroupModeExit('', CHAT_JID), false);
+    });
+
+    it('returns false for unrelated text', () => {
+      assert.equal(detectGroupModeExit('what is the weather', CHAT_JID), false);
+    });
+
+    it('returns false for bare "exit" without mode keyword', () => {
+      assert.equal(detectGroupModeExit('exit the building', CHAT_JID), false);
     });
   });
 
