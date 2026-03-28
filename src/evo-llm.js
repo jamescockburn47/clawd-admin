@@ -389,6 +389,46 @@ export async function summariseDocument(text, fileName, maxOutputTokens = 500) {
   }
 }
 
+// ── Simple EVO chat completion (no tools) — for topic segmentation etc ──────
+
+/**
+ * Send a simple chat completion to the EVO 30B model.
+ * No tool calling, no loops — just system + user → text response.
+ * Used for topic segmentation in group analysis modes (free, fast).
+ *
+ * @param {string} systemPrompt - System message
+ * @param {string} userMessage - User message
+ * @param {number} maxTokens - Max output tokens (default 800)
+ * @returns {string|null} - Response text, or null on failure
+ */
+export async function evoSimpleChat(systemPrompt, userMessage, maxTokens = 800) {
+  try {
+    const res = await evoFetch(`${config.evoLlmUrl}/v1/chat/completions`, {
+      method: 'POST',
+      body: JSON.stringify({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        temperature: 0.3,
+        max_tokens: maxTokens,
+        cache_prompt: true,
+      }),
+      timeout: TIMEOUTS.DOC_SUMMARISE, // 30s — adequate for short analysis
+    });
+
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content?.trim();
+    if (text) {
+      logger.info({ inputChars: userMessage.length, outputChars: text.length }, 'EVO simple chat completed');
+    }
+    return text || null;
+  } catch (err) {
+    logger.warn({ err: err.message }, 'EVO simple chat error');
+    return null;
+  }
+}
+
 // ── 4B classifier — category + needsPlan ────────────────────────────────────
 
 const PLANNER_CLASSIFY_PROMPT = `You are a message classifier for a WhatsApp assistant called Clawd.

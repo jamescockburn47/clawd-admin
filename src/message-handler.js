@@ -19,6 +19,7 @@ import { recordDecryptionFailure } from './session-repair.js';
 import { filterResponse, getBlockedResponse } from './output-filter.js';
 import { detectGroupMode, detectTopicSelection, runTopicSegmentation, executeGroupMode, buildExecutionPrompt } from './group-modes.js';
 import { clearPendingAction, getPendingAction } from './pending-action.js';
+import { evoSimpleChat } from './evo-llm.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -225,9 +226,10 @@ export async function handleIncomingMessage(sock, message, botJid) {
     logger.info({ mode: trigger.mode, chat: chatJid }, 'triggered');
 
     let messageText = text;
-    // Strip bot name prefixes (clawd, clawdbot, clawdsec)
+    // Strip @ prefix and bot name prefixes (clawd, clawdbot, clawdsec)
     const BOT_PREFIXES = ['clawdsec', 'clawdbot', 'clawd']; // longest first to avoid partial match
-    const lowerMsg = messageText.toLowerCase();
+    let lowerMsg = messageText.toLowerCase().replace(/^@/, ''); // strip leading @
+    if (lowerMsg !== messageText.toLowerCase()) messageText = messageText.slice(1); // sync actual text
     for (const prefix of BOT_PREFIXES) {
       if (lowerMsg.startsWith(prefix + ' ') || lowerMsg === prefix) {
         messageText = messageText.slice(prefix.length).trim();
@@ -282,10 +284,18 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
         const segResponse = await runTopicSegmentation(
           chatJid, groupMode.mode,
-          (prompt) => getGroupModeResponse(
-            'You are a conversation analyst. Follow the instructions precisely.',
-            prompt, false, senderJid, chatJid
-          )
+          async (prompt) => {
+            // Try EVO local model first (free), fall back to MiniMax
+            const evoResult = await evoSimpleChat(
+              'You are a conversation analyst. Follow the instructions precisely.', prompt
+            );
+            if (evoResult) return evoResult;
+            logger.info({ chatJid }, 'EVO unavailable for segmentation, falling back to MiniMax');
+            return getGroupModeResponse(
+              'You are a conversation analyst. Follow the instructions precisely.',
+              prompt, false, senderJid, chatJid
+            );
+          }
         );
 
         // Apply output filter to the topic list too

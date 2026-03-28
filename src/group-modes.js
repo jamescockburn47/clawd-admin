@@ -7,7 +7,7 @@ import logger from './logger.js';
 
 // ── TRIGGER DETECTION ────────────────────────────────────────────────────────
 
-const DEVILS_ADVOCATE_PATTERN = /\bdevil'?s?\s*advocate\b/i;
+const DEVILS_ADVOCATE_PATTERN = /\bdevil[\u2018\u2019'']?s?\s*advocate\b/i;
 const SUMMARY_PATTERN = /\b(summari[sz]e|summary|recap|catch me up|what did i miss|what have i missed)\b/i;
 
 /**
