@@ -17,9 +17,8 @@ import { handleEvolutionConfirmation, handleEvolutionApproval } from './evolutio
 import { cacheSentMessage } from './message-cache.js';
 import { recordDecryptionFailure } from './session-repair.js';
 import { filterResponse, getBlockedResponse } from './output-filter.js';
-import { detectGroupMode, detectTopicSelection, runTopicSegmentation, executeGroupMode, buildExecutionPrompt } from './group-modes.js';
+import { detectGroupMode, detectTopicSelection, runTopicRetrieval, executeGroupMode, buildExecutionPrompt } from './group-modes.js';
 import { clearPendingAction, getPendingAction } from './pending-action.js';
-import { evoSimpleChat } from './evo-llm.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -282,21 +281,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
         logger.info({ chatJid, mode: groupMode.mode }, 'group analysis mode triggered');
         await simulateTyping(sock, chatJid, 200);
 
-        const segResponse = await runTopicSegmentation(
-          chatJid, groupMode.mode,
-          async (prompt) => {
-            // Try EVO local model first (free), fall back to MiniMax
-            const evoResult = await evoSimpleChat(
-              'You are a conversation analyst. Follow the instructions precisely.', prompt
-            );
-            if (evoResult) return evoResult;
-            logger.info({ chatJid }, 'EVO unavailable for segmentation, falling back to MiniMax');
-            return getGroupModeResponse(
-              'You are a conversation analyst. Follow the instructions precisely.',
-              prompt, false, senderJid, chatJid
-            );
-          }
-        );
+        const segResponse = await runTopicRetrieval(chatJid, groupMode.mode);
 
         // Apply output filter to the topic list too
         const filterResult = filterResponse(segResponse, chatJid);

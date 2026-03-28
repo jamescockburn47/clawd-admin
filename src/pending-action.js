@@ -11,8 +11,10 @@ const EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 /**
  * @typedef {Object} PendingAction
  * @property {string} mode - 'critique' or 'summary'
- * @property {Array} topics - Parsed topic list from segmentation
- * @property {string} transcript - Full message transcript for execution
+ * @property {Array} topics - Combined topic list (today + historical)
+ * @property {string} transcript - Today's live transcript
+ * @property {number} totalTopics - Total topic count for selection validation
+ * @property {Object} [topicData] - Split data for transcript retrieval
  * @property {number} expiresAt - Timestamp when this pending action expires
  */
 
@@ -20,14 +22,17 @@ const EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
  * Store a pending action for a chat.
  * @param {string} chatJid
  * @param {string} mode - 'critique' or 'summary'
- * @param {Array} topics - Parsed topic list
- * @param {string} transcript - Full transcript for later execution
+ * @param {Array} topics - Combined topic list
+ * @param {string} transcript - Today's live transcript
+ * @param {Object} [topicData] - { historical, today } split for transcript retrieval
  */
-export function setPendingAction(chatJid, mode, topics, transcript) {
+export function setPendingAction(chatJid, mode, topics, transcript, topicData = null) {
   _pending.set(chatJid, {
     mode,
     topics,
     transcript,
+    totalTopics: topics.length,
+    topicData,
     expiresAt: Date.now() + EXPIRY_MS,
   });
   logger.info({ chatJid, mode, topicCount: topics.length }, 'pending-action: stored');

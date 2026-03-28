@@ -6,9 +6,9 @@ import { setPendingAction, clearPendingAction } from '../src/pending-action.js';
 describe('group-modes', () => {
   const CHAT_JID = '120363001234567890@g.us';
   const TOPICS = [
-    { number: 1, label: 'AI Regulation', summary: 'EU AI Act' },
-    { number: 2, label: 'Team Offsite', summary: 'May event' },
-    { number: 3, label: 'Client Pitch', summary: 'New approach' },
+    { displayNum: 1, number: 1, label: 'AI Regulation', summary: 'EU AI Act' },
+    { displayNum: 2, number: 2, label: 'Team Offsite', summary: 'May event' },
+    { displayNum: 3, number: 3, label: 'Client Pitch', summary: 'New approach' },
   ];
   const TRANSCRIPT = '[10:00] Tom: The EU AI Act is...\n[10:05] James: I disagree because...';
 
@@ -30,6 +30,11 @@ describe('group-modes', () => {
 
     it('detects "Devil\'s Advocate" (capitalised)', () => {
       const result = detectGroupMode("Devil's Advocate");
+      assert.deepEqual(result, { mode: 'critique' });
+    });
+
+    it('detects devil\'s advocate with smart quotes', () => {
+      const result = detectGroupMode("devil\u2019s advocate");
       assert.deepEqual(result, { mode: 'critique' });
     });
 

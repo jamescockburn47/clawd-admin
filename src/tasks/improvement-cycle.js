@@ -10,6 +10,7 @@ import { runImprovementCycle } from '../self-improve/cycle.js';
 import { extractFromConversation, isEvoOnline } from '../memory.js';
 import { runProjectDeepThink } from '../project-thinker.js';
 import { sendOvernightReport } from '../overnight-report.js';
+import { indexDayTopics, pruneTopicIndex } from '../topic-index.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
@@ -96,6 +97,18 @@ export async function checkOvernightExtraction(todayStr, hours) {
 
     if (totalExtracted > 0) {
       logger.info({ date: yStr, extracted: totalExtracted }, 'overnight extraction complete');
+    }
+
+    // Topic indexing — cluster yesterday's group conversations into topics
+    try {
+      const topicsIndexed = await indexDayTopics(yStr);
+      if (topicsIndexed > 0) {
+        logger.info({ date: yStr, topicsIndexed }, 'overnight topic indexing complete');
+      }
+      // Prune topics older than 30 days
+      pruneTopicIndex(30);
+    } catch (topicErr) {
+      logger.error({ err: topicErr.message }, 'overnight topic indexing failed');
     }
   } catch (err) {
     logger.error({ err: err.message }, 'overnight extraction failed');

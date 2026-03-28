@@ -1,7 +1,8 @@
 // src/group-modes.js — Devil's Advocate and Summary mode execution
-// These are special group response modes triggered by "@clawd devil's advocate"
-// or "@clawd summarise". Both use a two-step flow: topic segmentation → execution.
-import { getRecentGroupMessages, formatTranscript, buildSegmentationPrompt, parseTopicList, formatTopicSelection } from './topic-scan.js';
+// Two-step flow: topic retrieval (index + live) → execution.
+// Historical topics come from overnight topic index (free, pre-computed on EVO).
+// Today's topics are clustered live via EVO 30B on demand.
+import { getGroupTopics, formatTopicsForSelection, getTranscriptForSelection } from './topic-index.js';
 import { setPendingAction, getPendingAction, clearPendingAction, parseTopicSelection } from './pending-action.js';
 import logger from './logger.js';
 
@@ -32,59 +33,52 @@ export function detectTopicSelection(text, chatJid) {
   const action = getPendingAction(chatJid);
   if (!action) return null;
 
-  const selection = parseTopicSelection(text, action.topics.length);
+  const selection = parseTopicSelection(text, action.totalTopics || action.topics.length);
   if (!selection) return null;
 
   return { action, selectedTopics: selection };
 }
 
-// ── STEP 1: TOPIC SEGMENTATION ──────────────────────────────────────────────
+// ── STEP 1: TOPIC RETRIEVAL ─────────────────────────────────────────────────
 
 /**
- * Run topic segmentation on recent group messages.
- * Sends the segmentation prompt to the LLM and stores the pending action.
+ * Retrieve topics from topic index (historical) + live messages (today).
+ * No LLM call needed for historical topics — they're pre-indexed overnight.
+ * Today's messages are clustered on-demand via EVO 30B (free).
  *
  * @param {string} chatJid - Group JID
  * @param {string} mode - 'critique' or 'summary'
- * @param {Function} generateResponse - LLM call function (text => response)
  * @returns {string} - WhatsApp message with numbered topic list
  */
-export async function runTopicSegmentation(chatJid, mode, generateResponse) {
-  const messages = getRecentGroupMessages(chatJid, 50);
-
-  if (messages.length < 3) {
-    return "Not enough recent conversation to analyse. I need at least a few messages.";
-  }
-
-  // Filter out bot messages for cleaner topic extraction
-  const humanMessages = messages.filter(m => !m.isBot);
-  if (humanMessages.length < 2) {
-    return "Not enough discussion to segment into topics.";
-  }
-
-  const transcript = formatTranscript(messages);
-  const segPrompt = buildSegmentationPrompt(transcript);
-
+export async function runTopicRetrieval(chatJid, mode) {
   try {
-    const segResponse = await generateResponse(segPrompt);
-    const topics = parseTopicList(segResponse);
+    const { historical, today, transcript } = await getGroupTopics(chatJid, 3);
 
-    if (topics.length === 0) {
-      return "I couldn't identify distinct topics in the recent conversation. Try being more specific about what you'd like me to analyse.";
+    const totalTopics = today.length + historical.length;
+
+    if (totalTopics === 0) {
+      return "Not enough recent conversation to analyse. I need at least a few messages.";
     }
 
-    // If only one topic, skip selection and go straight to execution
-    if (topics.length === 1) {
-      setPendingAction(chatJid, mode, topics, transcript);
+    // Build combined topic list for numbering
+    const allTopics = [];
+    let num = 1;
+    for (const t of today) allTopics.push({ ...t, displayNum: num++ });
+    for (const t of historical) allTopics.push({ ...t, displayNum: num++ });
+
+    // If only one topic, skip selection
+    if (totalTopics === 1) {
+      const t = allTopics[0];
+      setPendingAction(chatJid, mode, allTopics, transcript, { historical, today });
       const modeLabel = mode === 'critique' ? 'critique' : 'summarise';
-      return `I can see one topic: *${topics[0].label}*${topics[0].summary ? ` — ${topics[0].summary}` : ''}.\n\nShall I ${modeLabel} it? Reply "yes" or "1".`;
+      return `I can see one topic: *${t.label}*${t.summary ? ` — ${t.summary}` : ''}.\n\nShall I ${modeLabel} it? Reply "yes" or "1".`;
     }
 
-    // Store for step 2
-    setPendingAction(chatJid, mode, topics, transcript);
-    return formatTopicSelection(topics, mode);
+    // Store for step 2 — include historical/today split for transcript retrieval
+    setPendingAction(chatJid, mode, allTopics, transcript, { historical, today });
+    return formatTopicsForSelection(historical, today, mode);
   } catch (err) {
-    logger.error({ err: err.message, chatJid, mode }, 'topic segmentation failed');
+    logger.error({ err: err.message, chatJid, mode }, 'topic retrieval failed');
     return "Failed to analyse the conversation. Try again in a moment.";
   }
 }
@@ -95,20 +89,29 @@ export async function runTopicSegmentation(chatJid, mode, generateResponse) {
  * Build the execution prompt for selected topics.
  *
  * @param {PendingAction} action - The pending action with transcript and topics
- * @param {number[]|'all'} selection - Selected topic numbers or 'all'
+ * @param {number[]|'all'} selection - Selected display numbers or 'all'
  * @returns {string} - System prompt for the execution LLM call
  */
 export function buildExecutionPrompt(action, selection) {
   const selectedTopics = selection === 'all'
     ? action.topics
-    : action.topics.filter(t => selection.includes(t.number));
+    : action.topics.filter(t => selection.includes(t.displayNum || t.number));
 
   const topicLabels = selectedTopics.map(t => t.label).join(', ');
 
-  if (action.mode === 'critique') {
-    return buildCritiquePrompt(action.transcript, topicLabels, selectedTopics);
+  // Get transcript for selected topics (today's live + historical from logs)
+  let transcript = action.transcript;
+  if (action.topicData) {
+    transcript = getTranscriptForSelection(
+      action.topicData.historical, action.topicData.today,
+      action.transcript, selection
+    );
   }
-  return buildSummaryPrompt(action.transcript, topicLabels, selectedTopics);
+
+  if (action.mode === 'critique') {
+    return buildCritiquePrompt(transcript, topicLabels, selectedTopics);
+  }
+  return buildSummaryPrompt(transcript, topicLabels, selectedTopics);
 }
 
 function buildCritiquePrompt(transcript, topicLabels, selectedTopics) {
