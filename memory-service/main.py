@@ -107,7 +107,7 @@ async def memory_store(req: StoreRequest):
 
 @app.post("/memory/search")
 async def memory_search(req: SearchRequest):
-    query_embedding = await llm_client.embed_single(req.query)
+    query_embedding = await llm_client.embed_single(req.query, is_query=True)
     results = store.search(
         query_embedding=query_embedding,
         query_text=req.query,
@@ -347,6 +347,43 @@ async def maintain():
         "expired": expired_count,
         "deduplicated": dedup_count,
         "total_after": len(store.memories),
+    }
+
+
+# --- Re-embed all memories (for embedding model migration) ---
+
+@app.post("/reembed")
+async def reembed_all():
+    """Re-embed all memories with the current embedding model. Used after model upgrades."""
+    total = len(store.memories)
+    success = 0
+    failed = 0
+    batch_size = 10
+
+    for start in range(0, total, batch_size):
+        batch = store.memories[start:start + batch_size]
+        texts = [m["fact"] for m in batch]
+        try:
+            embeddings = await llm_client.embed(texts, is_query=False)
+            for m, emb in zip(batch, embeddings):
+                if emb:
+                    m["embedding"] = emb
+                    success += 1
+                else:
+                    failed += 1
+        except Exception as e:
+            logger.error(f"Re-embed batch failed at {start}: {e}")
+            failed += len(batch)
+
+    if success > 0:
+        store._save()
+        store._build_index()
+
+    return {
+        "total": total,
+        "reembedded": success,
+        "failed": failed,
+        "embedding_dim": len(store.memories[0]["embedding"]) if store.memories and store.memories[0].get("embedding") else 0,
     }
 
 

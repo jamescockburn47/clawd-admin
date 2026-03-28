@@ -1,11 +1,7 @@
 """LLM client for memory service — uses llama.cpp servers.
 
-Embeddings: dedicated nomic-embed-text server on port 8083 (always on)
+Embeddings: Qwen3-Embedding-8B on port 8083 (always on, --pooling last)
 Extraction: main Qwen3-30B server on port 8080 (daytime only)
-
-Note: Renamed from ollama_client.py. The Ollama name was legacy — this
-module has talked to llama.cpp servers via OpenAI-compatible API since
-the migration.
 """
 
 import json
@@ -19,31 +15,43 @@ logger = logging.getLogger("llm-client")
 
 EMBED_URL = config.LLM_EMBED_URL
 
+# Qwen3-Embedding-8B requires <|endoftext|> appended for correct embeddings.
+# The instruction prefix improves query retrieval by 1-5%.
+_QUERY_PREFIX = "Instruct: Given a search query, retrieve relevant passages\nQuery: "
+_EOS_TOKEN = "<|endoftext|>"
 
-async def embed(texts: list[str]) -> list[list[float]]:
-    """Embed texts using dedicated llama.cpp embedding server."""
+
+async def embed(texts: list[str], is_query: bool = False) -> list[list[float]]:
+    """Embed texts using Qwen3-Embedding-8B llama.cpp server.
+
+    Args:
+        texts: List of strings to embed.
+        is_query: If True, prepend instruction prefix (improves retrieval for queries).
+                  Documents/facts should be embedded with is_query=False.
+    """
     results = []
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             for text in texts:
+                # Prepare input with optional query prefix and required EOS token
+                prepared = f"{_QUERY_PREFIX}{text}{_EOS_TOKEN}" if is_query else f"{text}{_EOS_TOKEN}"
                 resp = await client.post(
                     f"{EMBED_URL}/v1/embeddings",
-                    json={"input": text, "model": "nomic"},
+                    json={"input": prepared, "model": "qwen3-embedding"},
                 )
                 resp.raise_for_status()
                 data = resp.json()
                 results.append(data["data"][0]["embedding"])
     except Exception as e:
         logger.warning(f"Embedding failed: {e} — returning empty for remaining")
-        # Pad with empty embeddings for any remaining texts
         while len(results) < len(texts):
             results.append([])
     return results
 
 
-async def embed_single(text: str) -> list[float]:
+async def embed_single(text: str, is_query: bool = False) -> list[float]:
     """Embed a single text."""
-    result = await embed([text])
+    result = await embed([text], is_query=is_query)
     return result[0] if result else []
 
 

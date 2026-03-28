@@ -2,14 +2,19 @@
 
 Frontal lobe: source-weighted scoring, confidence decay for volatile categories,
 contradiction suppression at retrieval, and auto-supersession at store time.
+
+Retrieval: BM25 + vector with Reciprocal Rank Fusion (RRF), plus recency
+and effective confidence signals.
 """
 
 import json
 import logging
+import math
 import os
 import re
 import time
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -66,6 +71,34 @@ CONTRADICTION_THRESHOLD = 0.75
 SUPERSESSION_THRESHOLD_LOW = 0.70
 SUPERSESSION_THRESHOLD_HIGH = 0.91
 
+# --- BM25 parameters ---
+BM25_K1 = 1.2   # Term frequency saturation
+BM25_B = 0.75   # Length normalisation strength
+
+# --- RRF fusion ---
+RRF_K = 60  # Reciprocal Rank Fusion constant (standard value)
+
+# Stop words excluded from BM25 tokenisation
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "could",
+    "should", "may", "might", "shall", "can", "to", "of", "in", "for",
+    "on", "with", "at", "by", "from", "as", "into", "through", "during",
+    "before", "after", "above", "below", "between", "out", "off", "over",
+    "under", "again", "further", "then", "once", "here", "there", "when",
+    "where", "why", "how", "all", "each", "every", "both", "few", "more",
+    "most", "other", "some", "such", "no", "nor", "not", "only", "own",
+    "same", "so", "than", "too", "very", "just", "and", "but", "or", "if",
+    "that", "this", "it", "its", "i", "me", "my", "we", "our", "you",
+    "your", "he", "him", "his", "she", "her", "they", "them", "their",
+    "what", "which", "who", "whom",
+})
+
+
+def _tokenise(text):
+    """Tokenise text for BM25: lowercase, alphanumeric, stop words removed."""
+    return [t for t in re.findall(r'\w+', text.lower()) if t not in _STOP_WORDS and len(t) > 1]
+
 
 def _load_json(path):
     if not os.path.exists(path):
@@ -103,10 +136,15 @@ class MemoryStore:
         os.makedirs(config.PROCESSED_DIR, exist_ok=True)
         self.memories = _load_json(config.MEMORIES_FILE)
         self._embeddings_matrix = None
+        self._doc_tokens = []     # BM25: tokenised docs
+        self._doc_lengths = []    # BM25: doc lengths
+        self._avg_dl = 0.0       # BM25: average doc length
+        self._idf_cache = {}     # BM25: IDF per term
         self._build_index()
 
     def _build_index(self):
-        """Build numpy matrix of embeddings for fast cosine similarity."""
+        """Build vector index (numpy) and BM25 index (IDF + doc tokens)."""
+        # --- Vector index ---
         vecs = []
         for m in self.memories:
             emb = m.get("embedding")
@@ -125,6 +163,44 @@ class MemoryStore:
             self._embeddings_matrix = self._embeddings_matrix / norms
         else:
             self._embeddings_matrix = None
+
+        # --- BM25 index ---
+        self._doc_tokens = []
+        self._doc_lengths = []
+        df = Counter()  # Document frequency per term
+        for m in self.memories:
+            # Tokenise fact + tags together
+            tokens = _tokenise(m["fact"]) + [t for t in m.get("tags", []) if t not in _STOP_WORDS]
+            self._doc_tokens.append(tokens)
+            self._doc_lengths.append(len(tokens))
+            for term in set(tokens):
+                df[term] += 1
+
+        n = len(self.memories)
+        self._avg_dl = sum(self._doc_lengths) / max(n, 1)
+        # Precompute IDF: log((N - df + 0.5) / (df + 0.5) + 1)
+        self._idf_cache = {}
+        for term, freq in df.items():
+            self._idf_cache[term] = math.log((n - freq + 0.5) / (freq + 0.5) + 1.0)
+
+    def _bm25_score(self, query_tokens, doc_idx):
+        """Compute BM25 score for a document given query tokens."""
+        if doc_idx >= len(self._doc_tokens):
+            return 0.0
+        doc_toks = self._doc_tokens[doc_idx]
+        dl = self._doc_lengths[doc_idx]
+        if dl == 0:
+            return 0.0
+
+        tf_counter = Counter(doc_toks)
+        score = 0.0
+        for qt in query_tokens:
+            idf = self._idf_cache.get(qt, 0.0)
+            tf = tf_counter.get(qt, 0)
+            numerator = tf * (BM25_K1 + 1)
+            denominator = tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / max(self._avg_dl, 1))
+            score += idf * numerator / denominator
+        return score
 
     def _save(self):
         _save_json(config.MEMORIES_FILE, self.memories)
@@ -274,22 +350,33 @@ class MemoryStore:
         return kept
 
     def search(self, query_embedding=None, query_text="", category=None, limit=8):
-        """Hybrid search: keyword + vector + recency + effective_confidence.
+        """Hybrid search: BM25 + vector via RRF, boosted by recency, confidence, and source.
 
-        Scoring formula:
-            base = 0.30 * keyword + 0.40 * vector + 0.10 * recency + 0.20 * eff_confidence
-            combined = base * source_weight
-
-        Then contradiction suppression removes lower-scored entries that cover the
-        same topic as a higher-scored entry (cosine >= 0.75).
+        Pipeline:
+        1. Filter eligible memories (not expired, matching category)
+        2. Score each via BM25 (lexical) and cosine similarity (vector)
+        3. Rank separately, fuse via Reciprocal Rank Fusion (RRF)
+        4. Apply recency, effective confidence, and source weight boosts
+        5. Contradiction suppression on top results
         """
         now = datetime.utcnow()
-        results = []
 
-        query_tokens = set(re.findall(r'\w+', query_text.lower())) if query_text else set()
+        query_tokens = _tokenise(query_text) if query_text else []
+
+        # Precompute normalised query vector once
+        qvec = None
+        if query_embedding is not None:
+            qvec = np.array(query_embedding, dtype=np.float32)
+            qnorm = np.linalg.norm(qvec)
+            if qnorm > 0:
+                qvec = qvec / qnorm
+            else:
+                qvec = None
+
+        # --- Phase 1: Filter eligible and compute raw scores ---
+        eligible = []  # (index, memory, bm25_score, vector_score, days_old)
 
         for i, m in enumerate(self.memories):
-            # Skip expired
             if m.get("expires"):
                 try:
                     exp = datetime.strptime(m["expires"], "%Y-%m-%d")
@@ -301,34 +388,45 @@ class MemoryStore:
             if category and m["category"] != category:
                 continue
 
-            # Keyword score
-            keyword_score = 0.0
-            if query_tokens:
-                tag_set = set(m.get("tags", []))
-                fact_tokens = set(re.findall(r'\w+', m["fact"].lower()))
-                matched = query_tokens & (tag_set | fact_tokens)
-                keyword_score = len(matched) / max(len(query_tokens), 1)
+            # BM25 score
+            bm25 = self._bm25_score(query_tokens, i) if query_tokens else 0.0
 
             # Vector score
-            vector_score = 0.0
-            if (query_embedding is not None and
-                    self._embeddings_matrix is not None and
-                    i < len(self._embeddings_matrix)):
-                qvec = np.array(query_embedding, dtype=np.float32)
-                qnorm = np.linalg.norm(qvec)
-                if qnorm > 0:
-                    qvec = qvec / qnorm
-                    vector_score = float(np.dot(self._embeddings_matrix[i], qvec))
-                    vector_score = max(0.0, vector_score)
+            vec_score = 0.0
+            if (qvec is not None and self._embeddings_matrix is not None
+                    and i < len(self._embeddings_matrix)):
+                vec_score = float(np.dot(self._embeddings_matrix[i], qvec))
+                vec_score = max(0.0, vec_score)
 
-            # Recency score
             try:
                 created = datetime.strptime(m["sourceDate"], "%Y-%m-%d")
                 days_old = (now - created).days
-                recency_score = max(0.0, 1.0 - days_old / 90)
             except (ValueError, KeyError):
                 days_old = 0
-                recency_score = 0.5
+
+            eligible.append((i, m, bm25, vec_score, days_old))
+
+        if not eligible:
+            return []
+
+        # --- Phase 2: Rank separately, compute RRF ---
+        # Sort by BM25 descending
+        bm25_ranked = sorted(eligible, key=lambda x: x[2], reverse=True)
+        bm25_rank = {item[0]: rank for rank, item in enumerate(bm25_ranked)}
+
+        # Sort by vector descending
+        vec_ranked = sorted(eligible, key=lambda x: x[3], reverse=True)
+        vec_rank = {item[0]: rank for rank, item in enumerate(vec_ranked)}
+
+        # --- Phase 3: Fuse and boost ---
+        results = []
+        for idx, m, bm25, vec_score, days_old in eligible:
+            # RRF fusion: score = 1/(k + rank_bm25) + 1/(k + rank_vec)
+            rrf = (1.0 / (RRF_K + bm25_rank[idx]) +
+                   1.0 / (RRF_K + vec_rank[idx]))
+
+            # Recency boost (0-1, linear decay over 90 days)
+            recency = max(0.0, 1.0 - days_old / 90)
 
             # Effective confidence (decays for volatile categories only)
             eff_conf = _effective_confidence(
@@ -338,20 +436,21 @@ class MemoryStore:
                 days_old,
             )
 
-            # Combined score with source weight
-            base = (0.30 * keyword_score +
-                    0.40 * vector_score +
-                    0.10 * recency_score +
-                    0.20 * eff_conf)
+            # Combined: RRF is the primary signal, boosted by recency + confidence
+            # RRF is typically 0.01-0.03 range, so we scale it up
+            combined = (rrf * 30.0 +         # RRF scaled to ~0.3-0.9 range
+                        0.10 * recency +
+                        0.20 * eff_conf)
 
+            # Source authority boost
             source_weight = SOURCE_WEIGHTS.get(m.get("source", "unknown"), 1.0)
-            combined = base * source_weight
+            combined *= source_weight
 
             results.append((combined, m))
 
         results.sort(key=lambda x: x[0], reverse=True)
 
-        # Overshoot: fetch extra candidates to compensate for contradiction suppression
+        # Overshoot for contradiction suppression
         overshoot_limit = min(len(results), int(limit * 1.5) + 1)
         candidates = results[:overshoot_limit]
 
