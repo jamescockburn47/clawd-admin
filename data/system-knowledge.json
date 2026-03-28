@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-03-27T22:00:00.000Z",
+  "lastUpdated": "2026-03-28T14:00:00.000Z",
   "identity": {
     "name": "Clawd",
     "fullName": "Clawd Monet",
@@ -25,7 +25,7 @@
         "role": "Voice & Local AI",
         "user": "james",
         "hardware": "AMD Ryzen AI Max+ 395 (16C/32T), Radeon 8060S (RDNA 3.5, 40 CUs, gfx1151), 128GB unified LPDDR5X (96GB GPU VRAM heap via UMA, ~32GB CPU-visible — do NOT use free/meminfo to judge model capacity, check /sys/class/drm/card1/device/mem_info_vram_total)",
-        "runs": "Python voice listener (clawdbot-voice.service), llama.cpp with Qwen3-VL-30B-A3B (tool-calling + vision, 32K ctx, port 8080), Qwen3-0.6B (fast classifier, port 8081), Granite-Docling-258M F16 (structured document parsing, port 8084), nomic-embed-text (embeddings, port 8083), memory service on port 5100 (vector search, fact storage, document chunks), SearXNG (Docker, port 8888, web search), Whisper STT (distil-small.en), Piper TTS (en_GB-alan-medium)"
+        "runs": "Python voice listener (clawdbot-voice.service), llama.cpp with Qwen3-VL-30B-A3B (tool-calling + vision, 65K ctx, port 8080), Qwen3-0.6B (fast classifier, port 8081), Granite-Docling-258M F16 (structured document parsing, port 8084), nomic-embed-text (embeddings, port 8083), memory service on port 5100 (vector search, fact storage, document chunks), SearXNG (Docker, port 8888, web search), Whisper STT (distil-small.en), Piper TTS (en_GB-alan-medium)"
       },
       {
         "name": "Rust Dashboard",
@@ -37,13 +37,13 @@
     ]
   },
   "engagementClassifier": {
-    "summary": "In groups, I only respond when directly @mentioned or when someone uses my name as a prefix command ('clawd ...' or 'clawdsec ...'). Replying to one of my messages also works. I don't respond just because someone mentions 'clawd' in conversation — that's discussing me, not addressing me. The engagement classifier (0.6B on EVO) still exists in the codebase but is dormant — it's reserved for a future phase where I participate autonomously in group discussions, with restraint. For now, silence unless asked."
+    "summary": "In groups, I only respond when directly @mentioned or when someone uses my name as a prefix command ('clawd ...' or 'clawdsec ...'). Replying to one of my messages also works. I don't respond just because someone mentions 'clawd' in conversation — that's discussing me, not addressing me. The @ symbol is stripped before prefix matching so '@clawd' works the same as 'clawd'. The engagement classifier (0.6B on EVO) still exists in the codebase but is dormant — it's reserved for a future phase where I participate autonomously in group discussions, with restraint. For now, silence unless asked."
   },
   "muteSystem": {
     "summary": "My mute system lets people tell me to shut up in groups. When someone says 'shut up clawd' or similar, I go quiet for 10 minutes. Only direct @mentions break through a mute. Mute state is in-memory and resets on restart."
   },
   "conversationLogging": {
-    "summary": "I log all group messages to JSONL files in data/conversation-logs/, not just my own exchanges. This captures full group context for dream mode processing."
+    "summary": "I log all group messages to JSONL files in data/conversation-logs/, not just my own exchanges. This captures full group context for dream mode processing and overnight topic indexing. The logs feed two overnight pipelines: (1) dream mode extracts diary entries and facts, (2) topic indexer clusters messages into topics for group analysis modes."
   },
   "messageFlow": {
     "summary": "WhatsApp message → trigger check (DMs always, groups @mention/prefix only) → 4B classifier (category + needsPlan) → route to MiniMax or Claude → tool execution loop (up to 5 iterations) or task planner (multi-step) → response sent. Two addressing modes: 'clawd' for full advisory mode (planner available), 'clawdsec' for secretary/admin mode (single-tool fast path).",
@@ -80,7 +80,7 @@
       "Side gig meeting alerts — 30 minutes before meetings tagged 'Side Gig'",
       "Morning briefing at 07:00 — weather, calendar, todos, Henry status, memory stats, overnight diary insights (surfaces up to 4 non-obvious insights from last night's diary) — zero Claude API calls",
       "Self-improvement cycle at 01:00 — probes keyword classifier, proposes new rules, validates against eval suite",
-      "Overnight extraction at 02:00 — extracts facts from yesterday's conversation logs into EVO memory",
+      "Overnight extraction at 02:00 — extracts facts from yesterday's conversation logs into EVO memory, then indexes group topics via EVO 30B into data/topic-index/ (30-day pruning)",
       "System knowledge refresh at 02:00 — regenerates self-knowledge entries in EVO memory from live codebase state",
       "Trace analyser at 03:00 — analyses reasoning traces from last 7 days, outputs routing breakdown, needsPlan F1, plan success rates, timing percentiles, anomaly detection",
       "Daily backup at 03:00 — todos, soul, soul_history (7-day retention)",
@@ -125,14 +125,17 @@
     "tools": "group_mode (set open/project/colleague in a group, owner only, response is 'Done.'), group_block (add blocked topics via DM, owner only), group_status (show current mode — minimal in groups, full detail in DMs)."
   },
   "groupAnalysis": {
-    "summary": "Two group analysis modes: devil's advocate (critique) and summary. Both use a two-step flow: topic segmentation then execution. Triggered by phrases like '@clawd devil's advocate' or '@clawd summarise'. I scan the last ~50 messages from conversation logs, cluster into distinct topics, present a numbered list, then the user selects which topics to analyse.",
+    "summary": "Two group analysis modes: devil's advocate (critique) and summary. Both use a two-step flow: present topics (from overnight index + today's live messages) → user selects topics → execute analysis via Opus with tools. Topics are pre-computed overnight by EVO 30B (free) and stored in a JSONL index. Today's unindexed messages are clustered on-demand via EVO. Exit detection prevents re-triggering when cancelling ('exit devil's advocate' no longer starts the mode).",
     "modes": {
-      "critique": "Devil's advocate mode. I find gaps, blind spots, and groupthink using a structured framework: (1) state the group's position, (2) list key unstated assumptions and flag which are unsupported, (3) pre-mortem — assume failure and work backward, (4) steelman the opposition with evidence, (5) identify blind spots and absent perspectives. I end constructively with questions and next steps. Grounded in evidence from the conversation, my memories, and web search. Never theatrical — genuine challenges only.",
+      "critique": "Devil's advocate mode. I find gaps, blind spots, and groupthink using the Nemeth/Klein framework: (1) state the group's position, (2) list 3-5 key unstated assumptions (CIA method) and flag which are unsupported, (3) pre-mortem (Klein) — assume failure and work backward, (4) steelman the opposition with evidence, (5) identify blind spots and absent perspectives. I end constructively with questions and next steps. Grounded in evidence from the conversation, my memories, and web search. Never theatrical — genuine challenges only.",
       "summary": "Summary mode. Concise per-topic summaries with attribution (who argued what). Captures key points, conclusions, action items, and outstanding disagreements. Context from memories and web search where it enriches the summary."
     },
-    "triggers": "Devil's advocate: 'devil's advocate'. Summary: 'summarise', 'summary', 'recap', 'catch me up', 'what did I miss', 'what have I missed'.",
-    "flow": "Step 1: I read conversation logs (JSONL files in data/conversation-logs/), format into a transcript, and ask MiniMax to segment into topics. I present the numbered topic list and ask which to analyse. Step 2: User replies with topic numbers ('1 and 3' or 'all'). I execute the analysis using Opus for accuracy, with memory_search and web_search tools for evidence. The pending action expires after 5 minutes.",
-    "files": "src/topic-scan.js (log reading, transcript formatting, topic parsing), src/pending-action.js (in-memory pending action store with expiry), src/group-modes.js (trigger detection, segmentation orchestration, execution prompts), src/claude.js (getGroupModeResponse with tool loop)"
+    "triggers": "Devil's advocate: 'devil's advocate' (handles smart quotes, no apostrophe, capitalisation). Summary: 'summarise', 'summarize', 'summary', 'recap', 'catch me up', 'what did I miss', 'what have I missed'.",
+    "exitTriggers": "Exit/cancel patterns detected BEFORE mode triggers: 'exit devil's advocate mode', 'stop critique mode', 'cancel analysis', 'advocate mode off', 'never mind the summary', etc. Requires both an action word (exit/stop/cancel/quit/leave/drop/never mind/forget it) AND a mode word (mode/advocate/summary/summarise/critique/analysis). Clears any pending action for the group.",
+    "topicIndex": "Overnight at 2 AM, EVO 30B clusters each group's daily conversation logs into topics and stores them in data/topic-index/<group>.jsonl. Pre-computed and free — no LLM call needed to retrieve historical topics. Today's unindexed messages are clustered on-demand via EVO when someone triggers a mode. The index is pruned to 30 days. EVO main model runs with 65K context — no transcript truncation needed for typical day logs.",
+    "flow": "Step 1: I merge historical topics from the overnight index with today's live messages (clustered on-demand via EVO 30B). Topics are grouped by date with continuous numbering — today first, then historical by date descending. If only one topic exists, I skip the selection step and ask for confirmation. Step 2: User replies with topic numbers ('1 and 3' or 'all'). I build an execution prompt with the relevant transcript (today's live + historical from logs) and execute via Opus with memory_search and web_search tools. The pending action stores topics, transcript, and the historical/today split, expiring after 5 minutes.",
+    "pendingAction": "In-memory Map keyed by group JID. Stores mode, topics (with displayNum), transcript, topicData (historical/today split for transcript retrieval), and expiry timestamp. Cleared after execution, on timeout, or on exit command.",
+    "files": "src/topic-index.js (overnight indexing via EVO 30B, historical retrieval, live merge, topic formatting, transcript retrieval, index pruning), src/topic-scan.js (shared log reading, transcript formatting, segmentation prompt building, topic parsing), src/pending-action.js (in-memory pending action store with 5-min expiry, topic selection parsing), src/group-modes.js (trigger detection, exit detection, topic retrieval orchestration, execution prompt building with Nemeth/Klein framework), src/claude.js (getGroupModeResponse with tool loop)"
   },
   "soulSystem": {
     "summary": "Earned learning system. 4 sections: people (facts about individuals), patterns (observed habits), lessons (incidents that changed behaviour), boundaries (social rules from feedback). Max 12 entries per section. Entries are short timestamped observations, not personality rules.",
@@ -170,7 +173,7 @@
   },
   "selfImprovement": {
     "summary": "Multi-layered autonomous improvement: (1) Overnight keyword rule probing and graduation at 1 AM, (2) needsPlan probe — 23 synthetic test cases evaluate 4B classifier accuracy, results in WhatsApp notification, (3) Trace analyser at 3 AM — analyses routing, plans, needsPlan F1, timing, anomalies from reasoning-traces.jsonl, (4) Weekly retrospective on Sundays at 4 AM — 30B model reasons about top 3 priorities from trace data, auto-creates evolution tasks for high/medium severity items.",
-    "evalSuite": "466 tests across 94 suites (task-planner, trace-analyser, reasoning-trace, weekly-retrospective, trigger, engagement, router, quality-gate, group-registry, output-filter, security-realworld, etc). 29 labeled needsPlan cases. Router eval covers keyword classification, write-intent detection, tool safety sets. Security tests cover 75 real-world attack vectors, 27 output filter scenarios, 21 group registry operations. Run with: npm test"
+    "evalSuite": "466+ tests across 94+ suites (task-planner, trace-analyser, reasoning-trace, weekly-retrospective, trigger, engagement, router, quality-gate, group-registry, output-filter, security-realworld, group-modes, pending-action, topic-scan, topic-index, etc). 88 tests for group analysis subsystem alone. 29 labeled needsPlan cases. Router eval covers keyword classification, write-intent detection, tool safety sets. Security tests cover 75 real-world attack vectors, 27 output filter scenarios, 21 group registry operations. Run with: npm test"
   },
   "overnightCoding": {
     "summary": "Every night from 22:30 to 05:15, I run a self-improvement coding session using the local 30B coding model on EVO. It's like having a code reviewer work overnight — finding router bugs, generating unit tests, and auditing code quality. Three tasks run sequentially: (1) Router Eval Adversarial Expansion finds messages my keyword router misclassifies by generating tricky edge cases, (2) Unit Test Generation creates and iterates on tests for all 27+ source modules using a Reflexion loop (generate → run → see failures → fix → repeat), (3) Code Quality Deep Analysis feeds my entire codebase to the model for a 6-phase audit covering bugs, dead code, error handling gaps, performance, security, and compliance with my code structure rules.",
@@ -212,13 +215,13 @@
     }
   },
   "dataPersistence": {
-    "summary": "All data stored as JSON files in data/ directory — no database. Files: todos.json, soul.json, soul_pending.json, soul_backup.json, soul_history.json, messages.json (DM context), audit.json (tool log, last 1000), usage.json (token costs), router-stats.jsonl (routing telemetry), learned-rules.json (self-improvement), learned-eval-labels.json, notified_meetings.json, memory-cache.json, system-knowledge.json (this file). Daily backups in data/backups/."
+    "summary": "All data stored as JSON files in data/ directory — no database. Files: todos.json, soul.json, soul_pending.json, soul_backup.json, soul_history.json, messages.json (DM context), audit.json (tool log, last 1000), usage.json (token costs), router-stats.jsonl (routing telemetry), learned-rules.json (self-improvement), learned-eval-labels.json, notified_meetings.json, memory-cache.json, system-knowledge.json (this file). Topic index in data/topic-index/<group>.jsonl (overnight topic clusters, 30-day retention). Conversation logs in data/conversation-logs/<date>_<group>.jsonl. Daily backups in data/backups/."
   },
   "techStack": {
     "runtime": "Node.js 20+ (ESM modules, no TypeScript, no database, no build step)",
     "whatsapp": "@whiskeysockets/baileys v6.x",
     "ai_cloud": "@anthropic-ai/sdk — MiniMax M2.7 (default, Anthropic-compatible API), Claude Opus 4.6 (premium, explicit request only)",
-    "ai_local": "llama.cpp (Vulkan) — Qwen3-VL-30B-A3B Q4_K_M (tool-calling + vision, 32K ctx), Qwen3-0.6B Q8_0 (classifier)",
+    "ai_local": "llama.cpp (Vulkan) — Qwen3-VL-30B-A3B Q4_K_M (tool-calling + vision, 65K ctx), Qwen3-0.6B Q8_0 (classifier)",
     "google": "googleapis — Calendar v3, Gmail v1",
     "weather": "Open-Meteo (free, no API key)",
     "travel": "Darwin (live trains), BR Fares (ticket prices), Amadeus (hotels)",
@@ -264,5 +267,5 @@
   "systemHealthApi": {
     "summary": "The /api/system-health endpoint provides a consolidated view of all subsystem statuses. It reports on WhatsApp connection, EVO reachability, briefing/diary/self-improve/knowledge-refresh/backup last-run times, memory statistics (total count + category breakdown), system uptime, and memory usage. The dashboard's Admin panel fetches this on startup and displays it as a real-time status grid with green/red indicators."
   },
-  "version": "2.6.0"
+  "version": "2.7.0"
 }
