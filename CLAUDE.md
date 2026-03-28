@@ -227,7 +227,8 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 126. **Scheduled maintenance runs overnight at 2 AM.** After extraction, before topic indexing. Expires old memories and deduplicates in one pass.
 127. **Memory categories must match between Pi and EVO.** All categories used in code (identity, dream, system, insight, document, document_chunk, document_index) registered in config.py with correct TTLs.
 128. **Memory injection token budget: 3000 tokens (~12000 chars).** Truncates at section boundaries. Identity and relevance memories preserved; insights, lquorum, dreams truncated first.
-129. **Embedding upgrade planned: Qwen3-Embedding-8B.** Replaces nomic-embed-text (137M) for higher retrieval quality. Phase 2.
+129. **Embedding model: Qwen3-Embedding-8B (4096d).** Replaced nomic-embed-text (768d, 137M). +13 MTEB points. Uses `--pooling last`, `<|endoftext|>` EOS token, instruction-aware query prefix. Port 8083.
+136. **BM25 + vector search via RRF.** Replaced simple keyword matching. BM25 provides TF-IDF with length normalisation. Reciprocal Rank Fusion merges BM25 and vector rankings.
 130. **EVO memory service DATA_DIR is `~/clawdbot-memory/data`.** NOT `~/clawdbot-memory`. The repo config.py must match.
 
 ### Memory Frontal Lobe (2026-03-28)

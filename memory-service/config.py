@@ -4,8 +4,8 @@ import os
 
 # --- LLM backends (llama.cpp servers) ---
 LLM_URL = os.environ.get("LLM_URL", "http://localhost:8080")           # Main model (Qwen3-VL-30B, daytime)
-LLM_EMBED_URL = os.environ.get("LLM_EMBED_URL", "http://localhost:8083")  # Embedding model (nomic-embed-text, always on)
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
+LLM_EMBED_URL = os.environ.get("LLM_EMBED_URL", "http://localhost:8083")  # Embedding model (Qwen3-Embedding-8B, always on)
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "qwen3-embedding-8b")
 EXTRACT_MODEL = os.environ.get("EXTRACT_MODEL", "qwen3.5:35b")        # Legacy — extraction uses LLM_URL
 EXTRACT_TEMPERATURE = float(os.environ.get("EXTRACT_TEMPERATURE", "0.1"))
 VISION_MODEL = os.environ.get("VISION_MODEL", "qwen3.5:35b")          # Legacy — vision uses LLM_URL
