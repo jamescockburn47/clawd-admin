@@ -11,7 +11,7 @@ import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
 import { projectList, projectRead, projectPitch, projectUpdate } from './projects.js';
 import { sendOvernightReport } from '../overnight-report.js';
 import { createTask, getTaskSummary } from '../evolution.js';
-import { getGroupConfig, setGroupConfig, removeGroupConfig, getRegisteredGroups, getSecurityLevel, getSecurityLevelInfo, getAllSecurityLevels } from '../group-registry.js';
+import { getGroupConfig, setGroupConfig, removeGroupConfig, getRegisteredGroups, getGroupMode, getModeInfo, findGroupByLabel, addBlockedTopics } from '../group-registry.js';
 import { broadcastSSE, getSSEClientCount } from '../sse.js';
 import { logAudit } from '../audit.js';
 import { getRoutingStats } from '../router-telemetry.js';
@@ -278,41 +278,62 @@ export async function executeTool(toolName, toolInput, senderJid, chatJid) {
     return 'Soul confirmations must happen in DM with James, not in group chats.';
   }
 
-  // ── GROUP SECURITY LEVEL TOOLS ────────────────────────────────────────────
-  if (toolName === 'group_security') {
+  // ── GROUP SECURITY MODE TOOLS ─────────────────────────────────────────────
+  if (toolName === 'group_mode') {
     if (!isOwnerSender(senderJid)) {
-      return 'Only James can set group security levels.';
+      return 'Only James can set group modes.';
     }
     if (!isGroup) {
       return 'This tool only works in group chats. Send the command in the group you want to configure.';
     }
-    const level = Math.max(1, Math.min(10, Math.round(toolInput.level)));
-    const levelInfo = getSecurityLevelInfo(level);
-    const update = { securityLevel: level };
+    const validModes = ['open', 'project', 'colleague'];
+    const mode = (toolInput.mode || '').toLowerCase();
+    if (!validModes.includes(mode)) {
+      return 'Invalid mode. Use: open, project, or colleague.';
+    }
+    const update = { mode };
     if (toolInput.label) update.label = toolInput.label;
-    if (toolInput.blocked_topics) update.blockedTopics = toolInput.blocked_topics;
     setGroupConfig(chatJid, update);
-    return 'Security enabled.';
+    return 'Done.';
   }
 
-  if (toolName === 'group_security_status') {
-    if (!isGroup) {
-      // In DM, show all registered groups
-      const groups = getRegisteredGroups();
-      if (groups.length === 0) return 'No groups registered. Unregistered groups default to security level 3 (Standard).';
-      const lines = groups.map(g => {
-        const info = getSecurityLevelInfo(g.securityLevel);
-        const topics = g.blockedTopics.length > 0 ? `\n  Extra blocked: ${g.blockedTopics.join(', ')}` : '';
-        return `*${g.label || 'Unnamed'}* — Level ${g.securityLevel} (${info.name})${topics}`;
-      });
-      return lines.join('\n\n') + '\n\nUnregistered groups default to level 3 (Standard).';
+  if (toolName === 'group_block') {
+    if (!isOwnerSender(senderJid)) {
+      return 'Only James can manage group restrictions.';
     }
-    // In groups, only show level number — don't reveal what's blocked
+    const label = toolInput.group_label;
+    const topics = toolInput.topics;
+    if (!label || !topics || topics.length === 0) {
+      return 'Need a group label and at least one topic.';
+    }
+    const match = findGroupByLabel(label);
+    if (!match) {
+      return `No registered group matching "${label}". Set a mode in the group first.`;
+    }
+    const added = addBlockedTopics(match.jid, topics);
+    if (added.length === 0) {
+      return 'Those topics are already blocked in that group.';
+    }
+    return 'Done.';
+  }
+
+  if (toolName === 'group_status') {
+    if (!isGroup) {
+      // In DM, show all registered groups with full detail
+      const groups = getRegisteredGroups();
+      if (groups.length === 0) return 'No groups registered. Unregistered groups default to colleague mode.';
+      const lines = groups.map(g => {
+        const topics = g.blockedTopics.length > 0 ? `\n  Blocked: ${g.blockedTopics.join(', ')}` : '';
+        return `*${g.label || 'Unnamed'}* — ${g.mode} mode${topics}`;
+      });
+      return lines.join('\n\n') + '\n\nUnregistered groups default to colleague mode.';
+    }
+    // In groups — minimal disclosure
     if (!isOwnerSender(senderJid)) {
       return 'Security is active.';
     }
-    const level = getSecurityLevel(chatJid);
-    return `Security level ${level} active.`;
+    const mode = getGroupMode(chatJid);
+    return `${mode} mode active.`;
   }
 
   try {

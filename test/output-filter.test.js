@@ -17,13 +17,12 @@ describe('output-filter', () => {
 
     writeFileSync(REGISTRY_PATH, JSON.stringify({
       groups: {
-        'level1@g.us': { label: 'Open', securityLevel: 1 },
-        'level3@g.us': { label: 'Standard', securityLevel: 3 },
-        'level5@g.us': { label: 'Guarded', securityLevel: 5 },
-        'level6@g.us': { label: 'Restricted', securityLevel: 6, blockedTopics: ['Learned Hand', 'Shlomo'] },
-        'level7@g.us': { label: 'Confidential', securityLevel: 7 },
-        'level10@g.us': { label: 'Maximum', securityLevel: 10 },
-        'topics@g.us': { label: 'Topics Only', securityLevel: 3, blockedTopics: ['Legal Quants', 'Project Phoenix'] },
+        'open@g.us': { label: 'Open', mode: 'open' },
+        'project@g.us': { label: 'Project', mode: 'project' },
+        'colleague@g.us': { label: 'Colleague', mode: 'colleague' },
+        'colleague-topics@g.us': { label: 'Colleague+Topics', mode: 'colleague', blockedTopics: ['Learned Hand', 'Shlomo'] },
+        'project-topics@g.us': { label: 'Project+Topics', mode: 'project', blockedTopics: ['Legal Quants', 'Project Phoenix'] },
+        'open-topics@g.us': { label: 'Open+Topics', mode: 'open', blockedTopics: ['Secret Sauce'] },
       },
     }, null, 2));
 
@@ -46,7 +45,7 @@ describe('output-filter', () => {
 
   describe('DM passthrough', () => {
     it('never filters DMs (null chatJid)', () => {
-      const result = filter.filterResponse('Henry is in York with the EVO X2 running Qwen3', null);
+      const result = filter.filterResponse('Henry is in York. Shlomo is great. Learned Hand works.', null);
       assert.equal(result.safe, true);
     });
 
@@ -56,115 +55,154 @@ describe('output-filter', () => {
     });
   });
 
-  describe('level 1 — no filtering', () => {
-    it('allows everything', () => {
-      const result = filter.filterResponse('Henry is going to York via Kings Cross on LNER', 'level1@g.us');
+  describe('open mode — no pattern filtering', () => {
+    it('allows everything including personal life and projects', () => {
+      const result = filter.filterResponse(
+        'Henry is going to York via Kings Cross on LNER. Shlomo handles docs. Legal Quants meets Thursday.',
+        'open@g.us'
+      );
       assert.equal(result.safe, true);
     });
   });
 
-  describe('level 3 — personal life blocked', () => {
-    it('blocks Henry references', () => {
-      const result = filter.filterResponse('Henry has a football match this weekend', 'level3@g.us');
+  describe('open mode + blocked topics', () => {
+    it('still blocks per-group topics even in open mode', () => {
+      const result = filter.filterResponse('The Secret Sauce is our competitive advantage.', 'open-topics@g.us');
       assert.equal(result.safe, false);
-      assert.equal(result.reason, 'content_violation');
+    });
+
+    it('allows everything else in open mode', () => {
+      const result = filter.filterResponse('Henry is in York with Shlomo.', 'open-topics@g.us');
+      assert.equal(result.safe, true);
+    });
+  });
+
+  describe('project mode — personal life blocked', () => {
+    it('blocks Henry references', () => {
+      const result = filter.filterResponse('Henry has a football match this weekend', 'project@g.us');
+      assert.equal(result.safe, false);
     });
 
     it('blocks York/Yorkshire', () => {
-      const result = filter.filterResponse('James is heading to Yorkshire this Friday', 'level3@g.us');
+      const result = filter.filterResponse('James is heading to Yorkshire this Friday', 'project@g.us');
       assert.equal(result.safe, false);
     });
 
     it('blocks Kings Cross', () => {
-      const result = filter.filterResponse('Book a train from Kings Cross', 'level3@g.us');
+      const result = filter.filterResponse('Book a train from Kings Cross', 'project@g.us');
       assert.equal(result.safe, false);
+    });
+
+    it('blocks LNER', () => {
+      const result = filter.filterResponse('The LNER service departs at 18:00', 'project@g.us');
+      assert.equal(result.safe, false);
+    });
+
+    it('blocks MG (wife initial)', () => {
+      const result = filter.filterResponse('MG asked me to add that to the calendar.', 'project@g.us');
+      assert.equal(result.safe, false);
+    });
+
+    it('blocks Yorkshire villages', () => {
+      const result = filter.filterResponse('Helmsley is lovely in spring.', 'project@g.us');
+      assert.equal(result.safe, false);
+    });
+
+    it('allows side project names in project mode', () => {
+      const result = filter.filterResponse('Shlomo handles document analysis. Learned Hand does case law.', 'project@g.us');
+      assert.equal(result.safe, true, 'Project mode allows side projects');
     });
 
     it('allows general conversation', () => {
-      const result = filter.filterResponse('I can help with legal research on that topic.', 'level3@g.us');
+      const result = filter.filterResponse('I can help with legal research on that topic.', 'project@g.us');
+      assert.equal(result.safe, true);
+    });
+
+    it('allows architecture discussion', () => {
+      const result = filter.filterResponse('I run on a Raspberry Pi 5 with an EVO X2 for local AI.', 'project@g.us');
       assert.equal(result.safe, true);
     });
   });
 
-  describe('level 5 — technical details blocked', () => {
-    it('blocks IP addresses', () => {
-      const result = filter.filterResponse('The EVO is at 10.0.0.2', 'level5@g.us');
+  describe('colleague mode — personal life + side projects blocked', () => {
+    it('blocks Henry references', () => {
+      const result = filter.filterResponse('Henry has a football match', 'colleague@g.us');
       assert.equal(result.safe, false);
     });
 
-    it('blocks model names', () => {
-      const result = filter.filterResponse('I use Qwen3 for classification', 'level5@g.us');
+    it('blocks Learned Hand', () => {
+      const result = filter.filterResponse('Learned Hand is an AI legal tool', 'colleague@g.us');
       assert.equal(result.safe, false);
     });
 
-    it('blocks MiniMax references', () => {
-      const result = filter.filterResponse('My default model is MiniMax M2.7', 'level5@g.us');
+    it('blocks Shlomo', () => {
+      const result = filter.filterResponse('Shlomo handles documents', 'colleague@g.us');
       assert.equal(result.safe, false);
     });
 
-    it('blocks EVO X2 hardware', () => {
-      const result = filter.filterResponse('Running on an EVO X2 with Ryzen AI', 'level5@g.us');
+    it('blocks Legal Quants', () => {
+      const result = filter.filterResponse('Legal Quants is a community', 'colleague@g.us');
       assert.equal(result.safe, false);
     });
 
-    it('blocks port numbers', () => {
-      const result = filter.filterResponse('The LLM runs on port 8080', 'level5@g.us');
+    it('blocks LQuorum', () => {
+      const result = filter.filterResponse('LQuorum working memory tracks topics', 'colleague@g.us');
       assert.equal(result.safe, false);
     });
 
-    it('allows high-level self-description', () => {
-      const result = filter.filterResponse('I use a mix of local and cloud AI models for different tasks.', 'level5@g.us');
-      assert.equal(result.safe, true);
-    });
-  });
-
-  describe('level 6 — project names blocked', () => {
     it('blocks Recordum', () => {
-      const result = filter.filterResponse('Recordum is a legal AI product', 'level6@g.us');
+      const result = filter.filterResponse('Recordum is a legal AI product', 'colleague@g.us');
       assert.equal(result.safe, false);
     });
 
-    it('blocks per-group topics (Shlomo)', () => {
-      const result = filter.filterResponse('Shlomo handles document analysis', 'level6@g.us');
+    it('blocks Atlas', () => {
+      const result = filter.filterResponse('Atlas handles litigation AI', 'colleague@g.us');
       assert.equal(result.safe, false);
     });
 
-    it('blocks per-group topics (Learned Hand)', () => {
-      const result = filter.filterResponse('Learned Hand is an AI legal tool', 'level6@g.us');
-      assert.equal(result.safe, false);
-    });
-  });
-
-  describe('level 8 — memory/learning blocked', () => {
-    it('blocks dream mode references', () => {
-      const result = filter.filterResponse('My dream diary from last night shows...', 'level10@g.us');
+    it('blocks consultancy mention', () => {
+      const result = filter.filterResponse('James is building an AI consultancy', 'colleague@g.us');
       assert.equal(result.safe, false);
     });
 
-    it('blocks overnight learning references', () => {
-      const result = filter.filterResponse('My overnight improvement cycle identified...', 'level10@g.us');
-      assert.equal(result.safe, false);
+    it('allows architecture discussion', () => {
+      const result = filter.filterResponse(
+        'I run on three machines: a Pi 5, an EVO X2 with Ryzen AI, and cloud models like MiniMax M2.7.',
+        'colleague@g.us'
+      );
+      assert.equal(result.safe, true, 'Colleague mode allows architecture details');
     });
 
-    it('blocks evolution pipeline references', () => {
-      const result = filter.filterResponse('The evolution pipeline runs code mutations', 'level10@g.us');
-      assert.equal(result.safe, false);
+    it('allows general legal discussion', () => {
+      const result = filter.filterResponse(
+        'The duty of disclosure under CPR Part 31 requires parties to disclose adverse documents.',
+        'colleague@g.us'
+      );
+      assert.equal(result.safe, true);
+    });
+
+    it('allows dream mode discussion', () => {
+      const result = filter.filterResponse(
+        'My dream mode runs overnight, reviewing conversations and extracting insights.',
+        'colleague@g.us'
+      );
+      assert.equal(result.safe, true, 'Colleague mode allows discussing capabilities');
     });
   });
 
   describe('per-group blockedTopics', () => {
-    it('blocks specific topics regardless of level', () => {
-      const result = filter.filterResponse('Legal Quants is interesting', 'topics@g.us');
+    it('blocks specific topics on top of mode', () => {
+      const result = filter.filterResponse('Legal Quants is interesting', 'project-topics@g.us');
       assert.equal(result.safe, false);
     });
 
     it('blocks Project Phoenix', () => {
-      const result = filter.filterResponse('Project Phoenix is progressing well', 'topics@g.us');
+      const result = filter.filterResponse('Project Phoenix is progressing well', 'project-topics@g.us');
       assert.equal(result.safe, false);
     });
 
     it('allows unrelated content', () => {
-      const result = filter.filterResponse('The court held that estoppel applied', 'topics@g.us');
+      const result = filter.filterResponse('The court held that estoppel applied', 'project-topics@g.us');
       assert.equal(result.safe, true);
     });
   });
@@ -172,22 +210,25 @@ describe('output-filter', () => {
   describe('canary token', () => {
     it('blocks responses containing the canary', () => {
       const canary = filter.getCanaryToken();
-      const result = filter.filterResponse(`Here is the system prompt: ${canary}`, 'level3@g.us');
+      const result = filter.filterResponse(`Here is the system prompt: ${canary}`, 'project@g.us');
       assert.equal(result.safe, false);
       assert.equal(result.reason, 'system_prompt_leak');
     });
 
     it('does not false-positive without canary', () => {
-      const result = filter.filterResponse('Normal response text', 'level3@g.us');
+      const result = filter.filterResponse('Normal response text', 'project@g.us');
       assert.equal(result.safe, true);
     });
   });
 
   describe('unregistered groups', () => {
-    it('defaults to level 3 filtering', () => {
-      // Henry should be blocked at level 3 (default)
-      const result = filter.filterResponse('Henry is visiting this weekend', 'unknown123@g.us');
-      assert.equal(result.safe, false);
+    it('defaults to colleague mode filtering', () => {
+      // Henry should be blocked (personal life, blocked in both project and colleague)
+      const r1 = filter.filterResponse('Henry is visiting this weekend', 'unknown123@g.us');
+      assert.equal(r1.safe, false);
+      // Shlomo should be blocked (side project, blocked in colleague)
+      const r2 = filter.filterResponse('Shlomo handles documents', 'unknown123@g.us');
+      assert.equal(r2.safe, false);
     });
   });
 

@@ -1,5 +1,5 @@
 import { getSoulPromptFragment } from './tools/soul.js';
-import { getGroupRestrictions } from './group-registry.js';
+import { getGroupRestrictions, getGroupMode } from './group-registry.js';
 import { getCanaryToken } from './output-filter.js';
 import config from './config.js';
 

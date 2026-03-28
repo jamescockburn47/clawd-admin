@@ -204,12 +204,12 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 109. **Groups: @mention only.** No passive engagement. Bot name in text without @mention → silent. Reply-to-bot and prefix commands (`clawd ...`, `clawdsec ...`) also trigger. Future: autonomous participation with restraint.
 110. **Passive mode removed from trigger.js.** Engagement classifier still exists but only fires for future autonomous mode. Current groups are @mention-gated.
 
-### Per-Group Security Levels (2026-03-27)
-111. **Security levels 1-10 control group disclosure.** 1=open, 3=standard (default for ALL groups including unregistered), 5=guarded, 7=confidential, 10=maximum lockdown. Each level adds cumulative restrictions. Defined in `group-registry.js` SECURITY_LEVELS constant.
-112. **James sets levels by saying a number in the group.** "@clawd security level 7" → Clawd calls `group_security` tool, writes to `group-registry.json`, restrictions active immediately. No JID hunting, no JSON editing. Owner-only.
-113. **Optional `blockedTopics` per group sit on top of the security level.** For specific items that need blocking regardless of level. Also set via the tool or JSON.
-114. **Unregistered groups default to level 3 (Standard).** Blocks personal admin tools and personal life details. No action needed for basic groups.
-115. **Three-layer defense: prompt + output filter + canary.** Prompt-level restrictions tell the model what not to say. `output-filter.js` scans every response with deterministic regex BEFORE sending — blocks IP addresses, model names, project names, personal details based on security level. Canary token in system prompt detects prompt leakage. Cannot be prompt-injected.
+### Per-Group Security Modes (2026-03-27)
+111. **Three named modes control group disclosure.** `open` (no restrictions), `project` (blocks personal life/admin, side projects allowed), `colleague` (blocks personal life/admin AND all side projects). Architecture/capabilities always open.
+112. **James sets modes by saying the phrase in the group.** "@clawd colleague mode" → Clawd calls `group_mode` tool. "@clawd project mode" / "@clawd open mode". Owner-only.
+113. **Optional `blockedTopics` per group sit on top of the mode.** Set via DM: "block Shlomo in Tom's group" → `group_block` tool finds group by label, adds topic. Never said aloud in the group.
+114. **Unregistered groups default to `colleague` mode.** Blocks personal admin, personal life, AND all side projects. Safe default.
+115. **Three-layer defense: prompt + output filter + canary.** Prompt-level restrictions tell the model what not to say. `output-filter.js` scans every response with deterministic regex BEFORE sending — blocks personal life patterns (project+colleague modes) and side project names (colleague mode). Per-group blockedTopics always scanned. Canary token detects prompt leakage. Cannot be prompt-injected.
 116. **Anti-prompt-injection hardening in group prompts.** Identity lock (always Clawd), instruction hierarchy (system overrides user), anti-extraction instruction, anti-role-play instruction. Injected for all groups.
 
 ## Known Gotchas

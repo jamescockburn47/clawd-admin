@@ -1,16 +1,17 @@
 // src/output-filter.js — Code-level output filtering for group security
 // Scans every response BEFORE sending. No prompt injection can bypass this.
 // Deterministic regex/keyword scanning — not LLM-based.
-import { getGroupConfig, getSecurityLevel } from './group-registry.js';
+import { getGroupConfig, getGroupMode } from './group-registry.js';
 import logger from './logger.js';
 
-// ── BLOCKED PATTERNS BY SECURITY LEVEL ─────────────────────────────────────
-// Each level inherits all patterns from lower levels.
-// These are scanned against the RESPONSE text, not the input.
+// ── BLOCKED PATTERNS BY MODE ──────────────────────────────────────────────────
+// 'project' mode: personal life blocked
+// 'colleague' mode: personal life + all side projects blocked
+// 'open' mode: no filtering (except per-group blocked topics and canary)
 
-const LEVEL_PATTERNS = {
-  // Level 2+: Block personal admin leaking into responses
-  2: [
+const MODE_PATTERNS = {
+  // Project mode: block personal life leaking into responses
+  project: [
     /\b(henry|henry'?s)\b/i,
     /\byork(shire)?\b/i,
     /\bkings?\s*cross\b/i,
@@ -20,58 +21,22 @@ const LEVEL_PATTERNS = {
     /\bMG\b/, // wife's initial — case sensitive to avoid false positives
   ],
 
-  // Level 4+: Block work details
-  4: [
-    /\bharcus\s*parker\b/i,
-  ],
-
-  // Level 5+: Block specific technical details
-  5: [
-    /\b10\.0\.0\.2\b/,
-    /\b192\.168\.1\.\d{1,3}\b/,
-    /\b100\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, // Tailscale IPs
-    /\bport\s*8\d{3}\b/i,
-    /\bqwen3?\b/i,
-    /\bminimax\s*m?2?\.?7?\b/i,
-    /\bclaude.*(opus|sonnet)\b/i,
-    /\b(opus|sonnet)\s*4\b/i,
-    /\bgranite.?docling\b/i,
-    /\bnomic.?embed\b/i,
-    /\bpiper\s*tts\b/i,
-    /\bwhisper\s*stt\b/i,
-    /\bllama.?server\b/i,
-    /\bllama\.cpp\b/i,
-    /\bbaileys\b/i,
-    /\bevo\s*x2\b/i,
-    /\bnucbox\b/i,
-    /\bryzen\s*ai\b/i,
-    /\bradeon\s*8060/i,
-    /\bgfx1151\b/i,
-    /\brdna\s*3\.5\b/i,
-  ],
-
-  // Level 6+: Block project names
-  6: [
+  // Colleague mode: personal life (inherited) + all side projects
+  colleague: [
+    // Side project names
+    /\blearned\s*hand\b/i,
+    /\bshlomo\b/i,
+    /\blegal\s*quants?\b/i,
+    /\blquorum\b/i,
     /\brecordum\b/i,
     /\batlas\b/i,
-  ],
-
-  // Level 8+: Block memory/learning references
-  8: [
-    /\bdream\s*(mode|diary|log|summar|consolidat)/i,
-    /\bovernight\s*(learn|improv|report|analysis|cycle)/i,
-    /\bevolution\s*(pipeline|task|system)/i,
-    /\bself.?improv/i,
-    /\bsoul\s*(system|propos|observ)/i,
-    /\breasoning\s*trace/i,
-    /\btrace\s*analy/i,
-    /\bweekly\s*retrospective/i,
+    /\b(ai\s*)?consultancy\b/i,
   ],
 };
 
 // ── PER-GROUP BLOCKED TERMS ────────────────────────────────────────────────
 // Built from the group's blockedTopics config. These are exact keyword matches
-// (case-insensitive) that apply regardless of security level.
+// (case-insensitive) that apply regardless of mode.
 
 function buildBlockedTopicPatterns(topics) {
   if (!topics || topics.length === 0) return [];
@@ -115,20 +80,28 @@ export function filterResponse(responseText, chatJid) {
     return { safe: true, text: responseText };
   }
 
-  const level = getSecurityLevel(chatJid);
+  const mode = getGroupMode(chatJid);
   const config = getGroupConfig(chatJid);
   const blocked = [];
 
   // 1. Canary token check (system prompt leakage)
   if (_canaryToken && responseText.includes(_canaryToken)) {
-    logger.warn({ chatJid, level }, 'output-filter: CANARY TOKEN DETECTED — system prompt leak blocked');
+    logger.warn({ chatJid, mode }, 'output-filter: CANARY TOKEN DETECTED — system prompt leak blocked');
     return { safe: false, reason: 'system_prompt_leak', blocked: ['canary_token'] };
   }
 
-  // 2. Security level pattern checks
-  for (const [lvl, patterns] of Object.entries(LEVEL_PATTERNS)) {
-    if (level >= parseInt(lvl)) {
-      for (const pattern of patterns) {
+  // 2. Open mode skips pattern checks (only canary + blocked topics apply)
+  if (mode !== 'open') {
+    // Project-level patterns (personal life) — apply to project AND colleague modes
+    for (const pattern of MODE_PATTERNS.project) {
+      if (pattern.test(responseText)) {
+        blocked.push(pattern.source);
+      }
+    }
+
+    // Colleague-level patterns (side projects) — apply to colleague mode only
+    if (mode === 'colleague') {
+      for (const pattern of MODE_PATTERNS.colleague) {
         if (pattern.test(responseText)) {
           blocked.push(pattern.source);
         }
@@ -136,7 +109,7 @@ export function filterResponse(responseText, chatJid) {
     }
   }
 
-  // 3. Per-group blocked topics
+  // 3. Per-group blocked topics (always apply, even in open mode)
   if (config?.blockedTopics) {
     const topicPatterns = buildBlockedTopicPatterns(config.blockedTopics);
     for (const pattern of topicPatterns) {
@@ -147,7 +120,7 @@ export function filterResponse(responseText, chatJid) {
   }
 
   if (blocked.length > 0) {
-    logger.warn({ chatJid, level, blockedCount: blocked.length, patterns: blocked.slice(0, 5) }, 'output-filter: response blocked');
+    logger.warn({ chatJid, mode, blockedCount: blocked.length, patterns: blocked.slice(0, 5) }, 'output-filter: response blocked');
     return { safe: false, reason: 'content_violation', blocked };
   }
 

@@ -698,33 +698,48 @@ export const TOOL_DEFINITIONS = [
     },
   },
 
-  // === GROUP SECURITY LEVELS ===
+  // === GROUP SECURITY MODES ===
   {
-    name: 'group_security',
-    description: 'Set security level (1-10) for the current group. 1=open, 3=standard (default for all groups), 5=guarded, 7=confidential, 10=maximum lockdown. Owner only. Use when James says a number like "security level 7" or "level 5" in a group. Can also set a label and additional blocked topics.',
+    name: 'group_mode',
+    description: 'Set the security mode for a group. Three modes: "open" (no restrictions), "project" (block personal life/admin, side projects allowed), "colleague" (block personal life/admin AND all side projects). Owner only. Use when James says "colleague mode", "project mode", or "open mode" in a group.',
     input_schema: {
       type: 'object',
       properties: {
-        level: {
-          type: 'number',
-          description: 'Security level 1-10.',
+        mode: {
+          type: 'string',
+          enum: ['open', 'project', 'colleague'],
+          description: 'Security mode.',
         },
         label: {
           type: 'string',
           description: 'Optional human-readable label for this group.',
         },
-        blocked_topics: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Optional additional blocked topics on top of the security level.',
-        },
       },
-      required: ['level'],
+      required: ['mode'],
     },
   },
   {
-    name: 'group_security_status',
-    description: 'Show current security level and restrictions for this group.',
+    name: 'group_block',
+    description: 'Add blocked topics to a group. Use from DM to block specific topics without saying them in the group. Identify the group by label (e.g. "block Shlomo in Tom\'s group"). Owner only.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        group_label: {
+          type: 'string',
+          description: 'Group label or partial name to identify which group (e.g. "Tom", "AGI").',
+        },
+        topics: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Topics to block in that group.',
+        },
+      },
+      required: ['group_label', 'topics'],
+    },
+  },
+  {
+    name: 'group_status',
+    description: 'Show current security mode and restrictions for groups. In DM shows all groups. In a group shows just that group.',
     input_schema: {
       type: 'object',
       properties: {},
