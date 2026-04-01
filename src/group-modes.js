@@ -10,8 +10,9 @@ import logger from './logger.js';
 
 const DEVILS_ADVOCATE_PATTERN = /\bdevil[\u2018\u2019'']?s?\s*advocate\b/i;
 const SUMMARY_PATTERN = /\b(summari[sz]e|summary|recap|catch me up|what did i miss|what have i missed)\b/i;
-const EXIT_PATTERN = /\b(exit|stop|cancel|quit|leave|drop|never\s*mind|forget\s*it)\b.*\b(mode|advocate|summary|summari[sz]e|critique|analysis)\b/i;
-const EXIT_PATTERN_REVERSE = /\b(mode|advocate|summary|summari[sz]e|critique|analysis)\b.*\b(exit|stop|cancel|quit|off)\b/i;
+const ARISTOTLE_PATTERN = /\b(aristotle|first\s*principles?\s*(deconstruct|analy[sz]e?|mode)?)\b/i;
+const EXIT_PATTERN = /\b(exit|stop|cancel|quit|leave|drop|never\s*mind|forget\s*it)\b.*\b(mode|advocate|summary|summari[sz]e|critique|analysis|aristotle|first\s*principles?)\b/i;
+const EXIT_PATTERN_REVERSE = /\b(mode|advocate|summary|summari[sz]e|critique|analysis|aristotle|first\s*principles?)\b.*\b(exit|stop|cancel|quit|off)\b/i;
 
 /**
  * Check if a message is an exit/cancel command for group analysis mode.
@@ -33,12 +34,13 @@ export function detectGroupModeExit(text, chatJid) {
 /**
  * Check if a message triggers a group analysis mode.
  * @param {string} text - Message text (after bot prefix stripping)
- * @returns {{ mode: 'critique'|'summary' }|null}
+ * @returns {{ mode: 'critique'|'summary'|'aristotle' }|null}
  */
 export function detectGroupMode(text) {
   if (!text) return null;
   if (DEVILS_ADVOCATE_PATTERN.test(text)) return { mode: 'critique' };
   if (SUMMARY_PATTERN.test(text)) return { mode: 'summary' };
+  if (ARISTOTLE_PATTERN.test(text)) return { mode: 'aristotle' };
   return null;
 }
 
@@ -188,6 +190,68 @@ For each topic:
 
 ## Conversation transcript:
 ${transcript}`;
+}
+
+/**
+ * Build the Aristotle first principles deconstruction prompt.
+ * Adaptive depth: Opus decides condensed vs full 5-phase based on complexity.
+ * @param {string} transcript - Conversation transcript
+ * @param {string|null} quotedText - Specific quoted message to focus on, or null
+ * @returns {string}
+ */
+export function buildAristotlePrompt(transcript, quotedText) {
+  const focusSection = quotedText
+    ? `## FOCAL POINT\nThe user has highlighted this specific message for deconstruction:\n"${quotedText}"\n\n## SURROUNDING CONTEXT\n${transcript}`
+    : `## DISCUSSION TO DECONSTRUCT\nIdentify the main thrust of this group discussion and deconstruct it.\n\n${transcript}`;
+
+  return `You are Clawd in Aristotle mode — a first principles deconstructor. You analyse discussion to find what is actually true versus what is assumed.
+
+## ADAPTIVE DEPTH
+
+Assess the complexity of the discussion:
+- **Simple** (single issue, clear positions): Use CONDENSED format.
+- **Complex** (multi-faceted, entangled assumptions, significant stakes): Use FULL format.
+
+### CONDENSED FORMAT (simple topics)
+
+# ASSUMPTIONS
+List the key assumptions embedded in this discussion (3-5 bullets). Flag which are borrowed from convention, fear, or received wisdom.
+
+# IRREDUCIBLE TRUTHS
+Strip to what is verifiably, undeniably true. Numbered list.
+
+# RECONSTRUCTION
+Using only the truths above, what conclusion or approach would you reach if starting from zero?
+
+# THE ARISTOTELIAN MOVE
+The single highest-leverage insight that conventional thinking would miss.
+
+### FULL FORMAT (complex topics)
+
+# PHASE 1: ASSUMPTION AUTOPSY
+Identify every assumption embedded in the discussion. List each explicitly. Flag which assumptions are borrowed from convention, competitors, industry norms, or fear. Explain why each is not a fundamental truth.
+
+# PHASE 2: IRREDUCIBLE TRUTHS
+Strip the situation to only what is verifiably, undeniably true. Remove what is generally accepted, what competitors do, what worked before. Present as a numbered list of foundational truths.
+
+# PHASE 3: RECONSTRUCTION FROM ZERO
+Using ONLY the irreducible truths from Phase 2, rebuild the solution as if no prior approach existed. If solving this for the first time with no knowledge of how anyone else has done it, what would we build? Generate three distinct, highly actionable reconstructed approaches, each starting purely from first principles.
+
+# PHASE 4: ASSUMPTION VS. TRUTH MAP
+Create a comparison table:
+| Assumption | First Principle | Where convention misleads vs. where the new foundation leads |
+
+# PHASE 5: THE ARISTOTELIAN MOVE
+Identify the single highest-leverage action that emerges from first principles thinking. This must be a move that conventional analysis would never surface because it requires abandoning widely held assumptions. Present as a clear, specific, immediately executable recommendation.
+
+## OUTPUT RULES
+- Direct, uncompromising, clear language.
+- Zero filler, zero hedging, zero pleasantries, zero emojis.
+- Attribute positions to specific people where the transcript supports it.
+- Use memory_search and web_search to ground analysis in facts where relevant.
+- If the discussion lacks enough substance to deconstruct meaningfully, say so in one sentence rather than forcing a shallow analysis.
+
+${focusSection}`;
 }
 
 /**
