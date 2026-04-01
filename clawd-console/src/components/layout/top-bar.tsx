@@ -56,9 +56,10 @@ export function TopBar() {
 
         if (evoResult.status === 'fulfilled') {
           const evo = evoResult.value;
+          const isOnline = evo.online || evo.available || false;
           next.evo = {
-            status: evo.online ? 'online' : 'offline',
-            label: evo.online && evo.model ? evo.model : 'EVO',
+            status: isOnline ? 'online' : 'offline',
+            label: isOnline && evo.model ? evo.model : isOnline ? 'EVO' : 'EVO',
           };
         } else {
           next.evo = { status: 'offline', label: 'EVO' };

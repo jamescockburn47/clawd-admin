@@ -24,7 +24,8 @@ export interface SystemHealth {
 
 // EvoStatus — from GET /api/evo
 export interface EvoStatus {
-  online: boolean;
+  online?: boolean;
+  available?: boolean;
   url: string;
   model?: string;
   queueDepth?: number;

@@ -107,9 +107,10 @@ export function HealthCards() {
 
         if (evoResult.status === 'fulfilled') {
           const evo = evoResult.value;
+          const isOnline = evo.online || evo.available || false;
           next.evo = {
-            status: evo.online ? 'online' : 'offline',
-            model: evo.online ? (evo.model ?? null) : null,
+            status: isOnline ? 'online' : 'offline',
+            model: isOnline ? (evo.model ?? null) : null,
             queueDepth: evo.queueDepth ?? null,
           };
         } else {
