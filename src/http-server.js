@@ -145,6 +145,46 @@ export function startHttpServer(port, deps) {
       } catch (err) { return json(res, 500, { error: err.message }); }
     }
 
+    if (path === '/api/evolution/list') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      try {
+        const { getEvolutionReport, loadTasks } = await import('./evolution.js');
+        return json(res, 200, { report: getEvolutionReport(), tasks: loadTasks() });
+      } catch (err) { return json(res, 500, { error: err.message }); }
+    }
+
+    if (req.method === 'POST' && path === '/api/evolution/approve') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      try {
+        const { taskId } = JSON.parse(await readBody(req));
+        if (!taskId) return json(res, 400, { error: 'taskId required' });
+        const { getTaskById, updateTask } = await import('./evolution.js');
+        const task = getTaskById(taskId);
+        if (!task) return json(res, 404, { error: 'task not found' });
+        if (task.status !== 'awaiting_approval') return json(res, 400, { error: `task status is '${task.status}', expected 'awaiting_approval'` });
+        updateTask(taskId, { status: 'approved' });
+        const { deployApprovedTask } = await import('./evolution-executor.js');
+        const result = await deployApprovedTask(task);
+        updateTask(taskId, { status: 'deployed', result: `Deployed ${result.files.length} file(s)` });
+        return json(res, 200, { success: true, taskId, files: result.files });
+      } catch (err) { return json(res, 500, { error: err.message }); }
+    }
+
+    if (req.method === 'POST' && path === '/api/evolution/reject') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      try {
+        const { taskId } = JSON.parse(await readBody(req));
+        if (!taskId) return json(res, 400, { error: 'taskId required' });
+        const { getTaskById, updateTask } = await import('./evolution.js');
+        const task = getTaskById(taskId);
+        if (!task) return json(res, 404, { error: 'task not found' });
+        const { rejectTask } = await import('./evolution-executor.js');
+        await rejectTask(task);
+        updateTask(taskId, { status: 'rejected', result: 'Rejected via API' });
+        return json(res, 200, { success: true, taskId });
+      } catch (err) { return json(res, 500, { error: err.message }); }
+    }
+
     if (path === '/api/messages') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       return json(res, 200, { messages: config.ownerJid ? getRecentMessages(config.ownerJid) : [] });

@@ -148,6 +148,40 @@ export interface OvernightReport {
   source?: string;
 }
 
+// EvolutionTask — from GET /api/pi/evolution/list
+export interface EvolutionTask {
+  id: string;
+  source: string;
+  instruction: string;
+  priority: string;
+  status: 'pending' | 'running' | 'awaiting_approval' | 'approved' | 'deployed' | 'failed' | 'rejected';
+  created: string; // ISO timestamp
+  branch: string;
+  diff_summary: string | null;
+  diff_detail: string | null;
+  manifest: {
+    files_to_modify?: string[];
+    estimated_lines_changed?: number;
+    approach?: string;
+    risks?: string;
+  } | null;
+  total_lines: number | null;
+  files_changed: string[];
+  result: string | null;
+}
+
+export interface EvolutionListResponse {
+  report: {
+    deployed: number;
+    failed: number;
+    rejected: number;
+    awaiting: number;
+    pending: number;
+    rateLimit: { used: number; max: number; allowed: boolean };
+  };
+  tasks: EvolutionTask[];
+}
+
 export interface RetrospectivePriority {
   rank: number;
   title: string;

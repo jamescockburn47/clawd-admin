@@ -19,7 +19,7 @@ const MIN_TASK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour between tasks
 
 // ── Task CRUD ───────────────────────────────────────────────────────────────
 
-function loadTasks() {
+export function loadTasks() {
   if (!existsSync(TASKS_FILE)) return [];
   try {
     return JSON.parse(readFileSync(TASKS_FILE, 'utf-8'));
