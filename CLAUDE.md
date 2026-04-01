@@ -243,6 +243,15 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 138. **Anyone can trigger aristotle mode in groups.** Not owner-only. Trigger: "aristotle", "first principles". Works in DMs too.
 139. **Quoted messages take priority as focal point.** If the trigger message quotes another message, that message is the deconstruction target. Otherwise, recent ~50 messages scanned for main thrust.
 
+### Overnight Pipeline Optimisation (2026-04-01)
+140. **Dream diary is novelty-aware.** Yesterday's diary injected as comparison. Prompt: "focus on what's NEW or CHANGED." No padding thin days.
+141. **Minimum 10 messages for full diary.** Groups below threshold get a one-liner ("Quiet day — N messages"). Prevents wasted LLM calls.
+142. **Dynamic diary token budget.** `min(1200, max(300, msg_count * 15))`. Thin days = short diaries. Busy days = full depth.
+143. **Insights must be evidence-grounded.** Each insight must cite at least 2 specific messages by timestamp and sender. Ungrounded speculation = "none".
+144. **Evolution pipeline section in overnight report.** Shows deployed, awaiting approval, failed, rejected, queued tasks with details. Rate limit status.
+145. **Self-improvement results are human-readable.** Bullet-point format (iterations, rules proposed/validated/applied, categories), not JSON blobs.
+146. **Diary quality metrics in report.** Per-group: facts new/deduped/superseded, insights new/skipped. Header shows aggregate signal-to-noise ratio.
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.

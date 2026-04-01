@@ -190,3 +190,56 @@ export function getTaskSummary() {
     failed: todayTasks.filter(t => t.status === 'failed').length,
   };
 }
+
+// ── Detailed report for overnight summary ───────────────────────────────────
+
+export function getEvolutionReport() {
+  const tasks = loadTasks();
+  const now = Date.now();
+  const oneDayAgo = now - 86400000;
+  const today = new Date().toISOString().split('T')[0];
+
+  // Tasks that changed status in the last 24h (relevant for overnight report)
+  const recentDeployed = tasks.filter(t =>
+    t.status === 'deployed' && new Date(t.created).getTime() > oneDayAgo
+  );
+  const recentFailed = tasks.filter(t =>
+    t.status === 'failed' && new Date(t.created).getTime() > oneDayAgo
+  );
+  const recentRejected = tasks.filter(t =>
+    t.status === 'rejected' && new Date(t.created).getTime() > oneDayAgo
+  );
+  const awaiting = tasks.filter(t => t.status === 'awaiting_approval');
+  const pending = tasks.filter(t => t.status === 'pending');
+  const { allowed, reason } = canRunTask();
+
+  const formatTask = (t) => ({
+    id: t.id,
+    source: t.source,
+    instruction: t.instruction.slice(0, 120),
+    files: t.files_changed || [],
+    lines: t.total_lines || null,
+    branch: t.branch,
+    created: t.created,
+    result: t.result ? String(t.result).slice(0, 200) : null,
+  });
+
+  return {
+    deployed: recentDeployed.map(formatTask),
+    failed: recentFailed.map(formatTask),
+    rejected: recentRejected.map(formatTask),
+    awaiting: awaiting.map(t => ({
+      ...formatTask(t),
+      waitingHours: Math.round((now - new Date(t.created).getTime()) / 3600000),
+    })),
+    pending: pending.map(formatTask),
+    rateLimit: {
+      allowed,
+      reason,
+      todayCount: tasks.filter(t =>
+        t.created.startsWith(today) && ['running', 'awaiting_approval', 'approved', 'deployed'].includes(t.status)
+      ).length,
+      dailyMax: MAX_TASKS_PER_DAY,
+    },
+  };
+}

@@ -167,6 +167,24 @@ export function startHttpServer(port, deps) {
       if (!plan) return json(res, 404, { error: 'plan not found' });
       return json(res, 200, { plan });
     }
+    // --- Overnight report JSON (for clawd-console) ---
+    if (path.startsWith('/api/overnight-report/')) {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      const dateStr = path.split('/api/overnight-report/')[1];
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return json(res, 400, { error: 'Invalid date format. Use YYYY-MM-DD.' });
+      }
+      const localPath = join('/tmp', `overnight-report-${dateStr}.json`);
+      try {
+        if (existsSync(localPath)) {
+          return json(res, 200, JSON.parse(readFileSync(localPath, 'utf-8')));
+        }
+        return json(res, 404, { error: `No overnight report for ${dateStr}` });
+      } catch (err) {
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     // --- Trace analysis diagnostics ---
     if (path === '/api/traces') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });

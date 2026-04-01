@@ -19,6 +19,7 @@ import logger from './logger.js';
 import { getEvoStatus, getMemoryStats, isEvoOnline, searchMemory } from './memory.js';
 import { getLatestAnalysis } from './tasks/trace-analyser.js';
 import { getLatestRetrospective } from './tasks/weekly-retrospective.js';
+import { getEvolutionReport } from './evolution.js';
 
 const EVO_SSH_HOST = config.evoSshHost;
 const EVO_SSH_USER = config.evoSshUser;
@@ -494,9 +495,64 @@ async function sendWhatsAppFullReport(sendFn, dreamReport, projectThink, selfImp
 
 // --- Main entry point ---
 
+// --- Format self-improvement results (human-readable, not JSON) ---
+
+function formatSelfImproveSection(data) {
+  if (!data || typeof data !== 'object') return String(data || 'No data');
+
+  const lines = [];
+
+  // Handle cycle-level stats
+  if (data.iterations !== undefined || data.iterationsRun !== undefined) {
+    const iters = data.iterations || data.iterationsRun || 0;
+    const maxIters = data.maxIterations || 5;
+    lines.push(`- **Iterations:** ${iters}/${maxIters}`);
+  }
+
+  if (data.rulesProposed !== undefined || data.proposed !== undefined) {
+    const proposed = data.rulesProposed || data.proposed || 0;
+    const validated = data.rulesValidated || data.validated || 0;
+    const applied = data.rulesApplied || data.applied || 0;
+    lines.push(`- **Rules:** ${proposed} proposed, ${validated} validated, ${applied} applied`);
+  }
+
+  if (data.categoriesImproved?.length > 0) {
+    lines.push(`- **Categories improved:** ${data.categoriesImproved.join(', ')}`);
+  }
+
+  if (data.newEvalLabels !== undefined) {
+    lines.push(`- **New eval labels:** ${data.newEvalLabels}`);
+  }
+
+  if (data.regressions > 0) {
+    lines.push(`- **Regressions detected:** ${data.regressions} (rolled back)`);
+  }
+
+  if (data.durationMs) {
+    lines.push(`- **Duration:** ${Math.round(data.durationMs / 1000)}s`);
+  }
+
+  // Fallback: render any remaining keys not already handled
+  const handled = new Set(['iterations', 'iterationsRun', 'maxIterations', 'rulesProposed',
+    'proposed', 'rulesValidated', 'validated', 'rulesApplied', 'applied',
+    'categoriesImproved', 'newEvalLabels', 'regressions', 'durationMs']);
+
+  for (const [k, v] of Object.entries(data)) {
+    if (handled.has(k)) continue;
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'object') {
+      lines.push(`- **${k}:** ${JSON.stringify(v)}`);
+    } else {
+      lines.push(`- **${k}:** ${v}`);
+    }
+  }
+
+  return lines.length > 0 ? lines.join('\n') : 'Cycle ran but produced no changes.';
+}
+
 // --- Generate structured markdown report ---
 
-function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis = null, retrospective = null) {
+function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis = null, retrospective = null, evolutionReport = null) {
   const lines = [];
   const dayName = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -511,6 +567,24 @@ function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHe
   if (dreamReport) {
     lines.push(`${dreamReport.groups_processed} groups dreamed | ${dreamReport.totals?.facts || 0} facts | ${dreamReport.totals?.insights || 0} insights | ${dreamReport.totals?.observations || 0} observations`);
     if (dreamReport.source === 'memory_service') lines.push('*(from memory service fallback)*');
+
+    // Quality summary from group metrics
+    const qualities = (dreamReport.groups || []).map(g => g.quality).filter(Boolean);
+    if (qualities.length > 0) {
+      const totalNew = qualities.reduce((s, q) => s + (q.facts_new || 0), 0);
+      const totalDedup = qualities.reduce((s, q) => s + (q.facts_skipped_dedup || 0), 0);
+      const totalSuperseded = qualities.reduce((s, q) => s + (q.facts_superseded || 0), 0);
+      const totalInsNew = qualities.reduce((s, q) => s + (q.insights_new || 0), 0);
+      const totalInsSkip = qualities.reduce((s, q) => s + (q.insights_skipped || 0), 0);
+      const skippedGroups = qualities.filter(q => q.skipped).length;
+      let qualityLine = `Quality: ${totalNew} new facts`;
+      if (totalDedup) qualityLine += ` (${totalDedup} deduped)`;
+      if (totalSuperseded) qualityLine += ` (${totalSuperseded} superseded)`;
+      qualityLine += ` | ${totalInsNew} new insights`;
+      if (totalInsSkip) qualityLine += ` (${totalInsSkip} skipped)`;
+      if (skippedGroups) qualityLine += ` | ${skippedGroups} quiet group(s) skipped`;
+      lines.push(qualityLine);
+    }
   } else {
     lines.push('Dream data: unavailable.');
   }
@@ -611,15 +685,58 @@ function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHe
     }
   }
 
-  // Self-improvement
+  // Self-improvement (human-readable, not JSON)
   if (selfImprove) {
     lines.push(`## Self-Improvement`);
-    if (typeof selfImprove === 'object') {
-      for (const [k, v] of Object.entries(selfImprove)) {
-        lines.push(`- **${k}**: ${JSON.stringify(v)}`);
+    lines.push(formatSelfImproveSection(selfImprove));
+    lines.push('');
+  }
+
+  // Evolution pipeline
+  if (evolutionReport) {
+    lines.push(`## Evolution Pipeline`);
+    const evo = evolutionReport;
+
+    if (evo.deployed?.length > 0) {
+      lines.push('**Deployed:**');
+      for (const t of evo.deployed) {
+        lines.push(`- ${t.id} — "${t.instruction}" (${t.files.length} files, ${t.lines || '?'} lines)`);
       }
-    } else {
-      lines.push(String(selfImprove));
+    }
+
+    if (evo.awaiting?.length > 0) {
+      lines.push('**Awaiting approval:**');
+      for (const t of evo.awaiting) {
+        lines.push(`- ${t.id} — "${t.instruction}" — waiting ${t.waitingHours}h`);
+      }
+    }
+
+    if (evo.failed?.length > 0) {
+      lines.push('**Failed:**');
+      for (const t of evo.failed) {
+        lines.push(`- ${t.id} — "${t.instruction}" — ${t.result || 'unknown error'}`);
+      }
+    }
+
+    if (evo.rejected?.length > 0) {
+      lines.push('**Rejected:**');
+      for (const t of evo.rejected) {
+        lines.push(`- ${t.id} — "${t.instruction}"`);
+      }
+    }
+
+    if (evo.pending?.length > 0) {
+      lines.push(`**Queued:** ${evo.pending.length} pending`);
+      for (const t of evo.pending) {
+        lines.push(`- ${t.id} — "${t.instruction}" (${t.source})`);
+      }
+    }
+
+    const rl = evo.rateLimit;
+    lines.push(`**Rate:** ${rl.todayCount}/${rl.dailyMax} today${rl.allowed ? '' : ` — blocked: ${rl.reason}`}`);
+
+    if (!evo.deployed?.length && !evo.awaiting?.length && !evo.failed?.length && !evo.rejected?.length && !evo.pending?.length) {
+      lines.push('No evolution activity in the last 24h.');
     }
     lines.push('');
   }
@@ -753,8 +870,16 @@ export async function sendOvernightReport(sendFn, dateOverride = null) {
   const traceAnalysis = getLatestAnalysis();
   const retrospective = getLatestRetrospective();
 
+  // 7.5. Load evolution pipeline status
+  let evolutionReport = null;
+  try {
+    evolutionReport = getEvolutionReport();
+  } catch (err) {
+    logger.warn({ err: err.message }, 'overnight-report: evolution report load failed');
+  }
+
   // 8. Generate report and send as document attachments
-  const markdown = generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis, retrospective);
+  const markdown = generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis, retrospective, evolutionReport);
   const docSender = getSendDocument();
 
   if (docSender) {
