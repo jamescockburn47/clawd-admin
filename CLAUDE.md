@@ -238,6 +238,11 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 134. **Frequency score removed from search.** Access count created feedback loops rewarding stale popular memories. Replaced by effective_confidence.
 135. **Auto-supersession at store time.** New memories with 0.70–0.91 cosine similarity to existing same-category memories auto-supersede the older one. Protected categories exempt. Activates the dormant `supersedes` field.
 
+### Aristotle Mode (2026-04-01)
+137. **Aristotle mode is single-step, not two-step.** No topic selection. Grabs recent chat or quoted message, sends directly to Opus with 5-phase first principles framework. Adaptive depth (condensed vs full) decided by model.
+138. **Anyone can trigger aristotle mode in groups.** Not owner-only. Trigger: "aristotle", "first principles". Works in DMs too.
+139. **Quoted messages take priority as focal point.** If the trigger message quotes another message, that message is the deconstruction target. Otherwise, recent ~50 messages scanned for main thrust.
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.
