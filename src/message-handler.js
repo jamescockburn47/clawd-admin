@@ -17,8 +17,9 @@ import { handleEvolutionConfirmation, handleEvolutionApproval } from './evolutio
 import { cacheSentMessage } from './message-cache.js';
 import { recordDecryptionFailure } from './session-repair.js';
 import { filterResponse, getBlockedResponse } from './output-filter.js';
-import { detectGroupMode, detectGroupModeExit, detectTopicSelection, runTopicRetrieval, executeGroupMode, buildExecutionPrompt } from './group-modes.js';
+import { detectGroupMode, detectGroupModeExit, detectTopicSelection, runTopicRetrieval, executeGroupMode, buildExecutionPrompt, buildAristotlePrompt } from './group-modes.js';
 import { clearPendingAction, getPendingAction } from './pending-action.js';
+import { getRecentGroupMessages, formatTranscript } from './topic-scan.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -247,6 +248,58 @@ export async function handleIncomingMessage(sock, message, botJid) {
         // Pending action already cleared by detectGroupModeExit. Fall through to classifier.
       }
 
+      // Aristotle mode — single-step, no topic selection
+      const aristotleMode = !isExitRequest && detectGroupMode(messageText);
+      if (aristotleMode && aristotleMode.mode === 'aristotle') {
+        logger.info({ chatJid }, 'aristotle mode triggered');
+        await simulateTyping(sock, chatJid, 500);
+
+        // Extract quoted message if present
+        const quotedText = message.message?.extendedTextMessage?.contextInfo?.quotedMessage?.conversation
+          || message.message?.extendedTextMessage?.contextInfo?.quotedMessage?.extendedTextMessage?.text
+          || null;
+
+        // Build transcript — recent group messages
+        const recentMessages = getRecentGroupMessages(chatJid, quotedText ? 15 : 50);
+        const transcript = formatTranscript(recentMessages);
+
+        if (!transcript && !quotedText) {
+          const noDataMsg = 'Not enough recent conversation to deconstruct.';
+          await sock.sendMessage(chatJid, { text: noDataMsg });
+          return;
+        }
+
+        const systemPrompt = buildAristotlePrompt(transcript, quotedText);
+        const userMsg = quotedText
+          ? 'Deconstruct the highlighted message to its foundation using the surrounding context.'
+          : 'Analyse the main thrust of this group discussion and deconstruct it to its foundation.';
+
+        const aristotleResponse = await getGroupModeResponse(
+          systemPrompt, userMsg,
+          true, // useOpus — first principles reasoning needs the strongest model
+          senderJid, chatJid
+        );
+
+        const finalText = aristotleResponse || 'Failed to complete the analysis. Try again.';
+
+        // Apply output filter
+        const filterResult = filterResponse(finalText, chatJid);
+        const safeText = filterResult.safe ? finalText : getBlockedResponse(filterResult.reason);
+
+        await simulateTyping(sock, chatJid, safeText.length);
+        const chunks = splitMessage(safeText);
+        for (const chunk of chunks) {
+          const sent = await sock.sendMessage(chatJid, { text: chunk });
+          if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
+          if (chunks.length > 1) await new Promise(r => setTimeout(r, 300));
+        }
+        pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
+        if (config.evoMemoryEnabled) {
+          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch {}
+        }
+        return;
+      }
+
       // Check for pending topic selection (skip if exit requested)
       const topicSel = !isExitRequest && detectTopicSelection(messageText, chatJid);
       if (topicSel) {
@@ -282,7 +335,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
       }
 
       // Check for new group mode trigger (skip if exit request — "exit devil's advocate" contains the trigger)
-      const groupMode = !isExitRequest && detectGroupMode(messageText);
+      const groupMode = !isExitRequest && !aristotleMode && detectGroupMode(messageText);
       if (groupMode) {
         logger.info({ chatJid, mode: groupMode.mode }, 'group analysis mode triggered');
         await simulateTyping(sock, chatJid, 200);
