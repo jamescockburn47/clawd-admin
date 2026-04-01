@@ -2,9 +2,12 @@
 
 import { useEffect, useState } from "react"
 import { fetchPi } from "@/lib/api"
-import type { OvernightReport, DreamFact, DreamInsight } from "@/lib/types"
+import type { OvernightReport, DreamFact, DreamInsight, TraceAnalysis, Retrospective } from "@/lib/types"
 import { DiaryCard } from "@/components/overnight/diary-card"
 import { DateSelector } from "@/components/overnight/date-selector"
+import { TraceSummary } from "@/components/overnight/trace-summary"
+import { RetrospectiveView, RetrospectiveEmpty } from "@/components/overnight/retrospective-view"
+import { SoulView } from "@/components/overnight/soul-view"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -149,6 +152,12 @@ export default function OvernightPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Supplementary data — fetched once, not date-dependent
+  const [traces, setTraces] = useState<TraceAnalysis | null>(null)
+  const [retrospective, setRetrospective] = useState<Retrospective | null>(null)
+  const [soul, setSoul] = useState<Record<string, unknown> | null>(null)
+
+  // Fetch date-dependent overnight report
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -172,8 +181,30 @@ export default function OvernightPage() {
     }
   }, [date])
 
+  // Fetch supplementary data once on mount
+  useEffect(() => {
+    Promise.allSettled([
+      fetchPi<{ analysis: TraceAnalysis | null }>('traces'),
+      fetchPi<{ retrospective: Retrospective | null }>('retrospective'),
+      fetchPi<Record<string, unknown>>('soul'),
+    ]).then(([tracesResult, retroResult, soulResult]) => {
+      if (tracesResult.status === 'fulfilled') {
+        setTraces(tracesResult.value.analysis)
+      }
+      if (retroResult.status === 'fulfilled') {
+        setRetrospective(retroResult.value.retrospective)
+      }
+      if (soulResult.status === 'fulfilled') {
+        setSoul(soulResult.value)
+      }
+    })
+  }, [])
+
   const activeGroups = report?.groups.filter((g) => !g.quality?.skipped) ?? []
   const skippedGroups = report?.groups.filter((g) => g.quality?.skipped) ?? []
+
+  // Collect soul observations from all groups
+  const soulObservations = report?.groups.flatMap((g) => g.observations) ?? []
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -210,6 +241,9 @@ export default function OvernightPage() {
             <TabsList>
               <TabsTrigger value="diaries">Diaries</TabsTrigger>
               <TabsTrigger value="facts">Facts &amp; Insights</TabsTrigger>
+              <TabsTrigger value="traces">Trace Analysis</TabsTrigger>
+              <TabsTrigger value="retrospective">Retrospective</TabsTrigger>
+              <TabsTrigger value="soul">Soul</TabsTrigger>
             </TabsList>
 
             <TabsContent value="diaries" className="flex flex-col gap-3 mt-4">
@@ -239,6 +273,33 @@ export default function OvernightPage() {
 
             <TabsContent value="facts" className="mt-4">
               <FactsInsightsList groups={report.groups} />
+            </TabsContent>
+
+            <TabsContent value="traces" className="mt-4">
+              {traces ? (
+                <TraceSummary analysis={traces} />
+              ) : (
+                <Card>
+                  <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                    No trace analysis available. Runs nightly at 3 AM.
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="retrospective" className="mt-4">
+              {retrospective ? (
+                <RetrospectiveView retrospective={retrospective} />
+              ) : (
+                <RetrospectiveEmpty />
+              )}
+            </TabsContent>
+
+            <TabsContent value="soul" className="mt-4">
+              <SoulView
+                soul={soul ?? {}}
+                observations={soulObservations}
+              />
             </TabsContent>
           </Tabs>
         </>
