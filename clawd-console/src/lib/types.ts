@@ -172,12 +172,20 @@ export interface EvolutionTask {
 
 export interface EvolutionListResponse {
   report: {
-    deployed: number;
-    failed: number;
-    rejected: number;
-    awaiting: number;
-    pending: number;
-    rateLimit: { used: number; max: number; allowed: boolean };
+    deployed: unknown[];
+    failed: unknown[];
+    rejected: unknown[];
+    awaiting: unknown[];
+    pending: unknown[];
+    rateLimit: {
+      allowed: boolean;
+      reason: string | null;
+      todayCount: number;
+      dailyMax: number;
+      // Legacy aliases (console compat)
+      used?: number;
+      max?: number;
+    };
   };
   tasks: EvolutionTask[];
 }

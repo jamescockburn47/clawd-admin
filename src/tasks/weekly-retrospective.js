@@ -1,5 +1,6 @@
-// src/tasks/weekly-retrospective.js — Autonomous weekly self-assessment (Phase 2.2)
-// Runs Sunday 4 AM. Reads trace analysis history, identifies top improvement areas,
+// src/tasks/weekly-retrospective.js — Autonomous self-assessment (Phase 2.2)
+// Runs DAILY at 4 AM (was weekly — switched to daily for bootstrap period).
+// Reads trace analysis history, identifies top improvement areas,
 // posts summary to James via DM, and creates evolution tasks for top 3 issues.
 //
 // This is Clawd's self-directed improvement loop: traces → patterns → priorities → tasks.
@@ -17,14 +18,14 @@ const RETRO_LOG = join('data', 'retrospective-log.jsonl');
 let lastRetroDate = null;
 
 /**
- * Check if weekly retrospective should run (Sunday 4 AM).
+ * Check if retrospective should run (daily at 4 AM — bootstrap period).
+ * Was Sunday-only; switched to daily to ensure evolution tasks get created.
  */
 export async function checkWeeklyRetrospective(sendFn, todayStr, hours) {
   if (lastRetroDate === todayStr) return;
 
-  // Only run on Sundays at 4 AM
-  const dayOfWeek = new Date(todayStr + 'T12:00:00').getDay();
-  if (dayOfWeek !== 0 || hours !== 4) return;
+  // Run daily at 4 AM (bootstrap period — revert to Sunday-only once pipeline is healthy)
+  if (hours !== 4) return;
 
   lastRetroDate = todayStr;
 

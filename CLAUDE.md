@@ -252,6 +252,12 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 145. **Self-improvement results are human-readable.** Bullet-point format (iterations, rules proposed/validated/applied, categories), not JSON blobs.
 146. **Diary quality metrics in report.** Per-group: facts new/deduped/superseded, insights new/skipped. Header shows aggregate signal-to-noise ratio.
 
+### Evolution Pipeline Bridge (2026-04-02)
+146. **overnight-to-evolution.js bridges overnight analysis to tasks.** Runs at 5 AM. Reads code-quality.json, trace-analysis.json, and overnight briefing. Converts high/medium findings to evolution tasks. Max 2 tasks per night.
+147. **Retrospective runs DAILY at 4 AM (bootstrap period).** Was Sunday-only. Creates evolution tasks from trace analysis priorities. Revert to Sunday-only once pipeline is healthy and producing tasks.
+148. **Live Monitor shows ALL messages, not just bot.** `/api/messages` returns merged feed from all chat buffers via `getAllRecentMessages()`. Messages annotated with `chatJid` and `isBot`.
+149. **Memory cards show 6 lines before truncation.** `line-clamp-6` instead of `line-clamp-3`. Expand button says "More"/"Less".
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.

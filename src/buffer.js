@@ -56,6 +56,23 @@ export function getRecentMessages(chatJid) {
   return buffers.get(chatJid) || [];
 }
 
+/**
+ * Return a merged, time-sorted feed of recent messages from ALL chat buffers.
+ * Each message is annotated with its chatJid for display.
+ * @param {number} limit — max messages to return (default 100)
+ */
+export function getAllRecentMessages(limit = 100) {
+  const all = [];
+  for (const [chatJid, msgs] of buffers.entries()) {
+    for (const msg of msgs) {
+      all.push({ ...msg, chatJid });
+    }
+  }
+  // Sort by timestamp descending (newest first)
+  all.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  return all.slice(0, limit);
+}
+
 // --- Persistence (owner's DM buffer only) ---
 
 function getOwnerJid() {

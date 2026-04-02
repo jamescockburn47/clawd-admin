@@ -17,6 +17,7 @@ import {
 } from './tasks/improvement-cycle.js';
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
 import { checkWeeklyRetrospective, getLastRetroDate } from './tasks/weekly-retrospective.js';
+import { checkOvernightEvolution, getLastOvernightEvoDate } from './tasks/overnight-to-evolution.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -62,6 +63,7 @@ export function getSystemHealth() {
     overnightReport: { enabled: true, lastRun: getLastReportDate() },
     traceAnalysis: { enabled: true, lastRun: getLastAnalysisDate() },
     weeklyRetrospective: { enabled: true, lastRun: getLastRetroDate() },
+    overnightEvolution: { enabled: true, lastRun: getLastOvernightEvoDate() },
     backup: { lastRun: getLastBackupDate() },
   };
 }
@@ -93,6 +95,7 @@ async function runScheduler() {
   await runTask('traceAnalysis', () => checkTraceAnalysis(sendFn, todayStr, hours));
   await runTask('weeklyRetrospective', () => checkWeeklyRetrospective(sendFn, todayStr, hours));
   await runTask('overnightReport', () => checkOvernightReport(sendFn, todayStr, hours, minutes));
+  await runTask('overnightEvolution', () => checkOvernightEvolution(sendFn, todayStr, hours));
   await runTask('evolutionTasks', () => checkEvolutionTasks(sendFn));
   await runTask('dailyBackup', () => checkDailyBackup(todayStr, hours));
 

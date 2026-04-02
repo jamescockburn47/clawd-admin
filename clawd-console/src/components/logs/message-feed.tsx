@@ -79,6 +79,8 @@ function MessageCard({ msg }: MessageCardProps) {
   const category  = getString(msg, 'category', 'route', 'intent');
   const model     = getString(msg, 'model', 'modelUsed', 'llm');
   const latencyMs = getNumber(msg, 'timeMs', 'totalTimeMs', 'durationMs', 'latencyMs', 'elapsed');
+  const chatJid   = getString(msg, 'chatJid');
+  const isBot     = msg['isBot'] === true;
 
   const preview = text ? text.slice(0, 100) + (text.length > 100 ? '…' : '') : null;
 
@@ -99,7 +101,12 @@ function MessageCard({ msg }: MessageCardProps) {
           </span>
         )}
         {sender && (
-          <span className="text-xs font-medium text-foreground">{sender}</span>
+          <span className={`text-xs font-medium ${isBot ? 'text-emerald-400' : 'text-foreground'}`}>
+            {isBot ? 'Clawd' : sender}
+          </span>
+        )}
+        {chatJid && chatJid.endsWith('@g.us') && (
+          <span className="text-[10px] text-muted-foreground/60">group</span>
         )}
         {category && (
           <Badge className={`text-[10px] px-1.5 py-0 ${categoryColour(category)}`}>

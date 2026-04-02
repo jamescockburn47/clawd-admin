@@ -114,7 +114,7 @@ export default function EvolutionPage() {
                   : "bg-red-900 text-red-200"
               }
             >
-              {report.rateLimit.used}/{report.rateLimit.max}
+              {report.rateLimit.todayCount ?? report.rateLimit.used ?? 0}/{report.rateLimit.dailyMax ?? report.rateLimit.max ?? 3}
             </Badge>
             <span className="text-xs text-muted-foreground">
               {report.rateLimit.allowed ? "allowed" : "blocked"}

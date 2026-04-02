@@ -67,14 +67,14 @@ export function MemoryCard({ memory, onEdit, onDelete }: MemoryCardProps) {
             {memory.category}
           </Badge>
           <button
-            className="ml-auto shrink-0 text-muted-foreground"
+            className="ml-auto shrink-0 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v) }}
             aria-label={expanded ? "Collapse" : "Expand"}
           >
             {expanded ? (
-              <ChevronUpIcon className="size-3.5" />
+              <span className="flex items-center gap-1"><ChevronUpIcon className="size-3.5" /> Less</span>
             ) : (
-              <ChevronDownIcon className="size-3.5" />
+              <span className="flex items-center gap-1"><ChevronDownIcon className="size-3.5" /> More</span>
             )}
           </button>
         </div>
@@ -83,7 +83,7 @@ export function MemoryCard({ memory, onEdit, onDelete }: MemoryCardProps) {
         <p
           className={cn(
             "text-sm leading-snug",
-            !expanded && "line-clamp-3"
+            !expanded && "line-clamp-6"
           )}
         >
           {memory.fact}

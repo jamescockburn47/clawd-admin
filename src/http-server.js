@@ -9,7 +9,7 @@ import { exec } from 'child_process';
 import config from './config.js';
 import logger from './logger.js';
 import { addSSEClient, broadcastSSE } from './sse.js';
-import { getRecentMessages } from './buffer.js';
+import { getRecentMessages, getAllRecentMessages } from './buffer.js';
 import { getUsageStats } from './claude.js';
 import { checkLlamaHealth as checkEvoLlmHealth } from './evo-client.js';
 import { getWidgetData, startWidgetRefresh, forceRefresh } from './widgets.js';
@@ -187,7 +187,8 @@ export function startHttpServer(port, deps) {
 
     if (path === '/api/messages') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      return json(res, 200, { messages: config.ownerJid ? getRecentMessages(config.ownerJid) : [] });
+      // Return merged feed from ALL chat buffers (not just owner DM)
+      return json(res, 200, { messages: getAllRecentMessages(200) });
     }
     if (path === '/api/audit') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
