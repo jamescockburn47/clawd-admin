@@ -342,7 +342,7 @@ export async function parseDocumentWithDocling(pdfBuffer, fileName, maxPages = 1
 
     // Cleanup
     for (const f of readdirSync(tmpDir)) unlinkSync(join(tmpDir, f));
-    try { execSync(`rmdir "${tmpDir}"`); } catch {}
+    try { execSync(`rmdir "${tmpDir}"`); } catch { /* intentional: temp dir cleanup is best-effort */ }
 
     if (allMarkdown.length === 0) return null;
 
@@ -355,7 +355,7 @@ export async function parseDocumentWithDocling(pdfBuffer, fileName, maxPages = 1
     try {
       for (const f of readdirSync(tmpDir)) unlinkSync(join(tmpDir, f));
       execSync(`rmdir "${tmpDir}"`);
-    } catch {}
+    } catch { /* intentional: temp dir cleanup on error path is best-effort */ }
     return null;
   }
 }

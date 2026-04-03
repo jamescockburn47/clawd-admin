@@ -67,7 +67,7 @@ export async function flushAudit() {
     try {
       await mkdir(DATA_DIR, { recursive: true });
       await writeFile(AUDIT_FILE, JSON.stringify(auditLog, null, 2));
-    } catch {}
+    } catch { /* intentional: best-effort audit flush on shutdown */ }
   }
 }
 

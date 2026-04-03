@@ -149,7 +149,7 @@ async function fetchDreamReportJSON(dateStr) {
   if (existsSync(localPath)) {
     try {
       return JSON.parse(await readFile(localPath, 'utf-8'));
-    } catch {}
+    } catch { /* intentional: local file may be corrupt/truncated, fall through to null */ }
   }
 
   return null;
@@ -250,7 +250,7 @@ function getConversationLogStats(dateStr) {
       const lines = content.split('\n').filter(l => l.trim());
       stats.push({ groupId, messageCount: lines.length });
     }
-  } catch {}
+  } catch (err) { logger.warn({ err: err.message }, 'failed to read conversation logs for report'); }
   return stats;
 }
 
@@ -279,7 +279,7 @@ async function loadSelfImprovementResults() {
     if (existsSync(reportPath)) {
       return JSON.parse(await readFile(reportPath, 'utf-8'));
     }
-  } catch {}
+  } catch (err) { logger.warn({ err: err.message }, 'failed to load improvement report'); }
   return null;
 }
 
@@ -858,7 +858,7 @@ export async function sendOvernightReport(sendFn, dateOverride = null) {
   let memoryStats = {};
   try {
     memoryStats = isEvoOnline() ? await getMemoryStats() : {};
-  } catch {}
+  } catch (err) { logger.warn({ err: err.message }, 'failed to get memory stats for report'); }
 
   const systemHealth = {
     evo: evo.online ? 'online' : 'offline',
@@ -920,7 +920,7 @@ export async function sendOvernightReport(sendFn, dateOverride = null) {
         const { writeFile: writeFileAsync } = await import('fs/promises');
         await writeFileAsync(`/tmp/clawd-report-${dateStr}.html`,
           `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Clawd Report ${dateStr}</title></head><body>${htmlBody}</body></html>`);
-      } catch {}
+      } catch { /* intentional: HTML backup to /tmp is best-effort */ }
       emailSent = await sendReportEmail(htmlBody, dateStr);
     }
   }

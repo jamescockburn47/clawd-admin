@@ -216,7 +216,7 @@ function generateKnowledgeEntries() {
         });
       }
     }
-  } catch {}
+  } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
 
   // Data persistence
   entries.push({
@@ -310,7 +310,7 @@ export async function seedSystemKnowledge() {
       try {
         await deleteMemory(entry.id);
         deleted++;
-      } catch {}
+      } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
     }
   } catch (err) {
     logger.warn({ err: err.message }, 'failed to clean old system knowledge');
@@ -330,7 +330,7 @@ export async function seedSystemKnowledge() {
   }
 
   // Force cache sync so Pi immediately has fresh data
-  try { await syncCache(); } catch {}
+  try { await syncCache(); } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
 
   logger.info({ deleted, seeded, total: entries.length }, 'system knowledge seeded');
   return { deleted, seeded };
@@ -377,7 +377,7 @@ export async function refreshSystemKnowledge() {
             const { version } = JSON.parse(readFileSync(vPath, 'utf-8'));
             meta.version = version;
           }
-        } catch {}
+        } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
         writeFileSync(metaPath, JSON.stringify(meta, null, 2));
       } else if (existsSync(KNOWLEDGE_FILE_LEGACY)) {
         const doc = JSON.parse(readFileSync(KNOWLEDGE_FILE_LEGACY, 'utf-8'));
@@ -388,10 +388,10 @@ export async function refreshSystemKnowledge() {
             const { version } = JSON.parse(readFileSync(vPath, 'utf-8'));
             doc.version = version;
           }
-        } catch {}
+        } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
         writeFileSync(KNOWLEDGE_FILE_LEGACY, JSON.stringify(doc, null, 2));
       }
-    } catch {}
+    } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
 
     // 3. Re-seed all entries fresh
     const entries = generateKnowledgeEntries();
@@ -407,7 +407,7 @@ export async function refreshSystemKnowledge() {
     }
 
     // Force cache sync so Pi immediately has fresh data
-    try { await syncCache(); } catch {}
+    try { await syncCache(); } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
 
     const elapsed = Date.now() - startTime;
     logger.info({ deleted, seeded, elapsed }, 'system knowledge refreshed');

@@ -51,7 +51,7 @@ export async function checkDailyBackup(todayStr, hours) {
       const old = dirs.shift();
       await rm(join(backupsRoot, old), { recursive: true, force: true });
     }
-  } catch {}
+  } catch (err) { logger.warn({ err: err.message }, 'backup rotation failed'); }
 
   if (count > 0) {
     logger.info({ date: todayStr, files: count }, 'daily backup complete');
@@ -60,7 +60,7 @@ export async function checkDailyBackup(todayStr, hours) {
   // Clean old document cache files (7-day TTL)
   try {
     cleanDocumentCache(7);
-  } catch {}
+  } catch (err) { logger.warn({ err: err.message }, 'document cache cleanup failed'); }
 }
 
 export function getLastBackupDate() { return lastBackupDate; }

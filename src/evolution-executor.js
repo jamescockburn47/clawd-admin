@@ -493,7 +493,7 @@ export async function deployApprovedTask(task) {
   // Clean up branch
   try {
     ssh(`cd ${EVO_REPO} && git branch -D ${branch}`);
-  } catch {}
+  } catch { /* intentional: branch cleanup is best-effort */ }
 
   return { success: true, files: files_changed };
 }

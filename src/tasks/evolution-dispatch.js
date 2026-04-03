@@ -57,6 +57,6 @@ export async function checkEvolutionTasks(sendFn) {
       if (sendFn && config.ownerJid) {
         await sendFn(`Evolution task failed (${task.id}): ${err.message}`);
       }
-    } catch {}
+    } catch (err2) { logger.warn({ err: err2.message }, 'evolution failure notification failed'); }
   }
 }

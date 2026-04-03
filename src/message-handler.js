@@ -77,7 +77,7 @@ export async function simulateTyping(sock, chatJid, responseLength) {
     await sock.sendPresenceUpdate('composing', chatJid);
     await new Promise((r) => setTimeout(r, Math.min(500 + responseLength * 10, 4000)));
     await sock.sendPresenceUpdate('paused', chatJid);
-  } catch (_) {}
+  } catch (_) { /* intentional: presence updates are best-effort */ }
 }
 
 // --- Dedup guard ---
@@ -116,7 +116,7 @@ async function checkEngagementGate(sock, chatJid, senderName, text) {
     try {
       await sock.sendMessage(chatJid, { text: 'Going quiet.' });
       pushMessage(chatJid, { senderName: 'Clawd', text: 'Going quiet.', hasImage: false, isBot: true });
-    } catch {}
+    } catch { /* intentional: mute UI notification is best-effort */ }
     return 'muted';
   }
   const negSignal = detectNegativeSignal(text);
@@ -212,7 +212,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     // Log ALL group messages before respond gate (dream mode needs everything)
     if (isGroup && config.evoMemoryEnabled) {
-      try { logConversation(chatJid, [{ senderName, text, isBot: false }]); } catch {}
+      try { logConversation(chatJid, [{ senderName, text, isBot: false }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
       // Queue for real-time fact extraction via 30B model
       queueGroupMessage(chatJid, senderName, text);
     }
@@ -228,7 +228,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
       try {
         await sock.sendMessage(chatJid, { text: 'Going quiet.' });
         pushMessage(chatJid, { senderName: 'Clawd', text: 'Going quiet.', hasImage: false, isBot: true });
-      } catch {}
+      } catch { /* intentional: mute UI notification is best-effort */ }
       return;
     }
 
@@ -304,7 +304,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
         }
         pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
         if (config.evoMemoryEnabled) {
-          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch {}
+          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
         }
         return;
       }
@@ -338,7 +338,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
         }
         pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
         if (config.evoMemoryEnabled) {
-          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch {}
+          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
         }
         return;
       }
@@ -360,7 +360,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
         if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
         pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
         if (config.evoMemoryEnabled) {
-          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch {}
+          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
         }
         return;
       }
@@ -468,7 +468,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
     });
 
     if (config.evoMemoryEnabled) {
-      try { logConversation(chatJid, [{ senderName: 'Clawd', text: finalResponse, isBot: true }]); } catch {}
+      try { logConversation(chatJid, [{ senderName: 'Clawd', text: finalResponse, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
     }
 
     logger.info({ mode: trigger.mode, chars: finalResponse.length, filtered: !filterResult.safe, latencyMs: responseLatency }, 'response sent');

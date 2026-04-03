@@ -161,12 +161,12 @@ function gatherProjectContext(project) {
             if (projectKeywords.some(kw => text.includes(kw.toLowerCase()))) {
               relevantMessages.push(`${msg.sender || 'User'}: ${msg.text}`);
             }
-          } catch {}
+          } catch (err) { logger.warn({ err: err?.message }, 'project-thinker: operation failed'); }
         }
         if (relevantMessages.length > 0) {
           context.push(`Today's relevant conversations:\n${relevantMessages.join('\n')}`);
         }
-      } catch {}
+      } catch (err) { logger.warn({ err: err?.message }, 'project-thinker: operation failed'); }
     }
   }
 
@@ -236,7 +236,7 @@ async function runWebResearch(project) {
           if (content && !content.startsWith('Failed') && !content.startsWith('URL fetch') && content.length > 100) {
             research.push(`**Content from ${urlMatch[0]}:**\n${content.slice(0, 3000)}`);
           }
-        } catch {}
+        } catch (err) { logger.warn({ err: err?.message }, 'project-thinker: operation failed'); }
       }
     } catch (err) {
       logger.warn({ query, err: err.message }, 'project-thinker: web search failed');
@@ -316,7 +316,7 @@ function parseInsights(text, projectId) {
           confidence: obj.confidence || 0.7,
         });
       }
-    } catch {}
+    } catch (err) { logger.warn({ err: err?.message }, 'project-thinker: operation failed'); }
   }
   return insights;
 }
@@ -350,7 +350,7 @@ export async function runProjectDeepThink(sendFn) {
           if (memories.length > 0) {
             existingMemories = memories.map(r => r.memory.fact).join('\n');
           }
-        } catch {}
+        } catch (err) { logger.warn({ err: err?.message }, 'project-thinker: operation failed'); }
       }
 
       // Run web research — surface SOTA innovations from competitors and adjacent fields
@@ -440,7 +440,7 @@ export async function runProjectDeepThink(sendFn) {
                 'project_thinker'
               );
               totalInsights++;
-            } catch {}
+            } catch (err) { logger.warn({ err: err?.message }, 'project-thinker: operation failed'); }
           }
         }
       }
@@ -456,7 +456,7 @@ export async function runProjectDeepThink(sendFn) {
             0.9,
             'project_thinker'
           );
-        } catch {}
+        } catch (err) { logger.warn({ err: err?.message }, 'project-thinker: operation failed'); }
       }
 
       // Save analysis to project file for quick access

@@ -57,7 +57,7 @@ let saveTimer = null;
 function saveUsage() {
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
-    try { writeFileSync(USAGE_FILE, JSON.stringify(usage)); } catch (_) {}
+    try { writeFileSync(USAGE_FILE, JSON.stringify(usage)); } catch (_) { /* intentional: best-effort periodic usage save */ }
     saveTimer = null;
   }, 10000);
 }
@@ -67,7 +67,7 @@ export function flushUsage() {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
-  try { writeFileSync(USAGE_FILE, JSON.stringify(usage)); } catch (_) {}
+  try { writeFileSync(USAGE_FILE, JSON.stringify(usage)); } catch (_) { /* intentional: best-effort usage flush */ }
 }
 
 export function trackTokens(response) {

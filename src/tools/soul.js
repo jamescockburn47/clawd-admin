@@ -201,7 +201,7 @@ async function savePending(proposal) {
 }
 
 async function clearPending() {
-  try { await writeFile(PENDING_FILE, 'null'); } catch {}
+  try { await writeFile(PENDING_FILE, 'null'); } catch { /* intentional: best-effort pending file clear */ }
 }
 
 export async function soulPropose({ section, content, reason }) {

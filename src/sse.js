@@ -8,7 +8,7 @@ export function addSSEClient(res) {
   sseClients.add(res);
   res.on('close', () => sseClients.delete(res));
   // Send immediate connected event so client knows link is live
-  try { res.write(`event: connected\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`); } catch {}
+  try { res.write(`event: connected\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`); } catch { /* intentional: SSE client may have already disconnected */ }
   startHeartbeat();
 }
 

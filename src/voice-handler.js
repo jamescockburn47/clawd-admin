@@ -166,7 +166,7 @@ export async function handleVoiceLocal(rawBody, { sendProactiveMessage, getActiv
 
         const sock = getActiveSock();
         if (config.ownerJid && sock) {
-          try { await sendProactiveMessage(config.ownerJid, response); } catch {}
+          try { await sendProactiveMessage(config.ownerJid, response); } catch (err) { logger.warn({ err: err.message }, 'voice response delivery failed'); }
         }
 
         return { status: 200, body: { ok: true, action: 'claude', message: response, data: { panels } } };

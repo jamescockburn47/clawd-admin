@@ -113,7 +113,7 @@ async function startBot() {
       try {
         writeFileSync('/tmp/qr.txt', qr);
         execSync('qrencode -o /tmp/qr.png -s 10 -m 2 < /tmp/qr.txt');
-      } catch (_) {}
+      } catch (_) { /* intentional: qrencode may not be installed */ }
     }
 
     if (connection === 'open') {
@@ -221,11 +221,11 @@ async function shutdown(signal) {
   shuttingDown = true;
   logger.info({ signal }, 'shutting down...');
 
-  try { flushUsage(); } catch {}
-  try { await flushTodos(); } catch {}
-  try { await flushAudit(); } catch {}
-  try { flushBufferTimer(); await saveBuffers(); } catch {}
-  try { stopWidgetRefresh(); } catch {}
+  try { flushUsage(); } catch { /* intentional: best-effort flush on shutdown */ }
+  try { await flushTodos(); } catch { /* intentional: best-effort flush on shutdown */ }
+  try { await flushAudit(); } catch { /* intentional: best-effort flush on shutdown */ }
+  try { flushBufferTimer(); await saveBuffers(); } catch { /* intentional: best-effort flush on shutdown */ }
+  try { stopWidgetRefresh(); } catch { /* intentional: best-effort cleanup on shutdown */ }
 
   logger.info('shutdown complete');
   process.exit(0);

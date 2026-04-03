@@ -257,7 +257,7 @@ export function startHttpServer(port, deps) {
           const label = f.replace(`${today}_`, '').replace('.jsonl', '');
           groups[label] = lines.length;
         }
-      } catch {}
+      } catch { /* intentional: log dir may not exist yet on fresh start */ }
       return json(res, 200, { date: today, totalMessages, groupCount, groups });
     }
     if (path === '/api/retrospective') {

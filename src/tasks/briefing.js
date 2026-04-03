@@ -127,7 +127,7 @@ export async function checkMorningBriefing(sendFn, todayStr, hours, minutes) {
       try {
         const stats = await getMemoryStats();
         if (stats.total) memLine += ` | ${stats.total} memories`;
-      } catch {}
+      } catch (err) { logger.warn({ err: err.message }, 'briefing memory stats failed'); }
       sections.push(memLine);
     }
 
@@ -145,7 +145,7 @@ export async function checkMorningBriefing(sendFn, todayStr, hours, minutes) {
             .map(m => `  - ${m.fact || m.text || m.content || '?'}`);
           sections.push(`*Overnight insights*\n${lines.join('\n')}`);
         }
-      } catch {}
+      } catch (err) { logger.warn({ err: err.message }, 'briefing overnight insights failed'); }
     }
 
     const briefing = sections.join('\n\n');
