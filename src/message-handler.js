@@ -20,6 +20,7 @@ import { filterResponse, getBlockedResponse } from './output-filter.js';
 import { detectGroupMode, detectGroupModeExit, detectTopicSelection, runTopicRetrieval, executeGroupMode, buildExecutionPrompt, buildAristotlePrompt } from './group-modes.js';
 import { clearPendingAction, getPendingAction } from './pending-action.js';
 import { getRecentGroupMessages, formatTranscript } from './topic-scan.js';
+import { queueGroupMessage } from './group-message-processor.js';
 import { runSkillPostProcessors } from './skill-registry.js';
 
 // --- Owner JID resolution ---
@@ -212,6 +213,8 @@ export async function handleIncomingMessage(sock, message, botJid) {
     // Log ALL group messages before respond gate (dream mode needs everything)
     if (isGroup && config.evoMemoryEnabled) {
       try { logConversation(chatJid, [{ senderName, text, isBot: false }]); } catch {}
+      // Queue for real-time fact extraction via 30B model
+      queueGroupMessage(chatJid, senderName, text);
     }
 
     if (!trigger.respond) return;
