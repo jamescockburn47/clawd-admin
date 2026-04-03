@@ -122,6 +122,8 @@ export function HealthCards() {
     }
 
     load();
+    const interval = setInterval(load, 30_000); // auto-refresh every 30s
+    return () => clearInterval(interval);
   }, []);
 
   if (state.loading) {

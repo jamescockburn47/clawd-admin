@@ -11,9 +11,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
+interface MessageStats {
+  totalMessages: number;
+  groupCount: number;
+  groups: Record<string, number>;
+}
+
 interface StatsState {
   loading: boolean;
   analysis: TraceAnalysis | null;
+  messageStats: MessageStats | null;
 }
 
 function TopCategories({ categories }: { categories: Record<string, number> }) {
@@ -107,19 +114,28 @@ function AnomalyList({ anomalies }: { anomalies: TraceAnalysis['anomalies'] }) {
 }
 
 export function StatsCards() {
-  const [state, setState] = useState<StatsState>({ loading: true, analysis: null });
+  const [state, setState] = useState<StatsState>({ loading: true, analysis: null, messageStats: null });
 
   useEffect(() => {
     async function load() {
       try {
-        const result = await fetchPi<{ analysis: TraceAnalysis | null }>('traces/live');
-        setState({ loading: false, analysis: result.analysis });
+        const [traceResult, msgResult] = await Promise.allSettled([
+          fetchPi<{ analysis: TraceAnalysis | null }>('traces/live'),
+          fetchPi<MessageStats>('stats/messages'),
+        ]);
+        setState({
+          loading: false,
+          analysis: traceResult.status === 'fulfilled' ? traceResult.value.analysis : null,
+          messageStats: msgResult.status === 'fulfilled' ? msgResult.value : null,
+        });
       } catch {
-        setState({ loading: false, analysis: null });
+        setState({ loading: false, analysis: null, messageStats: null });
       }
     }
 
     load();
+    const interval = setInterval(load, 60_000); // auto-refresh every 60s
+    return () => clearInterval(interval);
   }, []);
 
   if (state.loading) {
@@ -179,7 +195,15 @@ export function StatsCards() {
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-semibold tabular-nums">
-              {analysis.totalTraces.toLocaleString()}
+              {state.messageStats?.totalMessages?.toLocaleString() ?? analysis.totalTraces.toLocaleString()}
+            </p>
+            {state.messageStats && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {state.messageStats.groupCount} group{state.messageStats.groupCount !== 1 ? 's' : ''} active
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {analysis.totalTraces} processed by Clawd
             </p>
             <TopCategories categories={analysis.categories} />
           </CardContent>

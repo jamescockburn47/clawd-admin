@@ -2,7 +2,7 @@
 // Voice/chat handlers delegated to voice-handler.js.
 
 import { createServer } from 'http';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
@@ -238,6 +238,27 @@ export function startHttpServer(port, deps) {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       const { analyseTraces } = await import('./tasks/trace-analyser.js');
       return json(res, 200, { analysis: analyseTraces(1) }); // last 24h, on-demand
+    }
+    if (path === '/api/stats/messages') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      // Count all messages in today's conversation logs (full volume, not just Clawd-processed)
+      const today = new Date().toISOString().split('T')[0];
+      const logDir = join(__dirname, '..', 'data', 'conversation-logs');
+      let totalMessages = 0;
+      let groupCount = 0;
+      const groups = {};
+      try {
+        const files = readdirSync(logDir).filter(f => f.startsWith(today));
+        for (const f of files) {
+          const lines = readFileSync(join(logDir, f), 'utf-8').trim().split('\n').filter(Boolean);
+          const isGroup = f.includes('_g_us');
+          if (isGroup) groupCount++;
+          totalMessages += lines.length;
+          const label = f.replace(`${today}_`, '').replace('.jsonl', '');
+          groups[label] = lines.length;
+        }
+      } catch {}
+      return json(res, 200, { date: today, totalMessages, groupCount, groups });
     }
     if (path === '/api/retrospective') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
