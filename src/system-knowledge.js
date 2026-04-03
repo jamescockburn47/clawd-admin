@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { storeMemory, searchMemory, isEvoOnline, deleteMemory, listMemories, syncCache } from './memory.js';
+import { describeCapabilities, getForgeHistory } from './skill-registry.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -136,6 +137,25 @@ function generateKnowledgeEntries() {
     fact: doc.selfImprovement.summary,
     tags: ['self-improvement', 'eval', 'learning'],
   });
+
+  // Dynamic: forge-authored learned skills
+  const forgeHistory = getForgeHistory();
+  if (forgeHistory.length > 0) {
+    const skillList = forgeHistory.map(s =>
+      `${s.name} (v${s.version || '?'}${s.created ? ', created ' + s.created : ''}): ${s.description || 'no description'}`
+    ).join('. ');
+    entries.push({
+      fact: `Learned skills from overnight forge: ${skillList}`,
+      tags: ['skills', 'forge', 'learned', 'capabilities'],
+    });
+  }
+  const skillDesc = describeCapabilities();
+  if (skillDesc !== 'No forge-authored skills installed.') {
+    entries.push({
+      fact: skillDesc,
+      tags: ['skills', 'capabilities', 'forge'],
+    });
+  }
 
   // Tech stack
   const stackLines = Object.entries(doc.techStack)

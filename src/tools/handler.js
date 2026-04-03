@@ -15,6 +15,7 @@ import { getGroupConfig, setGroupConfig, removeGroupConfig, getRegisteredGroups,
 import { broadcastSSE, getSSEClientCount } from '../sse.js';
 import { logAudit } from '../audit.js';
 import { getRoutingStats } from '../router-telemetry.js';
+import { describeCapabilities, getForgeHistory } from '../skill-registry.js';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import config from '../config.js';
@@ -152,6 +153,13 @@ const TOOL_MAP = {
       ? `${routerStats.local} local, ${routerStats.claude} Claude, ${routerStats.fallback} fallbacks (${routerStats.total} total today)`
       : 'no messages routed today';
 
+    // Learned skills from the forge/skill registry
+    const forgeHistory = getForgeHistory();
+    const skillsLine = forgeHistory.length > 0
+      ? forgeHistory.map(s => `${s.name} (v${s.version || '?'})`).join(', ')
+      : 'none yet';
+    const activeSkills = describeCapabilities();
+
     return [
       `**Pi (clawdbot)**: Running ${hours}h ${mins}m, ${mbRss}MB RSS`,
       `**WhatsApp**: ${waConnected ? 'Connected' : 'Disconnected'}`,
@@ -160,7 +168,9 @@ const TOOL_MAP = {
       `**Dashboard**: ${sseClients} SSE client(s) connected`,
       `**Models**: Claude ${config.claudeModel} (cloud), ${config.evoMainModelLabel}, ${config.evoClassifierLabel}`,
       `**Routing today**: ${routerLine}`,
-    ].join('\n');
+      `**Learned skills**: ${skillsLine}`,
+      activeSkills !== 'No forge-authored skills installed.' ? activeSkills : '',
+    ].filter(Boolean).join('\n');
   },
   project_list: projectList,
   project_read: projectRead,
