@@ -179,7 +179,7 @@ export function HealthCards() {
           <div className="flex items-center gap-2">
             <StatusDot status={state.evo.status} />
             <span className="text-sm font-medium truncate">
-              {state.evo.model ?? 'Offline'}
+              {state.evo.model ?? (state.evo.status === 'online' ? 'Connected' : 'Offline')}
             </span>
           </div>
           {state.evo.queueDepth !== null && (

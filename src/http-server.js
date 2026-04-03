@@ -253,7 +253,8 @@ export function startHttpServer(port, deps) {
     }
     if (path === '/api/evo' || path === '/api/ollama') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      return json(res, 200, { available: await checkEvoLlmHealth(), url: config.evoLlmUrl });
+      const evoOnline = await checkEvoLlmHealth();
+      return json(res, 200, { available: evoOnline, online: evoOnline, url: config.evoLlmUrl, model: evoOnline ? 'Qwen3-VL-30B' : null });
     }
 
     // --- Memory endpoints ---
