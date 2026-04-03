@@ -1,5 +1,5 @@
 /**
- * Memory client — connects Pi to EVO X2 memory service.
+ * Memory client — connects to EVO X2 memory service.
  * Handles health monitoring, search, store, queue, cache, and fallback.
  */
 
@@ -18,644 +18,553 @@ const QUEUE_DIR = join('data', 'memory-queue');
 const QUEUE_TEXT_DIR = join(QUEUE_DIR, 'text');
 const QUEUE_AUDIO_DIR = join(QUEUE_DIR, 'audio');
 const QUEUE_IMAGE_DIR = join(QUEUE_DIR, 'images');
+const DOC_LOG_DIR = join(process.cwd(), 'data', 'document-logs');
+const DOC_CACHE_DIR = join(process.cwd(), 'data', 'document-cache');
 
-// State
-let evoOnline = false;
-let consecutiveFailures = 0;
-let memoryCache = [];
-let cacheTimestamp = 0;
+// --- MemoryClient class (owns connection state, cache, queue) ---
 
-// Ensure directories exist
-for (const dir of [QUEUE_TEXT_DIR, QUEUE_AUDIO_DIR, QUEUE_IMAGE_DIR]) {
-  mkdirSync(dir, { recursive: true });
-}
+class MemoryClient {
+  constructor({ memoryUrl, fetchJSON, fetchRaw }) {
+    this._memoryUrl = memoryUrl;
+    this._fetchJSON = fetchJSON;
+    this._fetchRaw = fetchRaw;
+    this._online = false;
+    this._consecutiveFailures = 0;
+    this._cache = [];
+    this._cacheTimestamp = 0;
+    this._lastHealthData = null;
 
-// Load cache on startup
-try {
-  if (existsSync(CACHE_FILE)) {
-    const data = JSON.parse(readFileSync(CACHE_FILE, 'utf-8'));
-    memoryCache = data.memories || [];
-    cacheTimestamp = data.timestamp || 0;
-    logger.info({ count: memoryCache.length }, 'memory cache loaded');
-  }
-} catch (err) {
-  logger.warn({ err: err.message }, 'failed to load memory cache');
-}
+    // Ensure directories
+    for (const dir of [QUEUE_TEXT_DIR, QUEUE_AUDIO_DIR, QUEUE_IMAGE_DIR, DOC_LOG_DIR, DOC_CACHE_DIR]) {
+      mkdirSync(dir, { recursive: true });
+    }
 
-
-// Convenience wrapper: fetch from the memory service base URL, return parsed JSON
-async function memoryFetch(path, options = {}) {
-  const url = `${config.evoMemoryUrl}${path}`;
-  return evoFetchJSON(url, options);
-}
-
-
-// --- Health monitoring ---
-
-let lastHealthData = null;
-
-export async function checkEvoHealth() {
-  try {
-    const data = await memoryFetch('/health', { timeout: TIMEOUTS.MEMORY_HEALTH_CHECK });
-    if (data.status === 'online') {
-      const wasOffline = !evoOnline;
-      evoOnline = true;
-      consecutiveFailures = 0;
-      lastHealthData = data;
-
-      if (wasOffline) {
-        logger.info('EVO X2 came online — draining queue and syncing cache');
-        drainQueue().catch(err => logger.error({ err: err.message }, 'queue drain failed'));
-        syncCache().catch(err => logger.error({ err: err.message }, 'cache sync failed'));
+    // Load cache on construction
+    try {
+      if (existsSync(CACHE_FILE)) {
+        const data = JSON.parse(readFileSync(CACHE_FILE, 'utf-8'));
+        this._cache = data.memories || [];
+        this._cacheTimestamp = data.timestamp || 0;
+        logger.info({ count: this._cache.length }, 'memory cache loaded');
       }
-      return data;
-    }
-  } catch (err) {
-    consecutiveFailures++;
-    if (consecutiveFailures >= 3 && evoOnline) {
-      evoOnline = false;
-      logger.warn('EVO X2 marked offline after 3 consecutive failures');
-    }
-  }
-  return null;
-}
-
-export function getLastHealthData() {
-  return lastHealthData;
-}
-
-export function isEvoOnline() {
-  return evoOnline;
-}
-
-export function getEvoStatus() {
-  return {
-    online: evoOnline,
-    consecutiveFailures,
-    cacheSize: memoryCache.length,
-    cacheAge: cacheTimestamp ? Math.round((Date.now() - cacheTimestamp) / 1000) : null,
-    queueDepth: getQueueDepth(),
-  };
-}
-
-
-// --- Memory search ---
-
-export async function searchMemory(query, category = null, limit = 8) {
-  if (evoOnline) {
-    try {
-      const data = await memoryFetch('/memory/search', {
-        method: 'POST',
-        body: JSON.stringify({ query, category, limit }),
-        timeout: TIMEOUTS.MEMORY_SEARCH,
-      });
-      return data.results || [];
     } catch (err) {
-      logger.warn({ err: err.message }, 'EVO X2 search failed, falling back to cache');
+      logger.warn({ err: err.message }, 'failed to load memory cache');
     }
   }
 
-  // Fallback: keyword search against local cache
-  return keywordSearch(query, category, limit);
-}
-
-function keywordSearch(query, category, limit) {
-  const tokens = new Set(query.toLowerCase().split(/\W+/).filter(t => t.length > 2));
-  if (tokens.size === 0) return [];
-
-  const scored = [];
-  for (const m of memoryCache) {
-    if (category && m.category !== category) continue;
-
-    const tags = new Set(m.tags || []);
-    const factTokens = new Set(m.fact.toLowerCase().split(/\W+/).filter(t => t.length > 2));
-    const allTokens = new Set([...tags, ...factTokens]);
-
-    let matches = 0;
-    for (const t of tokens) {
-      if (allTokens.has(t)) matches++;
-    }
-
-    if (matches > 0) {
-      scored.push({ score: matches / tokens.size, memory: m });
-    }
+  /** @returns {Promise<Response>} Fetch parsed JSON from memory service */
+  _fetch(path, options = {}) {
+    return this._fetchJSON(`${this._memoryUrl}${path}`, options);
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, limit);
-}
+  // --- Health ---
 
-
-// --- Memory store ---
-
-export async function storeMemory(fact, category, tags, confidence = 0.9, source = 'api') {
-  if (evoOnline) {
+  /** Check if EVO memory service is online, trigger queue drain on recovery */
+  async checkHealth() {
     try {
-      const data = await memoryFetch('/memory/store', {
-        method: 'POST',
-        body: JSON.stringify({ fact, category, tags, confidence, source }),
-        timeout: TIMEOUTS.MEMORY_STORE,
-      });
-      return data;
+      const data = await this._fetch('/health', { timeout: TIMEOUTS.MEMORY_HEALTH_CHECK });
+      if (data.status === 'online') {
+        const wasOffline = !this._online;
+        this._online = true;
+        this._consecutiveFailures = 0;
+        this._lastHealthData = data;
+        if (wasOffline) {
+          logger.info('EVO X2 came online — draining queue and syncing cache');
+          this._drainQueue().catch(err => logger.error({ err: err.message }, 'queue drain failed'));
+          this.syncCache().catch(err => logger.error({ err: err.message }, 'cache sync failed'));
+        }
+        return data;
+      }
     } catch (err) {
-      logger.warn({ err: err.message }, 'EVO X2 store failed, queuing locally');
+      this._consecutiveFailures++;
+      if (this._consecutiveFailures >= 3 && this._online) {
+        this._online = false;
+        logger.warn('EVO X2 marked offline after 3 consecutive failures');
+      }
     }
+    return null;
   }
 
-  // Queue for later
-  queueItem('text', { type: 'store', fact, category, tags, confidence, source });
-  return { stored: false, queued: true };
-}
+  getLastHealthData() { return this._lastHealthData; }
+  isOnline() { return this._online; }
 
-
-// --- Store a note (direct) ---
-
-export async function storeNote(text, source = 'manual_note') {
-  if (evoOnline) {
-    try {
-      const data = await memoryFetch('/note', {
-        method: 'POST',
-        body: JSON.stringify({ text, source }),
-        timeout: TIMEOUTS.MEMORY_NOTE,
-      });
-      return data;
-    } catch (err) {
-      logger.warn({ err: err.message }, 'EVO X2 note store failed, queuing');
-    }
+  getStatus() {
+    return {
+      online: this._online,
+      consecutiveFailures: this._consecutiveFailures,
+      cacheSize: this._cache.length,
+      cacheAge: this._cacheTimestamp ? Math.round((Date.now() - this._cacheTimestamp) / 1000) : null,
+      queueDepth: this._getQueueDepth(),
+    };
   }
 
-  queueItem('text', { type: 'note', text, source });
-  return { stored: false, queued: true };
-}
+  // --- Search ---
 
-
-// --- Extract facts from conversation ---
-
-export async function extractFromConversation(conversation, source = 'conversation') {
-  if (evoOnline) {
-    try {
-      const data = await memoryFetch('/extract', {
-        method: 'POST',
-        body: JSON.stringify({ conversation, store_results: true, source }),
-        timeout: TIMEOUTS.MEMORY_EXTRACT,
-      });
-      return data;
-    } catch (err) {
-      logger.warn({ err: err.message }, 'EVO X2 extraction failed, queuing');
+  async search(query, category = null, limit = 8) {
+    if (this._online) {
+      try {
+        const data = await this._fetch('/memory/search', {
+          method: 'POST',
+          body: JSON.stringify({ query, category, limit }),
+          timeout: TIMEOUTS.MEMORY_SEARCH,
+        });
+        return data.results || [];
+      } catch (err) {
+        logger.warn({ err: err.message }, 'EVO X2 search failed, falling back to cache');
+      }
     }
+    return this._keywordSearch(query, category, limit);
   }
 
-  queueItem('text', { type: 'extract', conversation, source });
-  return { extracted: [], queued: true };
-}
+  _keywordSearch(query, category, limit) {
+    const tokens = new Set(query.toLowerCase().split(/\W+/).filter(t => t.length > 2));
+    if (tokens.size === 0) return [];
+    const scored = [];
+    for (const m of this._cache) {
+      if (category && m.category !== category) continue;
+      const allTokens = new Set([...(m.tags || []), ...m.fact.toLowerCase().split(/\W+/).filter(t => t.length > 2)]);
+      let matches = 0;
+      for (const t of tokens) { if (allTokens.has(t)) matches++; }
+      if (matches > 0) scored.push({ score: matches / tokens.size, memory: m });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit);
+  }
 
+  // --- Store ---
 
-// --- Image analysis ---
+  async store(fact, category, tags, confidence = 0.9, source = 'api') {
+    if (this._online) {
+      try {
+        return await this._fetch('/memory/store', {
+          method: 'POST',
+          body: JSON.stringify({ fact, category, tags, confidence, source }),
+          timeout: TIMEOUTS.MEMORY_STORE,
+        });
+      } catch (err) {
+        logger.warn({ err: err.message }, 'EVO X2 store failed, queuing locally');
+      }
+    }
+    this._queueItem('text', { type: 'store', fact, category, tags, confidence, source });
+    return { stored: false, queued: true };
+  }
 
-export async function analyseImage(imageBuffer, prompt, extract = true, storeResults = true) {
-  if (evoOnline) {
+  async storeNote(text, source = 'manual_note') {
+    if (this._online) {
+      try {
+        return await this._fetch('/note', {
+          method: 'POST', body: JSON.stringify({ text, source }), timeout: TIMEOUTS.MEMORY_NOTE,
+        });
+      } catch (err) {
+        logger.warn({ err: err.message }, 'EVO X2 note store failed, queuing');
+      }
+    }
+    this._queueItem('text', { type: 'note', text, source });
+    return { stored: false, queued: true };
+  }
+
+  async extractFromConversation(conversation, source = 'conversation') {
+    if (this._online) {
+      try {
+        return await this._fetch('/extract', {
+          method: 'POST',
+          body: JSON.stringify({ conversation, store_results: true, source }),
+          timeout: TIMEOUTS.MEMORY_EXTRACT,
+        });
+      } catch (err) {
+        logger.warn({ err: err.message }, 'EVO X2 extraction failed, queuing');
+      }
+    }
+    this._queueItem('text', { type: 'extract', conversation, source });
+    return { extracted: [], queued: true };
+  }
+
+  // --- Media ---
+
+  async analyseImage(imageBuffer, prompt, extract = true, storeResults = true) {
+    if (!this._online) return null;
     try {
       const formData = new FormData();
       formData.append('file', new Blob([imageBuffer]), 'image.jpg');
       formData.append('prompt', prompt || 'Describe this image in detail. Extract any text, numbers, names, dates visible.');
       formData.append('extract', String(extract));
       formData.append('store_results', String(storeResults));
-
-      const url = `${config.evoMemoryUrl}/analyse-image`;
-      const resp = await evoFetchRaw(url, {
-        method: 'POST',
-        body: formData,
-        headers: {},  // Let browser set multipart boundary
-        timeout: TIMEOUTS.MEMORY_IMAGE,
+      const resp = await this._fetchRaw(`${this._memoryUrl}/analyse-image`, {
+        method: 'POST', body: formData, headers: {}, timeout: TIMEOUTS.MEMORY_IMAGE,
       });
       return await resp.json();
     } catch (err) {
       logger.warn({ err: err.message }, 'EVO X2 image analysis failed');
+      return null;
     }
   }
 
-  return null;
-}
-
-
-// --- Transcription ---
-
-export async function transcribeAudio(audioBuffer, language = 'en', extract = true, storeResults = true) {
-  if (evoOnline) {
+  async transcribeAudio(audioBuffer, language = 'en', extract = true, storeResults = true) {
+    if (!this._online) return null;
     try {
       const formData = new FormData();
       formData.append('file', new Blob([audioBuffer]), 'audio.ogg');
       formData.append('language', language);
       formData.append('extract', String(extract));
       formData.append('store_results', String(storeResults));
-
-      const url = `${config.evoMemoryUrl}/transcribe`;
-      const resp = await evoFetchRaw(url, {
-        method: 'POST',
-        body: formData,
-        headers: {},  // Let browser set multipart boundary
-        timeout: TIMEOUTS.MEMORY_AUDIO,
+      const resp = await this._fetchRaw(`${this._memoryUrl}/transcribe`, {
+        method: 'POST', body: formData, headers: {}, timeout: TIMEOUTS.MEMORY_AUDIO,
       });
       return await resp.json();
     } catch (err) {
       logger.warn({ err: err.message }, 'EVO X2 transcription failed');
+      return null;
     }
   }
 
-  return null;
-}
+  // --- Update / Delete ---
 
-
-// --- Memory update/delete ---
-
-export async function updateMemory(memoryId, updates) {
-  if (!evoOnline) return { updated: false, offline: true };
-
-  try {
-    const data = await memoryFetch(`/memory/${memoryId}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-      timeout: TIMEOUTS.MEMORY_STORE,
-    });
-    return data;
-  } catch (err) {
-    logger.error({ err: err.message }, 'memory update failed');
-    return { updated: false, error: err.message };
-  }
-}
-
-export async function deleteMemory(memoryId) {
-  if (!evoOnline) return { deleted: false, offline: true };
-
-  try {
-    const data = await memoryFetch(`/memory/${memoryId}`, {
-      method: 'DELETE',
-      timeout: TIMEOUTS.MEMORY_DEFAULT,
-    });
-    return data;
-  } catch (err) {
-    logger.error({ err: err.message }, 'memory delete failed');
-    return { deleted: false, error: err.message };
-  }
-}
-
-
-// --- Memory stats ---
-
-export async function getMemoryStats() {
-  if (evoOnline) {
+  async update(memoryId, updates) {
+    if (!this._online) return { updated: false, offline: true };
     try {
-      return await memoryFetch('/memory/stats', { timeout: TIMEOUTS.MEMORY_HEALTH_CHECK });
+      return await this._fetch(`/memory/${memoryId}`, {
+        method: 'PUT', body: JSON.stringify(updates), timeout: TIMEOUTS.MEMORY_STORE,
+      });
     } catch (err) {
-      logger.warn({ err: err.message }, 'failed to get memory stats');
+      logger.error({ err: err.message }, 'memory update failed');
+      return { updated: false, error: err.message };
     }
   }
-  // Fallback from cache
-  const cats = {};
-  for (const m of memoryCache) {
-    cats[m.category] = (cats[m.category] || 0) + 1;
-  }
-  return { total: memoryCache.length, categories: cats, fromCache: true };
-}
 
-
-// --- List all memories (for dashboard) ---
-
-export async function listMemories() {
-  if (evoOnline) {
+  async delete(memoryId) {
+    if (!this._online) return { deleted: false, offline: true };
     try {
-      const data = await memoryFetch('/memory/list', { timeout: TIMEOUTS.MEMORY_DEFAULT });
-      return data.memories || [];
+      return await this._fetch(`/memory/${memoryId}`, {
+        method: 'DELETE', timeout: TIMEOUTS.MEMORY_DEFAULT,
+      });
     } catch (err) {
-      logger.warn({ err: err.message }, 'failed to list memories');
+      logger.error({ err: err.message }, 'memory delete failed');
+      return { deleted: false, error: err.message };
     }
   }
-  return memoryCache;
-}
 
+  // --- Stats / List ---
 
-// --- Passive memory injection ---
+  async getStats() {
+    if (this._online) {
+      try {
+        return await this._fetch('/memory/stats', { timeout: TIMEOUTS.MEMORY_HEALTH_CHECK });
+      } catch (err) {
+        logger.warn({ err: err.message }, 'failed to get memory stats');
+      }
+    }
+    const cats = {};
+    for (const m of this._cache) { cats[m.category] = (cats[m.category] || 0) + 1; }
+    return { total: this._cache.length, categories: cats, fromCache: true };
+  }
 
-export async function getRelevantMemories(messageText) {
-  if (!messageText || messageText.length < 5) return [];
+  async list() {
+    if (this._online) {
+      try {
+        const data = await this._fetch('/memory/list', { timeout: TIMEOUTS.MEMORY_DEFAULT });
+        return data.memories || [];
+      } catch (err) {
+        logger.warn({ err: err.message }, 'failed to list memories');
+      }
+    }
+    return this._cache;
+  }
 
-  const tokens = messageText.toLowerCase().split(/\W+/).filter(t => t.length > 2);
-  if (tokens.length === 0) return [];
+  // --- Retrieval helpers ---
 
-  const results = await searchMemory(messageText, null, 8);
+  async getRelevantMemories(messageText) {
+    if (!messageText || messageText.length < 5) return [];
+    const tokens = messageText.toLowerCase().split(/\W+/).filter(t => t.length > 2);
+    if (tokens.length === 0) return [];
 
-  // If message references a document, also search document chunks specifically
-  const docPattern = /\b(document|doc|file|pdf|report|analysis|the\s+\w+\.(?:md|pdf|docx|csv))\b/i;
-  if (docPattern.test(messageText)) {
-    try {
-      const docResults = await searchMemory(messageText, 'document_chunk', 4);
-      const docSummaries = await searchMemory(messageText, 'document', 2);
-      const existingIds = new Set(results.map(r => (r.memory || r).id));
-      for (const r of [...docResults, ...docSummaries]) {
-        const id = (r.memory || r).id;
-        if (id && !existingIds.has(id)) {
-          results.push(r);
-          existingIds.add(id);
+    const results = await this.search(messageText, null, 8);
+
+    const docPattern = /\b(document|doc|file|pdf|report|analysis|the\s+\w+\.(?:md|pdf|docx|csv))\b/i;
+    if (docPattern.test(messageText)) {
+      try {
+        const docResults = await this.search(messageText, 'document_chunk', 4);
+        const docSummaries = await this.search(messageText, 'document', 2);
+        const existingIds = new Set(results.map(r => (r.memory || r).id));
+        for (const r of [...docResults, ...docSummaries]) {
+          const id = (r.memory || r).id;
+          if (id && !existingIds.has(id)) { results.push(r); existingIds.add(id); }
         }
-      }
-    } catch (err) {
-      logger.warn({ err: err.message }, 'document memory search failed');
-    }
-  }
-
-  // Apply recency boost: memories from the last 7 days get a score bump
-  const now = Date.now();
-  const scored = results
-    .filter((r) => (r.score ?? 0) >= 0.12)
-    .map((r) => {
-      const mem = r.memory || r;
-      let recencyBoost = 0;
-      // Check source date or created date for recency
-      const dateStr = mem.sourceDate || mem.created;
-      if (dateStr) {
-        const age = now - new Date(dateStr).getTime();
-        const ageDays = age / 86400000;
-        if (ageDays < 1) recencyBoost = 0.15;       // today: big boost
-        else if (ageDays < 3) recencyBoost = 0.10;   // last 3 days
-        else if (ageDays < 7) recencyBoost = 0.05;   // last week
-        // older: no boost
-      }
-      return { memory: mem, adjustedScore: (r.score ?? 0) + recencyBoost };
-    })
-    .sort((a, b) => b.adjustedScore - a.adjustedScore)
-    .map((r) => r.memory);
-
-  return scored;
-}
-
-export async function getDreamMemories(groupJid, limit = 3) {
-  if (!evoOnline) return [];
-  try {
-    const results = await searchMemory(`dream summary ${groupJid}`, 'dream', limit);
-    return results.map(r => r.memory || r).filter(Boolean);
-  } catch (err) {
-    logger.warn({ err: err.message }, 'dream memory fetch failed');
-    return [];
-  }
-}
-
-export async function getIdentityMemories() {
-  if (!evoOnline) return [];
-  try {
-    const results = await searchMemory('identity core permanent', 'identity', 10);
-    return results.map(r => r.memory || r).filter(Boolean);
-  } catch (err) {
-    logger.warn({ err: err.message }, 'identity memory fetch failed');
-    return [];
-  }
-}
-
-export async function getOvernightInsights(dateStr) {
-  if (!evoOnline) return [];
-  try {
-    const results = await searchMemory(`diary_insight ${dateStr}`, 'insight', 8);
-    const byDate = (results || [])
-      .map(r => r.memory || r)
-      .filter(m => m && (m.tags || []).includes(dateStr));
-    return byDate;
-  } catch (err) {
-    logger.warn({ err: err.message }, 'overnight insight fetch failed');
-    return [];
-  }
-}
-
-export async function getInsightMemories(query, limit = 3) {
-  if (!evoOnline) return [];
-  try {
-    const results = await searchMemory(query, 'insight', limit);
-    return (results || [])
-      .filter(r => (r.score ?? 0) >= 0.20)
-      .map(r => r.memory || r)
-      .filter(Boolean);
-  } catch (err) {
-    logger.warn({ err: err.message }, 'insight memory fetch failed');
-    return [];
-  }
-}
-
-export function formatMemoriesForPrompt(memories) {
-  if (!memories || memories.length === 0) return '';
-
-  const now = Date.now();
-  const lines = memories.map(m => {
-    const dateStr = m.sourceDate || m.created;
-    let age = '';
-    if (dateStr) {
-      const ageDays = Math.floor((now - new Date(dateStr).getTime()) / 86400000);
-      if (ageDays === 0) age = 'today';
-      else if (ageDays === 1) age = 'yesterday';
-      else if (ageDays < 7) age = `${ageDays}d ago`;
-      else if (ageDays < 30) age = `${Math.floor(ageDays / 7)}w ago`;
-      else age = `${Math.floor(ageDays / 30)}mo ago`;
-    }
-    return `- ${m.fact} [${m.category}${age ? ', ' + age : ''}]`;
-  });
-
-  return `\n\n## What you remember (most recent first)\n${lines.join('\n')}`;
-}
-
-
-// --- Document storage ---
-
-const DOC_LOG_DIR = join(process.cwd(), 'data', 'document-logs');
-const DOC_CACHE_DIR = join(process.cwd(), 'data', 'document-cache');
-
-for (const dir of [DOC_LOG_DIR, DOC_CACHE_DIR]) {
-  if (!existsSync(dir)) { mkdirSync(dir, { recursive: true }); }
-}
-
-export async function storeDocument({ fileName, rawText, summary, sender, chatJid }) {
-  const date = new Date().toISOString().split('T')[0];
-  const baseTags = [fileName.replace(/\s+/g, '_'), date, sender || 'unknown'];
-
-  try {
-    await storeMemory(
-      `Document "${fileName}" (${rawText.length} chars, from ${sender || 'unknown'}): ${summary}`,
-      'document', [...baseTags, 'summary'], 0.9, 'document_intake',
-    );
-  } catch (err) {
-    logger.warn({ err: err.message, fileName }, 'failed to store document summary');
-  }
-
-  const chunks = chunkText(rawText, 2000);
-  let storedChunks = 0;
-  for (let i = 0; i < chunks.length; i++) {
-    try {
-      await storeMemory(
-        `[${fileName} chunk ${i + 1}/${chunks.length}] ${chunks[i]}`,
-        'document_chunk', [...baseTags, `chunk_${i}`], 0.85, 'document_intake',
-      );
-      storedChunks++;
-    } catch (err) {
-      logger.warn({ err: err.message, fileName, chunk: i }, 'failed to store document chunk');
-    }
-  }
-
-  try {
-    await storeMemory(
-      `Document index: "${fileName}", ${rawText.length} chars, ${chunks.length} chunks, from ${sender || 'unknown'} on ${date}. Summary: ${summary.slice(0, 200)}`,
-      'document_index', [...baseTags, 'index'], 1.0, 'document_intake',
-    );
-  } catch (err) {
-    logger.warn({ err: err.message, fileName }, 'failed to store document index');
-  }
-
-  try {
-    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const rawPath = join(DOC_CACHE_DIR, `${date}_${safeName}`);
-    writeFileSync(rawPath, rawText);
-
-    const logFile = join(DOC_LOG_DIR, `${date}.jsonl`);
-    const logEntry = JSON.stringify({
-      timestamp: new Date().toISOString(),
-      fileName, sender: sender || 'unknown', chatJid: chatJid || 'unknown',
-      charCount: rawText.length, summary: summary.slice(0, 1000), rawTextPath: rawPath,
-    });
-    appendFileSync(logFile, logEntry + '\n');
-  } catch (err) {
-    logger.warn({ err: err.message, fileName }, 'failed to write document log');
-  }
-
-  logger.info({ fileName, chunks: storedChunks, totalChunks: chunks.length }, 'document stored in memory');
-  return { storedChunks, totalChunks: chunks.length };
-}
-
-function chunkText(text, maxChars = 2000) {
-  const chunks = [];
-  const paragraphs = text.split(/\n\n+/);
-  let current = '';
-
-  for (const para of paragraphs) {
-    if (current.length + para.length + 2 > maxChars && current.length > 0) {
-      chunks.push(current.trim());
-      current = para;
-    } else {
-      current += (current ? '\n\n' : '') + para;
-    }
-  }
-  if (current.trim()) chunks.push(current.trim());
-
-  const result = [];
-  for (const chunk of chunks) {
-    if (chunk.length <= maxChars) {
-      result.push(chunk);
-    } else {
-      for (let i = 0; i < chunk.length; i += maxChars) {
-        result.push(chunk.slice(i, i + maxChars));
+      } catch (err) {
+        logger.warn({ err: err.message }, 'document memory search failed');
       }
     }
-  }
-  return result;
-}
 
-export function cleanDocumentCache(maxAgeDays = 7) {
-  try {
     const now = Date.now();
-    const maxAge = maxAgeDays * 24 * 60 * 60 * 1000;
-    const files = readdirSync(DOC_CACHE_DIR);
-    let cleaned = 0;
-    for (const f of files) {
-      const filepath = join(DOC_CACHE_DIR, f);
-      const stat = statSync(filepath);
-      if (now - stat.mtimeMs > maxAge) {
-        unlinkSync(filepath);
-        cleaned++;
-      }
-    }
-    if (cleaned > 0) logger.info({ cleaned }, 'document cache cleaned');
-  } catch (err) {
-    logger.warn({ err: err.message }, 'document cache cleanup failed');
+    return results
+      .filter(r => (r.score ?? 0) >= 0.12)
+      .map(r => {
+        const mem = r.memory || r;
+        let recencyBoost = 0;
+        const dateStr = mem.sourceDate || mem.created;
+        if (dateStr) {
+          const ageDays = (now - new Date(dateStr).getTime()) / 86400000;
+          if (ageDays < 1) recencyBoost = 0.15;
+          else if (ageDays < 3) recencyBoost = 0.10;
+          else if (ageDays < 7) recencyBoost = 0.05;
+        }
+        return { memory: mem, adjustedScore: (r.score ?? 0) + recencyBoost };
+      })
+      .sort((a, b) => b.adjustedScore - a.adjustedScore)
+      .map(r => r.memory);
   }
-}
 
-// --- Queue system ---
-
-function queueItem(type, data) {
-  const dir = type === 'audio' ? QUEUE_AUDIO_DIR : type === 'images' ? QUEUE_IMAGE_DIR : QUEUE_TEXT_DIR;
-  const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`;
-  writeFileSync(join(dir, filename), JSON.stringify(data));
-  logger.info({ type, filename }, 'item queued for EVO X2');
-}
-
-function getQueueDepth() {
-  let count = 0;
-  for (const dir of [QUEUE_TEXT_DIR, QUEUE_AUDIO_DIR, QUEUE_IMAGE_DIR]) {
+  async getDreamMemories(groupJid, limit = 3) {
+    if (!this._online) return [];
     try {
-      count += readdirSync(dir).filter(f => f.endsWith('.json')).length;
-    } catch {}
-  }
-  return count;
-}
-
-async function drainQueue() {
-  const textFiles = readdirSync(QUEUE_TEXT_DIR).filter(f => f.endsWith('.json')).sort();
-  let processed = 0;
-
-  for (const file of textFiles) {
-    const filepath = join(QUEUE_TEXT_DIR, file);
-    try {
-      const data = JSON.parse(readFileSync(filepath, 'utf-8'));
-
-      if (data.type === 'store') {
-        await memoryFetch('/memory/store', {
-          method: 'POST', body: JSON.stringify(data), timeout: TIMEOUTS.MEMORY_STORE,
-        });
-      } else if (data.type === 'note') {
-        await memoryFetch('/note', {
-          method: 'POST', body: JSON.stringify({ text: data.text, source: data.source }), timeout: TIMEOUTS.MEMORY_NOTE,
-        });
-      } else if (data.type === 'extract') {
-        await memoryFetch('/extract', {
-          method: 'POST',
-          body: JSON.stringify({ conversation: data.conversation, store_results: true, source: data.source }),
-          timeout: TIMEOUTS.MEMORY_EXTRACT,
-        });
-      }
-
-      unlinkSync(filepath);
-      processed++;
+      const results = await this.search(`dream summary ${groupJid}`, 'dream', limit);
+      return results.map(r => r.memory || r).filter(Boolean);
     } catch (err) {
-      logger.error({ err: err.message, file }, 'failed to process queued item');
-      break;
+      logger.warn({ err: err.message }, 'dream memory fetch failed');
+      return [];
     }
   }
 
-  if (processed > 0) {
-    logger.info({ processed }, 'queue drain complete');
+  async getIdentityMemories() {
+    if (!this._online) return [];
+    try {
+      const results = await this.search('identity core permanent', 'identity', 10);
+      return results.map(r => r.memory || r).filter(Boolean);
+    } catch (err) {
+      logger.warn({ err: err.message }, 'identity memory fetch failed');
+      return [];
+    }
+  }
+
+  async getOvernightInsights(dateStr) {
+    if (!this._online) return [];
+    try {
+      const results = await this.search(`diary_insight ${dateStr}`, 'insight', 8);
+      return (results || []).map(r => r.memory || r).filter(m => m && (m.tags || []).includes(dateStr));
+    } catch (err) {
+      logger.warn({ err: err.message }, 'overnight insight fetch failed');
+      return [];
+    }
+  }
+
+  async getInsightMemories(query, limit = 3) {
+    if (!this._online) return [];
+    try {
+      const results = await this.search(query, 'insight', limit);
+      return (results || []).filter(r => (r.score ?? 0) >= 0.20).map(r => r.memory || r).filter(Boolean);
+    } catch (err) {
+      logger.warn({ err: err.message }, 'insight memory fetch failed');
+      return [];
+    }
+  }
+
+  // --- Document storage ---
+
+  async storeDocument({ fileName, rawText, summary, sender, chatJid }) {
+    const date = new Date().toISOString().split('T')[0];
+    const baseTags = [fileName.replace(/\s+/g, '_'), date, sender || 'unknown'];
+
+    try {
+      await this.store(
+        `Document "${fileName}" (${rawText.length} chars, from ${sender || 'unknown'}): ${summary}`,
+        'document', [...baseTags, 'summary'], 0.9, 'document_intake',
+      );
+    } catch (err) {
+      logger.warn({ err: err.message, fileName }, 'failed to store document summary');
+    }
+
+    const chunks = this._chunkText(rawText, 2000);
+    let storedChunks = 0;
+    for (let i = 0; i < chunks.length; i++) {
+      try {
+        await this.store(
+          `[${fileName} chunk ${i + 1}/${chunks.length}] ${chunks[i]}`,
+          'document_chunk', [...baseTags, `chunk_${i}`], 0.85, 'document_intake',
+        );
+        storedChunks++;
+      } catch (err) {
+        logger.warn({ err: err.message, fileName, chunk: i }, 'failed to store document chunk');
+      }
+    }
+
+    try {
+      await this.store(
+        `Document index: "${fileName}", ${rawText.length} chars, ${chunks.length} chunks, from ${sender || 'unknown'} on ${date}. Summary: ${summary.slice(0, 200)}`,
+        'document_index', [...baseTags, 'index'], 1.0, 'document_intake',
+      );
+    } catch (err) {
+      logger.warn({ err: err.message, fileName }, 'failed to store document index');
+    }
+
+    try {
+      const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      writeFileSync(join(DOC_CACHE_DIR, `${date}_${safeName}`), rawText);
+      const logEntry = JSON.stringify({
+        timestamp: new Date().toISOString(), fileName,
+        sender: sender || 'unknown', chatJid: chatJid || 'unknown',
+        charCount: rawText.length, summary: summary.slice(0, 1000),
+      });
+      appendFileSync(join(DOC_LOG_DIR, `${date}.jsonl`), logEntry + '\n');
+    } catch (err) {
+      logger.warn({ err: err.message, fileName }, 'failed to write document log');
+    }
+
+    logger.info({ fileName, chunks: storedChunks, totalChunks: chunks.length }, 'document stored in memory');
+    return { storedChunks, totalChunks: chunks.length };
+  }
+
+  cleanDocumentCache(maxAgeDays = 7) {
+    try {
+      const now = Date.now();
+      const maxAge = maxAgeDays * 86400000;
+      let cleaned = 0;
+      for (const f of readdirSync(DOC_CACHE_DIR)) {
+        const filepath = join(DOC_CACHE_DIR, f);
+        if (now - statSync(filepath).mtimeMs > maxAge) { unlinkSync(filepath); cleaned++; }
+      }
+      if (cleaned > 0) logger.info({ cleaned }, 'document cache cleaned');
+    } catch (err) {
+      logger.warn({ err: err.message }, 'document cache cleanup failed');
+    }
+  }
+
+  // --- Formatting ---
+
+  formatForPrompt(memories) {
+    if (!memories || memories.length === 0) return '';
+    const now = Date.now();
+    const lines = memories.map(m => {
+      const dateStr = m.sourceDate || m.created;
+      let age = '';
+      if (dateStr) {
+        const ageDays = Math.floor((now - new Date(dateStr).getTime()) / 86400000);
+        if (ageDays === 0) age = 'today';
+        else if (ageDays === 1) age = 'yesterday';
+        else if (ageDays < 7) age = `${ageDays}d ago`;
+        else if (ageDays < 30) age = `${Math.floor(ageDays / 7)}w ago`;
+        else age = `${Math.floor(ageDays / 30)}mo ago`;
+      }
+      return `- ${m.fact} [${m.category}${age ? ', ' + age : ''}]`;
+    });
+    return `\n\n## What you remember (most recent first)\n${lines.join('\n')}`;
+  }
+
+  // --- Cache sync ---
+
+  async syncCache() {
+    try {
+      const data = await this._fetch('/memory/list', { timeout: TIMEOUTS.MEMORY_SEARCH });
+      this._cache = data.memories || [];
+      this._cacheTimestamp = Date.now();
+      writeFileSync(CACHE_FILE, JSON.stringify({ memories: this._cache, timestamp: this._cacheTimestamp }));
+      logger.info({ count: this._cache.length }, 'memory cache synced');
+    } catch (err) {
+      logger.error({ err: err.message }, 'cache sync failed');
+    }
+  }
+
+  async triggerMaintenance() {
+    if (!this._online) return { error: 'EVO X2 offline' };
+    try {
+      return await this._fetch('/maintain', { method: 'POST', timeout: TIMEOUTS.MEMORY_STORE });
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+
+  // --- Queue (private) ---
+
+  _queueItem(type, data) {
+    const dir = type === 'audio' ? QUEUE_AUDIO_DIR : type === 'images' ? QUEUE_IMAGE_DIR : QUEUE_TEXT_DIR;
+    const filename = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`;
+    writeFileSync(join(dir, filename), JSON.stringify(data));
+    logger.info({ type, filename }, 'item queued for EVO X2');
+  }
+
+  _getQueueDepth() {
+    let count = 0;
+    for (const dir of [QUEUE_TEXT_DIR, QUEUE_AUDIO_DIR, QUEUE_IMAGE_DIR]) {
+      try { count += readdirSync(dir).filter(f => f.endsWith('.json')).length; }
+      catch { /* intentional: dir may not exist yet */ }
+    }
+    return count;
+  }
+
+  async _drainQueue() {
+    const textFiles = readdirSync(QUEUE_TEXT_DIR).filter(f => f.endsWith('.json')).sort();
+    let processed = 0;
+    for (const file of textFiles) {
+      const filepath = join(QUEUE_TEXT_DIR, file);
+      try {
+        const data = JSON.parse(readFileSync(filepath, 'utf-8'));
+        if (data.type === 'store') {
+          await this._fetch('/memory/store', { method: 'POST', body: JSON.stringify(data), timeout: TIMEOUTS.MEMORY_STORE });
+        } else if (data.type === 'note') {
+          await this._fetch('/note', { method: 'POST', body: JSON.stringify({ text: data.text, source: data.source }), timeout: TIMEOUTS.MEMORY_NOTE });
+        } else if (data.type === 'extract') {
+          await this._fetch('/extract', { method: 'POST', body: JSON.stringify({ conversation: data.conversation, store_results: true, source: data.source }), timeout: TIMEOUTS.MEMORY_EXTRACT });
+        }
+        unlinkSync(filepath);
+        processed++;
+      } catch (err) {
+        logger.error({ err: err.message, file }, 'failed to process queued item');
+        break;
+      }
+    }
+    if (processed > 0) logger.info({ processed }, 'queue drain complete');
+  }
+
+  _chunkText(text, maxChars = 2000) {
+    const chunks = [];
+    const paragraphs = text.split(/\n\n+/);
+    let current = '';
+    for (const para of paragraphs) {
+      if (current.length + para.length + 2 > maxChars && current.length > 0) {
+        chunks.push(current.trim());
+        current = para;
+      } else {
+        current += (current ? '\n\n' : '') + para;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    const result = [];
+    for (const chunk of chunks) {
+      if (chunk.length <= maxChars) { result.push(chunk); }
+      else { for (let i = 0; i < chunk.length; i += maxChars) result.push(chunk.slice(i, i + maxChars)); }
+    }
+    return result;
   }
 }
 
+// --- Singleton instance ---
+const client = new MemoryClient({
+  memoryUrl: config.evoMemoryUrl,
+  fetchJSON: evoFetchJSON,
+  fetchRaw: evoFetchRaw,
+});
 
-// --- Cache sync ---
-
-export async function syncCache() {
-  try {
-    const data = await memoryFetch('/memory/list', { timeout: TIMEOUTS.MEMORY_SEARCH });
-    memoryCache = data.memories || [];
-    cacheTimestamp = Date.now();
-    writeFileSync(CACHE_FILE, JSON.stringify({
-      memories: memoryCache,
-      timestamp: cacheTimestamp,
-    }));
-    logger.info({ count: memoryCache.length }, 'memory cache synced');
-  } catch (err) {
-    logger.error({ err: err.message }, 'cache sync failed');
-  }
-}
-
-
-// --- Trigger maintenance ---
-
-export async function triggerMaintenance() {
-  if (!evoOnline) return { error: 'EVO X2 offline' };
-  try {
-    return await memoryFetch('/maintain', { method: 'POST', timeout: TIMEOUTS.MEMORY_STORE });
-  } catch (err) {
-    return { error: err.message };
-  }
-}
+// --- Facade exports (identical API — zero breaking changes) ---
+export { MemoryClient };
+export const checkEvoHealth = () => client.checkHealth();
+export const getLastHealthData = () => client.getLastHealthData();
+export const isEvoOnline = () => client.isOnline();
+export const getEvoStatus = () => client.getStatus();
+export const searchMemory = (q, c, l) => client.search(q, c, l);
+export const storeMemory = (f, c, t, conf, s) => client.store(f, c, t, conf, s);
+export const storeNote = (t, s) => client.storeNote(t, s);
+export const extractFromConversation = (c, s) => client.extractFromConversation(c, s);
+export const analyseImage = (b, p, e, s) => client.analyseImage(b, p, e, s);
+export const transcribeAudio = (b, l, e, s) => client.transcribeAudio(b, l, e, s);
+export const updateMemory = (id, u) => client.update(id, u);
+export const deleteMemory = (id) => client.delete(id);
+export const getMemoryStats = () => client.getStats();
+export const listMemories = () => client.list();
+export const getRelevantMemories = (t) => client.getRelevantMemories(t);
+export const getDreamMemories = (g, l) => client.getDreamMemories(g, l);
+export const getIdentityMemories = () => client.getIdentityMemories();
+export const getOvernightInsights = (d) => client.getOvernightInsights(d);
+export const getInsightMemories = (q, l) => client.getInsightMemories(q, l);
+export const formatMemoriesForPrompt = (m) => client.formatForPrompt(m);
+export const storeDocument = (o) => client.storeDocument(o);
+export const cleanDocumentCache = (d) => client.cleanDocumentCache(d);
+export const syncCache = () => client.syncCache();
+export const triggerMaintenance = () => client.triggerMaintenance();
