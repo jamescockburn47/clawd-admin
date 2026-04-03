@@ -42,7 +42,7 @@ WhatsApp admin assistant bot ("Clawd") on Raspberry Pi 5 with touchscreen dashbo
 
 **Who uses it:** James (owner, full access) and MG (wife — calendar reading, todos, travel, web search only).
 
-**Tech:** Node.js 20+ ESM, Baileys (WhatsApp), three-tier AI (local EVO free → MiniMax cheap → Claude premium), Rust dashboard, JSON file persistence. No database, no build step. JSDoc + @ts-check for type safety (no TypeScript compilation).
+**Tech:** Node.js 20+ ESM (migrating to TypeScript file-by-file, `tsx` runner), Baileys (WhatsApp), three-tier AI (local EVO free → MiniMax cheap → Claude premium), Rust dashboard, JSON file persistence. No database.
 
 ## Design Decisions — BINDING
 
@@ -179,8 +179,8 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 175. **Dispatch over if/else chains.** Use Map/object lookup, polymorphism, or registry patterns for branching on type/value. Applies to router categories, tool dispatch, model selection.
 176. **Repository pattern for I/O.** Business logic never touches files, APIs, or external services directly. All I/O through service classes passed as dependencies. Memory access through MemoryClient, LLM calls through LLMService, etc.
 
-**Type Safety (Without TypeScript)**
-177. **JSDoc + `@ts-check` on critical modules.** No TypeScript migration (no build step). Add `// @ts-check` and JSDoc type annotations to: tool handler, cortex, router, memory client, claude.js. VS Code catches type errors. The Forge gets type context for safer code generation.
+**Type Safety**
+177. **TypeScript for all new and touched files.** Rename `.js` → `.ts` when refactoring a module. Use `tsx` for execution (zero-config, no explicit compile step). Strict mode, no `any`. This is an AI-coded project — types are the spec the AI reads before generating. JSDoc is insufficient for overnight autonomous coding (the Forge).
 178. **Pydantic at API boundaries only (Python).** Request/response validation on FastAPI endpoints. Dataclasses for internal structures. Pydantic adds 6.5x instantiation overhead — don't use it where it doesn't guard an external boundary.
 179. **Enums for fixed values.** Status codes, categories, routing decisions, group modes — all frozen objects (JS) or Enums (Python). No raw strings for values with defined meanings.
 180. **Full JSDoc annotation on public methods.** Every exported function and class method gets `@param`, `@returns`, and a one-line description. Code readable from signatures alone.
