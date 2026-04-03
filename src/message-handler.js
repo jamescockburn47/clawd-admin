@@ -219,11 +219,8 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     if (!trigger.respond) return;
 
-    // Engagement gate for passive group messages
-    if (trigger.mode === 'passive' && isGroup) {
-      const gate = await checkEngagementGate(sock, chatJid, senderName, text);
-      if (gate !== 'pass') return;
-    }
+    // Engagement gate — disabled. Groups are @mention-only (CLAUDE.md #109-110).
+    // 0.6B classifier service stopped. Future: Forge may re-introduce selective engagement.
 
     // Direct mute trigger
     if (trigger.mode === 'direct' && isGroup && isMuteTrigger(text)) {
