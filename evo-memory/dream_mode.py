@@ -777,6 +777,157 @@ def store_verbatim(verbatim_entries, group_id, date_str):
     return stored
 
 
+def curate_realtime_memories(date_str, report_groups):
+    """Phase 4.5: Review today's realtime-stored memories against full conversation context.
+
+    The daytime group-message-processor stores facts throughout the day, but it only
+    sees messages in batches of 5 with no full-day context. Dream mode has the full
+    picture. This phase:
+    1. Fetches today's realtime-stored memories
+    2. Asks the LLM which ones are still accurate given the full day's conversations
+    3. Supersedes or updates stale ones
+    """
+    print(f'\n  Phase 4.5: Curating realtime memories...')
+
+    try:
+        # Fetch memories stored today by the realtime processor
+        resp = requests.post(
+            f'{MEMORY_SERVICE_URL}/memory/search',
+            json={'query': f'group_realtime {date_str}', 'limit': 50},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        results = resp.json().get('results', [])
+
+        # Filter to just today's realtime memories
+        realtime_mems = []
+        for r in results:
+            mem = r.get('memory', r)
+            source = mem.get('source', '')
+            if 'group_realtime' in source:
+                tags = mem.get('tags', [])
+                if date_str in tags:
+                    realtime_mems.append(mem)
+
+        if not realtime_mems:
+            print(f'  No realtime memories to curate')
+            return
+
+        print(f'  Found {len(realtime_mems)} realtime memories from today')
+
+        # Build conversation summary for context
+        conv_summary = []
+        for group in report_groups:
+            if group.get('diary'):
+                conv_summary.append(f"[{group['group_id'][:15]}] {group['diary'][:500]}")
+
+        if not conv_summary:
+            print(f'  No conversation context available, skipping curation')
+            return
+
+        # Ask the LLM to review
+        mem_list = '\n'.join(
+            f'[{i+1}] (id:{m.get("id","?")}) {m.get("fact","")}'
+            for i, m in enumerate(realtime_mems)
+        )
+
+        prompt = f"""You are reviewing memories stored throughout the day by an automated fact extractor.
+Now that you have the full day's context, check each memory for accuracy and currency.
+
+TODAY'S CONVERSATION SUMMARY:
+{chr(10).join(conv_summary)}
+
+MEMORIES TO REVIEW:
+{mem_list}
+
+For each memory, respond with ONE of:
+- KEEP [N] — fact is still accurate and current
+- UPDATE [N] "corrected fact text" — fact needs correction based on later context
+- STALE [N] — fact was true earlier but is no longer current (situation changed)
+- DUPLICATE [N] — redundant with another memory or the diary
+
+Output one line per memory. Be conservative — KEEP unless clearly wrong or stale. /no_think"""
+
+        resp = requests.post(
+            f'{EVO_LLM_URL}/v1/chat/completions',
+            json={
+                'messages': [
+                    {'role': 'system', 'content': 'You review memories for accuracy. Output one decision per line.'},
+                    {'role': 'user', 'content': prompt},
+                ],
+                'temperature': 0.1,
+                'max_tokens': 1000,
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        review = resp.json().get('choices', [{}])[0].get('message', {}).get('content', '')
+
+        kept = 0
+        updated = 0
+        stale = 0
+        duped = 0
+
+        for line in review.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+
+            # Parse the index
+            import re as _re
+            idx_match = _re.search(r'\[(\d+)\]', line)
+            if not idx_match:
+                continue
+            idx = int(idx_match.group(1)) - 1
+            if idx < 0 or idx >= len(realtime_mems):
+                continue
+
+            mem = realtime_mems[idx]
+            mem_id = mem.get('id')
+            if not mem_id:
+                continue
+
+            if line.startswith('KEEP'):
+                kept += 1
+            elif line.startswith('UPDATE'):
+                # Extract the corrected text
+                quote_match = _re.search(r'"(.+)"', line)
+                if quote_match:
+                    new_fact = quote_match.group(1)
+                    try:
+                        requests.put(
+                            f'{MEMORY_SERVICE_URL}/memory/{mem_id}',
+                            json={'fact': new_fact},
+                            timeout=10,
+                        )
+                        updated += 1
+                    except Exception:
+                        pass
+            elif line.startswith('STALE'):
+                # Reduce confidence to accelerate natural decay
+                try:
+                    requests.put(
+                        f'{MEMORY_SERVICE_URL}/memory/{mem_id}',
+                        json={'confidence': 0.3},
+                        timeout=10,
+                    )
+                    stale += 1
+                except Exception:
+                    pass
+            elif line.startswith('DUPLICATE'):
+                # Delete duplicates
+                try:
+                    requests.delete(f'{MEMORY_SERVICE_URL}/memory/{mem_id}', timeout=10)
+                    duped += 1
+                except Exception:
+                    pass
+
+        print(f'  Curation: {kept} kept, {updated} updated, {stale} marked stale, {duped} duplicates removed')
+
+    except Exception as e:
+        print(f'  WARNING: Memory curation failed: {e}', file=sys.stderr)
+
+
 def prune_stale_memories(date_str, max_age_days=STALE_MEMORY_AGE_DAYS):
     """Phase 5: Prune stale memories — run /maintain plus date-based staleness check."""
     target_date = datetime.strptime(date_str, '%Y-%m-%d')
@@ -1064,6 +1215,9 @@ def main():
         total_facts += facts_new
         total_insights += insights_new
         total_observations += len(observations)
+
+    # Phase 4.5: Memory curation — review realtime-stored memories against full context
+    curate_realtime_memories(date_str, report_groups)
 
     # Phase 5: Prune stale memories + run maintenance
     prune_stale_memories(date_str)

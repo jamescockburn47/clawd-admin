@@ -363,9 +363,29 @@ export async function getRelevantMemories(messageText) {
     }
   }
 
-  return results
+  // Apply recency boost: memories from the last 7 days get a score bump
+  const now = Date.now();
+  const scored = results
     .filter((r) => (r.score ?? 0) >= 0.12)
+    .map((r) => {
+      const mem = r.memory || r;
+      let recencyBoost = 0;
+      // Check source date or created date for recency
+      const dateStr = mem.sourceDate || mem.created;
+      if (dateStr) {
+        const age = now - new Date(dateStr).getTime();
+        const ageDays = age / 86400000;
+        if (ageDays < 1) recencyBoost = 0.15;       // today: big boost
+        else if (ageDays < 3) recencyBoost = 0.10;   // last 3 days
+        else if (ageDays < 7) recencyBoost = 0.05;   // last week
+        // older: no boost
+      }
+      return { memory: mem, adjustedScore: (r.score ?? 0) + recencyBoost };
+    })
+    .sort((a, b) => b.adjustedScore - a.adjustedScore)
     .map((r) => r.memory);
+
+  return scored;
 }
 
 export async function getDreamMemories(groupJid, limit = 3) {
@@ -421,12 +441,22 @@ export async function getInsightMemories(query, limit = 3) {
 export function formatMemoriesForPrompt(memories) {
   if (!memories || memories.length === 0) return '';
 
+  const now = Date.now();
   const lines = memories.map(m => {
-    const date = m.sourceDate || '?';
-    return `- ${m.fact} [${m.category}, ${date}]`;
+    const dateStr = m.sourceDate || m.created;
+    let age = '';
+    if (dateStr) {
+      const ageDays = Math.floor((now - new Date(dateStr).getTime()) / 86400000);
+      if (ageDays === 0) age = 'today';
+      else if (ageDays === 1) age = 'yesterday';
+      else if (ageDays < 7) age = `${ageDays}d ago`;
+      else if (ageDays < 30) age = `${Math.floor(ageDays / 7)}w ago`;
+      else age = `${Math.floor(ageDays / 30)}mo ago`;
+    }
+    return `- ${m.fact} [${m.category}${age ? ', ' + age : ''}]`;
   });
 
-  return `\n\n## What you remember\n${lines.join('\n')}`;
+  return `\n\n## What you remember (most recent first)\n${lines.join('\n')}`;
 }
 
 

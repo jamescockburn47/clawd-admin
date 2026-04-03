@@ -70,8 +70,14 @@ async function processBatch() {
 
 Extract facts like: decisions made, opinions stated, plans confirmed, new information shared, important dates mentioned, relationships revealed, expertise demonstrated.
 
+TEMPORAL AWARENESS — critical:
+- State facts with temporal context: "Tom is reviewing the merger docs (as of ${new Date().toISOString().split('T')[0]})" not just "Tom is reviewing the merger docs"
+- For ongoing states, use present tense with date: "Ray is sceptical about the AI proposal (as of DATE)"
+- For completed events, use past tense: "The team agreed to postpone the filing (3 April 2026)"
+- For timeless facts (relationships, expertise), no date needed: "Artur specialises in employment law"
+
 For each fact, output one JSON object per line:
-{"fact": "concise factual statement", "tags": ["relevant", "tags"], "category": "general", "confidence": 0.8, "sender": "who said it"}
+{"fact": "temporally-framed factual statement", "tags": ["relevant", "tags"], "category": "general", "confidence": 0.8, "sender": "who said it", "temporal": "current|completed|timeless"}
 
 If NO messages contain notable facts, output exactly: NONE
 
