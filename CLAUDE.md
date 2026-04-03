@@ -42,7 +42,7 @@ WhatsApp admin assistant bot ("Clawd") on Raspberry Pi 5 with touchscreen dashbo
 
 **Who uses it:** James (owner, full access) and MG (wife — calendar reading, todos, travel, web search only).
 
-**Tech:** Node.js 20+ ESM, Baileys (WhatsApp), three-tier AI (local EVO free → MiniMax cheap → Claude premium), Rust dashboard, JSON file persistence. No database, no build step, no TypeScript.
+**Tech:** Node.js 20+ ESM, Baileys (WhatsApp), three-tier AI (local EVO free → MiniMax cheap → Claude premium), Rust dashboard, JSON file persistence. No database, no build step. JSDoc + @ts-check for type safety (no TypeScript compilation).
 
 ## Design Decisions — BINDING
 
@@ -65,16 +65,14 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 
 ### Evolution Pipeline (DEPLOYED — 2026-03-25)
 12. **Claude Code CLI on EVO** — v2.1.81, headless via `-p`. Git branches only, never main.
-13. **Data collection layers complete**: interaction logging, reaction feedback, correction detection, dream diary.
 14. **Local model does analysis only** — code mutation uses Claude Code CLI.
 
 ### Process Rules
 15. **Update CLAUDE.md in real-time.** Every decision, immediately. Not at end of session.
 16. **Use superpowers skills.** Brainstorming, systematic-debugging, verification — not optional.
-17. **Fix general before specific** (repeated for emphasis).
 
 ### Group Chat & Social Intelligence
-18. **Engagement classifier gates all group responses.** EVO 0.6B decides respond/silent. @mentions bypass.
+18. **Groups are @mention/prefix only.** Old 0.6B engagement classifier retired. @mention, reply-to-bot, or prefix (`clawd ...`) required. See #109-110.
 19. **Mute system: 10 min per-group cooldown.** Only @mention breaks through. In-memory, resets on restart.
 20. **All group messages logged** to JSONL. Feeds dream mode.
 
@@ -84,7 +82,7 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 
 ### Soul & Self-Awareness
 23. **Reactive soul proposals via DM.** Only James can approve personality changes.
-24. **System self-awareness is queryable** via system-knowledge.json.
+24. **System self-awareness is queryable** via `data/system-knowledge/` (modular sub-files, seeded into EVO memory nightly).
 25. **Self-explanation is natural, not technical.** "I dream overnight" not architecture docs.
 26. **Dream chaining.** Last 2-3 days' dreams as context. Today's conversations take priority.
 27. **Group personality matches James.** Direct, compressed, sharp. No echoing, no filler.
@@ -131,11 +129,8 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 58. **Verbatim excerpt storage.** Exact quotes with 0.95 confidence.
 
 ### Evolution Pipeline (2026-03-25)
-59. **Self-coding via Claude Code CLI on EVO.** All changes in git branches.
-60. **evolution_task WhatsApp tool.** Owner-only, queued, max 3/day.
 61. **DM approval required for all code changes.** No auto-deploy — ever.
 62. **Deploy flow: merge → rsync → restart → health check.** Auto-revert on failure.
-63. **Dream mode can create evolution tasks** via POST `/api/evolution/task`.
 64. **Tailscale on all machines.** Pi `cnc`, EVO `james-nucbox-evo-x2`.
 
 ### Classifier & Group Behaviour (2026-03-25)
@@ -143,7 +138,6 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 66. **2-minute response cooldown per group.** Only @mention breaks through.
 67. **Classifier prompt is restrictive by default.**
 68. **Self-coding keywords route to PLANNING.**
-70. **Evolution tasks are triple-gated.** Code-level block + DM confirm ID + 10 min expiry.
 
 ### Overnight Report (2026-03-25)
 69. **Overnight report sends .txt and .pdf attachments.**
@@ -154,21 +148,17 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 73. **Post-validation auto-rejects scope violations.**
 74. **EVOLUTION.md replaces CLAUDE.md for Claude Code** on EVO. Prevents scope creep.
 75. **Banned files list is code-level, not prompt-level.** Belt and suspenders.
-76. **Overnight evolution: one fix per session.**
 
 ### MiniMax M2.7 Integration (2026-03-25)
 77. **MiniMax M2.7 is the default cloud model.** ~8% of Claude's cost.
 78. **Claude Opus 4.6 only on explicit request.** "ask claude", "use opus", etc.
 79. **MiniMax replaces Opus in the quality gate.**
-80. **Evolution pipeline uses MiniMax on EVO.** Claude as fallback.
 81. **EVO local models for vision, doc summarisation, and classification ONLY.** No chat responses from local models.
 82. **Two-tier chat strategy.** MiniMax M2.7 (all chat) → Claude Opus 4.6 (quality gate + explicit request). EVO is support layer (classify, see, summarise).
 
 ### Quality Gate & Opus Review (2026-03-26)
 83. **Opus 4.6 is the quality gate** for PLANNING, LEGAL, long EMAIL (>400 chars, >200 chars).
 84. **"Ask Claude" / "use opus" manual override works.**
-85. **Opus post-review of overnight coding results.**
-
 ### Code Structure Rules (2026-03-26) — BINDING ON ALL AGENTS
 86. **Maximum file size: 300 lines (JS) / 500 lines (Python).** Split before adding.
 87. **One file, one job.** Single responsibility. If you need "and", split it.
@@ -179,6 +169,41 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 92. **New scheduled tasks get their own file in `src/tasks/`.**
 93. **Clean up after yourself.** Delete old files in the same commit.
 94. **Refactoring is mandatory.** Fix violations when touching a file.
+
+### Code Quality Standards (2026-04-03) — BINDING ON ALL AGENTS
+
+**Architecture & Design**
+172. **Classes for stateful services.** Router, memory client, LLM service, cortex, tool handler — these own state and belong in classes. Pure utility functions stay as functions. If it has module-level `let` variables, it should be a class.
+173. **Manual dependency injection.** Classes receive dependencies via constructor params — never import singletons directly for services they depend on. No DI container (over-engineering for this codebase). Factory functions create configured instances. This is for testability, not ceremony.
+174. **Single entrypoint per feature.** Each service class has one main public method orchestrating the workflow. Supporting logic in private methods or composed helpers. Outside code calls the entrypoint only.
+175. **Dispatch over if/else chains.** Use Map/object lookup, polymorphism, or registry patterns for branching on type/value. Applies to router categories, tool dispatch, model selection.
+176. **Repository pattern for I/O.** Business logic never touches files, APIs, or external services directly. All I/O through service classes passed as dependencies. Memory access through MemoryClient, LLM calls through LLMService, etc.
+
+**Type Safety (Without TypeScript)**
+177. **JSDoc + `@ts-check` on critical modules.** No TypeScript migration (no build step). Add `// @ts-check` and JSDoc type annotations to: tool handler, cortex, router, memory client, claude.js. VS Code catches type errors. The Forge gets type context for safer code generation.
+178. **Pydantic at API boundaries only (Python).** Request/response validation on FastAPI endpoints. Dataclasses for internal structures. Pydantic adds 6.5x instantiation overhead — don't use it where it doesn't guard an external boundary.
+179. **Enums for fixed values.** Status codes, categories, routing decisions, group modes — all frozen objects (JS) or Enums (Python). No raw strings for values with defined meanings.
+180. **Full JSDoc annotation on public methods.** Every exported function and class method gets `@param`, `@returns`, and a one-line description. Code readable from signatures alone.
+
+**Error Handling**
+181. **No silent failures — strictly enforced.** Every catch block either: (a) handles with recovery logic, (b) logs with context (`logger.error({ err, query, context })`) and re-raises or returns error, or (c) has `// intentional: [reason]` comment. Bare `catch {}` is banned. Reinforces rule #91.
+182. **Log errors with context, not exception types.** What failed, what the input was, why it matters. Context in the log beats custom exception hierarchies. A `catch (err) { logger.error('memory search failed', { query, err }) }` is more useful than `catch (err) { if (err instanceof MemorySearchError)... }`.
+183. **No magic numbers or strings.** Every value with meaning gets a name — constant, enum, or config value. Hardcoded thresholds (cosine similarity, timeouts, budgets, BM25 params) belong in `constants.js` or `config.js`.
+
+**Config & Resources**
+184. **Config validation on startup.** Add runtime checks in `config.js` that fast-fail if critical env vars are missing or malformed. Python: validate in config.py at import time. Catch bad config before it causes a subtle runtime failure.
+185. **Context managers for resources (Python).** HTTP sessions, file handles → `async with`. Wrap in dedicated classes. Node.js: explicit cleanup in `finally` blocks.
+
+**Async & Performance**
+186. **Concurrent operations where independent.** `Promise.all` (JS) / `asyncio.gather` (Python) for independent tasks. Never await sequentially when tasks don't depend on each other. Already practiced in cortex.js — extend everywhere.
+187. **Semaphores require justification.** Before adding concurrency limiters, document what the bottleneck is, risk of unlimited concurrency, and recommended limit. No silent semaphores.
+
+**Logging**
+188. **Errors + diagnostics only.** Log errors with full context. Keep structured diagnostic logs that feed trace analysis (routing decisions, plan outcomes, timing). Remove routine info noise (startup confirmations, cache hits, per-request success). Every log line must be actionable or analytically useful.
+
+**Testing**
+189. **Unit tests for all new code.** Use `node:test` with `mock.fn()`/`mock.method()` for spies/stubs. Use `esmock` for ESM module mocking. No sinon needed. Python: pytest + pytest-mock. If hard to test → the design needs to change.
+190. **JSDoc/docstrings on all methods.** One line: what it does and why. Type annotations handle the contract, docstring handles the intent.
 
 ### Group Content Boundary (2026-03-26)
 95. **ALL groups block personal admin.** Calendar, email, travel, todos — only available in DMs to James. `isProfessionalGroup()` returns true for any `@g.us` JID.
@@ -193,7 +218,6 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 
 ### Trace Analysis & Autonomous Improvement (2026-03-26)
 102. **Trace analyser runs daily at 3 AM.** `src/tasks/trace-analyser.js`. Reads `data/reasoning-traces.jsonl`, outputs `data/trace-analysis.json`. Analyses routing, categories, models, plans, needsPlan accuracy, timing, anomalies.
-103. **Weekly retrospective runs Sunday 4 AM.** `src/tasks/weekly-retrospective.js`. Uses EVO 30B to reason about top 3 improvement priorities from trace data. Auto-creates evolution tasks for high/medium severity.
 104. **Trace diagnostics API endpoints.** `/api/traces` (latest nightly), `/api/traces/live` (on-demand 24h), `/api/retrospective` (latest weekly). All authenticated.
 105. **Overnight report includes trace analysis and retrospective.** Sections added to `generateMarkdownReport()` in `overnight-report.js`.
 106. **needsPlan probing in self-improvement cycle.** 23 synthetic test cases evaluate 4B classifier accuracy overnight. Results included in WhatsApp notification.
@@ -253,7 +277,7 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 146. **Diary quality metrics in report.** Per-group: facts new/deduped/superseded, insights new/skipped. Header shows aggregate signal-to-noise ratio.
 
 ### Evolution Pipeline Bridge (2026-04-02)
-146. **overnight-to-evolution.js bridges overnight analysis to tasks.** Runs at 5 AM. Reads code-quality.json, trace-analysis.json, and overnight briefing. Converts high/medium findings to evolution tasks. Max 2 tasks per night.
+146b. **overnight-to-evolution.js bridges overnight analysis to tasks.** Runs at 5 AM. Reads code-quality.json, trace-analysis.json, and overnight briefing. Converts high/medium findings to evolution tasks. Max 2 tasks per night.
 147. **Retrospective runs DAILY at 4 AM (bootstrap period).** Was Sunday-only. Creates evolution tasks from trace analysis priorities. Revert to Sunday-only once pipeline is healthy and producing tasks.
 148. **Live Monitor shows ALL messages, not just bot.** `/api/messages` returns merged feed from all chat buffers via `getAllRecentMessages()`. Messages annotated with `chatJid` and `isBot`.
 149. **Memory cards show 6 lines before truncation.** `line-clamp-6` instead of `line-clamp-3`. Expand button says "More"/"Less".
