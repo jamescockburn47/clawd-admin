@@ -11,231 +11,27 @@ import { plannerBreaker } from './evo-client.js';
 // Re-export CATEGORY so existing consumers don't break
 export { CATEGORY };
 
-// Tools available per category
-// NOTE: web_search and web_fetch are ALWAYS injected into every category
-// (see getToolsForCategory). This ensures Claude can ALWAYS search the web
-// when the prompt mandates it — no stale training data should ever leak.
+// --- Static routing tables ---
+
 const WEB_TOOLS = new Set(['web_search', 'web_fetch']);
 
 const CATEGORY_TOOLS = {
-  [CATEGORY.CALENDAR]: new Set([
-    'calendar_list_events', 'calendar_create_event',
-    'calendar_update_event', 'calendar_find_free_time',
-  ]),
-  [CATEGORY.TASK]: new Set([
-    'todo_add', 'todo_list', 'todo_complete',
-    'todo_remove', 'todo_update',
-  ]),
-  [CATEGORY.TRAVEL]: new Set([
-    'train_departures', 'train_fares', 'hotel_search',
-    'search_trains', 'search_accommodation',
-  ]),
-  [CATEGORY.EMAIL]: new Set([
-    'gmail_search', 'gmail_read', 'gmail_draft', 'gmail_confirm_send',
-  ]),
-  [CATEGORY.RECALL]: new Set([
-    'memory_search', 'memory_update', 'memory_delete',
-    'project_list', 'project_read', 'project_pitch',
-    'overnight_report',
-  ]),
-  [CATEGORY.PLANNING]: null, // null = all tools
-  [CATEGORY.CONVERSATIONAL]: new Set(), // web tools added dynamically below
+  [CATEGORY.CALENDAR]: new Set(['calendar_list_events', 'calendar_create_event', 'calendar_update_event', 'calendar_find_free_time']),
+  [CATEGORY.TASK]: new Set(['todo_add', 'todo_list', 'todo_complete', 'todo_remove', 'todo_update']),
+  [CATEGORY.TRAVEL]: new Set(['train_departures', 'train_fares', 'hotel_search', 'search_trains', 'search_accommodation']),
+  [CATEGORY.EMAIL]: new Set(['gmail_search', 'gmail_read', 'gmail_draft', 'gmail_confirm_send']),
+  [CATEGORY.RECALL]: new Set(['memory_search', 'memory_update', 'memory_delete', 'project_list', 'project_read', 'project_pitch', 'overnight_report']),
+  [CATEGORY.PLANNING]: null,
+  [CATEGORY.CONVERSATIONAL]: new Set(),
   [CATEGORY.GENERAL_KNOWLEDGE]: new Set(['web_search', 'web_fetch']),
   [CATEGORY.SYSTEM]: new Set(['system_status', 'memory_search', 'overnight_report']),
 };
 
-// --- Read/Write safety classification ---
-// READ-SAFE: local model can handle these — low hallucination risk
-const READ_SAFE_TOOLS = new Set([
-  'todo_list', 'calendar_list_events', 'calendar_find_free_time',
-  'memory_search', 'system_status', 'soul_read',
-  'project_list', 'project_read', 'project_pitch',
-]);
-
-// WRITE-DANGEROUS: must use Claude — hallucinated args cause real damage
-const WRITE_DANGEROUS_TOOLS = new Set([
-  'gmail_draft', 'gmail_confirm_send',
-  'calendar_create_event', 'calendar_update_event',
-  'soul_propose', 'soul_confirm',
-  'memory_update', 'memory_delete',
-]);
-
-// Categories where tool calls are likely to be write/mutation operations
-const WRITE_LIKELY_CATEGORIES = new Set([
-  CATEGORY.EMAIL,
-]);
-
-// Categories where the message IMPLIES a write even if the category has read tools
-function detectsWriteIntent(text) {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  // Calendar writes
-  if (/\b(create|add|book|schedule|move|cancel|update|change|reschedule)\b/.test(lower)
-    && /\b(event|meeting|appointment|calendar)\b/.test(lower)) return true;
-  // Email writes
-  if (/\b(send|draft|compose|write|reply|forward)\b/.test(lower)
-    && /\b(email|mail|message)\b/.test(lower)) return true;
-  // Todo mutations (these are safe for local, but let's be explicit)
-  // todo_add/complete/remove are acceptable locally — excluded from dangerous
-  return false;
-}
-
-// Categories that need memory injection
-const MEMORY_CATEGORIES = new Set([
-  CATEGORY.TRAVEL,
-  CATEGORY.RECALL,
-  CATEGORY.PLANNING,
-  CATEGORY.SYSTEM,
-]);
-
-// Categories that must ALWAYS use Claude (not EVO X2)
-const CLAUDE_CATEGORIES = new Set([
-  CATEGORY.EMAIL,
-  CATEGORY.PLANNING,
-  CATEGORY.RECALL,
-  CATEGORY.SYSTEM,
-]);
-
-// Filter tool definitions for a given category
-// Always includes web_search + web_fetch so Claude can ALWAYS search
-export function getToolsForCategory(category, allTools) {
-  const allowed = CATEGORY_TOOLS[category];
-  if (allowed === null) return allTools; // planning = all tools
-  // Merge category-specific tools with web tools (always available)
-  return allTools.filter((t) => allowed.has(t.name) || WEB_TOOLS.has(t.name));
-}
-
-// Should memories be fetched for this category?
-export function needsMemories(category) {
-  return MEMORY_CATEGORIES.has(category);
-}
-
-// --- Keyword heuristics (fallback when 4B classifier unavailable) ---
-
-const KEYWORD_RULES = [
-  {
-    category: CATEGORY.RECALL,
-    test: (lower) =>
-      /\b(dream|diary|dreamt|dreamed|last night|overnight|overnight.*report)\b/.test(lower)
-      && /\b(tell|what|about|how|show|recall|review|read|describe|share|report|regenerate|resend|send|generate)\b/.test(lower),
-  },
-  {
-    category: CATEGORY.PLANNING,
-    test: (lower) =>
-      /\b(soul|personality)\b/.test(lower) && /\b(change|update|modify|propose|set|adjust|learn|forget|remove)\b/.test(lower),
-  },
-  {
-    category: CATEGORY.PLANNING,
-    test: (lower) =>
-      /\b(project|pitch|atlas|clawd.?agi)\b/.test(lower),
-  },
-  {
-    category: CATEGORY.PLANNING,
-    test: (lower) =>
-      /\b(self.?program|self.?cod|evolution|evolve|tweak.*classif|fix.*yourself|upgrade.*yourself|improve.*yourself|recode|reprogram)\b/.test(lower),
-  },
-  {
-    category: CATEGORY.EMAIL,
-    test: (lower) =>
-      // Require email keywords with action intent, or explicit email tool words.
-      // "his email" or "an email" in passing context should NOT trigger email category.
-      (/\b(gmail|inbox|draft an? email|send an? email|reply to .* email|forward .* email|compose)\b/.test(lower))
-      || (/\b(email|mail)\b/.test(lower) && /\b(check|read|search|send|draft|compose|write|reply|forward)\b/.test(lower)),
-  },
-  {
-    category: CATEGORY.TASK,
-    test: (lower) =>
-      /\b(todo|to-do|to do list|remind me|add task|mark done|mark complete|my tasks|reminders)\b/.test(lower)
-      || lower.startsWith('/todo'),
-  },
-  {
-    category: CATEGORY.CALENDAR,
-    test: (lower) =>
-      /\b(calendar|diary|what'?s on|free time|schedule|book an? event|my week|my day|upcoming events|what am i doing|what have i got)\b/.test(lower),
-  },
-  {
-    category: CATEGORY.TRAVEL,
-    test: (lower) =>
-      /\b(trains?|flights?|hotels?|travel|fares?|depart\w*|lner|airbnb|accommodation|booking|glamping|cottages?)\b/.test(lower),
-  },
-  {
-    category: CATEGORY.SYSTEM,
-    test: (lower) =>
-      /\b(system status|architecture|how do(?:es)? (?:the |my )?(?:voice|whatsapp|dashboard|routing|evo|pi|system|pipeline))\b/.test(lower)
-      || /\b(what(?:'s| is) running|what services|what components|system report|status report)\b/.test(lower)
-      || /\b(what changed|changelog|what version|current version|deployment|what(?:'s| is) deployed)\b/.test(lower)
-      || /\b(how are you running|how do you work|what are you running on|tell me about yourself)\b/.test(lower)
-      || /\b(self[- ]?aware|know yourself|what are you|who are you as a system)\b/.test(lower)
-      || /\b(evo x2|ollama|llama-server|whisper model|voice listener|noise suppression)\b/.test(lower)
-      || /\b(agi|your (?:plan|roadmap|capabilities|functions|features|progress)|how far along|what can you do|what do you do)\b/.test(lower)
-      || /\b(your evolution|your dream|your soul|your memory|your diary|overnight (?:report|coding|learning))\b/.test(lower)
-      || /\b(how (?:do|does) (?:clawd|you) (?:work|learn|think|evolve|improve|dream))\b/.test(lower)
-      || /\b(tell me (?:about|what) you(?:rself)?|describe yourself|explain yourself|what(?:'s| is) your status)\b/.test(lower),
-  },
-  {
-    category: CATEGORY.GENERAL_KNOWLEDGE,
-    test: (lower) =>
-      /^(search for|google|look up|what is|who is|how does|how do you|how much does|where is|when did|when was|when is|when does)\b/.test(lower)
-      || /\b(search the web|web search|look this up)\b/.test(lower)
-      || /\b(tell me about|explain|latest news|current price|is .{2,30} legal|how many|how much|what happened|what\'s happening|what are the|who founded|who started|who owns|what year|what date|which country)\b/.test(lower)
-      || /\b(compare|difference between|pros and cons|best .{2,30} for|top \d|versus|vs\b)/.test(lower),
-  },
-];
-
-// --- Dynamically loaded learned rules (from self-improvement cycle) ---
-let LEARNED_RULES = [];
-let _learnedRulesLoadedAt = 0;
-const LEARNED_RULES_FILE = join('data', 'learned-rules.json');
-
-export function reloadLearnedRules() {
-  try {
-    if (!existsSync(LEARNED_RULES_FILE)) { LEARNED_RULES = []; _learnedRulesLoadedAt = Date.now(); return; }
-    const data = JSON.parse(readFileSync(LEARNED_RULES_FILE, 'utf-8'));
-    LEARNED_RULES = (data.rules || [])
-      .filter(r => r.approved !== false)
-      .map(r => ({
-        category: r.category,
-        test: (lower) => new RegExp(r.pattern).test(lower),
-        source: 'learned',
-        id: r.id,
-      }));
-    _learnedRulesLoadedAt = Date.now();
-    if (LEARNED_RULES.length > 0) {
-      logger.info({ count: LEARNED_RULES.length }, 'learned rules loaded');
-    }
-  } catch (err) {
-    logger.warn({ err: err.message }, 'failed to load learned rules');
-    LEARNED_RULES = [];
-  }
-}
-
-function ensureLearnedRulesLoaded() {
-  if (Date.now() - _learnedRulesLoadedAt > 300000) reloadLearnedRules(); // 5 min refresh
-}
-
-// Initial load
-reloadLearnedRules();
-
-// Returns category or null if no confident keyword match
-export function classifyByKeywords(text) {
-  if (!text) return null;
-  const lower = text.toLowerCase().trim();
-  ensureLearnedRulesLoaded();
-
-  const allRules = [...KEYWORD_RULES, ...LEARNED_RULES];
-  const matches = allRules.filter((r) => r.test(lower));
-
-  // Deduplicate by category — multiple rules for the same category is fine
-  const categories = [...new Set(matches.map(r => r.category))];
-
-  // Only return if exactly one CATEGORY matched — ambiguity defers to LLM
-  if (categories.length === 1) return categories[0];
-
-  return null; // ambiguous or no match -> LLM classifier
-}
-
-// --- Layer 2: LLM classifier via EVO X2 (handles ambiguous messages) ---
-
+const READ_SAFE_TOOLS = new Set(['todo_list', 'calendar_list_events', 'calendar_find_free_time', 'memory_search', 'system_status', 'soul_read', 'project_list', 'project_read', 'project_pitch']);
+const WRITE_DANGEROUS_TOOLS = new Set(['gmail_draft', 'gmail_confirm_send', 'calendar_create_event', 'calendar_update_event', 'soul_propose', 'soul_confirm', 'memory_update', 'memory_delete']);
+const WRITE_LIKELY_CATEGORIES = new Set([CATEGORY.EMAIL]);
+const MEMORY_CATEGORIES = new Set([CATEGORY.TRAVEL, CATEGORY.RECALL, CATEGORY.PLANNING, CATEGORY.SYSTEM]);
+const CLAUDE_CATEGORIES = new Set([CATEGORY.EMAIL, CATEGORY.PLANNING, CATEGORY.RECALL, CATEGORY.SYSTEM]);
 const VALID_CATEGORIES = new Set(Object.values(CATEGORY));
 
 const CLASSIFY_PROMPT = `Classify this WhatsApp message into exactly one category.
@@ -254,170 +50,158 @@ Rules:
 
 Reply with ONLY the category name. Nothing else.`;
 
-// Circuit breaker — skip EVO after repeated failures instead of blocking every message
-const circuitBreaker = {
-  failures: 0,
-  lastFailure: 0,
-  openUntil: 0,
-  THRESHOLD: 3,        // open after 3 consecutive failures
-  COOLDOWN_MS: 30000,  // stay open for 30s before retrying
-  WINDOW_MS: 60000,    // reset failure count after 60s of no failures
+// --- Keyword rules (static + learned) ---
 
-  isOpen() {
-    if (Date.now() < this.openUntil) return true;
-    // Reset if enough time passed since last failure
-    if (this.failures > 0 && Date.now() - this.lastFailure > this.WINDOW_MS) {
-      this.failures = 0;
+const KEYWORD_RULES = [
+  { category: CATEGORY.RECALL, test: (l) => /\b(dream|diary|dreamt|dreamed|last night|overnight|overnight.*report)\b/.test(l) && /\b(tell|what|about|how|show|recall|review|read|describe|share|report|regenerate|resend|send|generate)\b/.test(l) },
+  { category: CATEGORY.PLANNING, test: (l) => /\b(soul|personality)\b/.test(l) && /\b(change|update|modify|propose|set|adjust|learn|forget|remove)\b/.test(l) },
+  { category: CATEGORY.PLANNING, test: (l) => /\b(project|pitch|atlas|clawd.?agi)\b/.test(l) },
+  { category: CATEGORY.PLANNING, test: (l) => /\b(self.?program|self.?cod|evolution|evolve|tweak.*classif|fix.*yourself|upgrade.*yourself|improve.*yourself|recode|reprogram)\b/.test(l) },
+  { category: CATEGORY.EMAIL, test: (l) => (/\b(gmail|inbox|draft an? email|send an? email|reply to .* email|forward .* email|compose)\b/.test(l)) || (/\b(email|mail)\b/.test(l) && /\b(check|read|search|send|draft|compose|write|reply|forward)\b/.test(l)) },
+  { category: CATEGORY.TASK, test: (l) => /\b(todo|to-do|to do list|remind me|add task|mark done|mark complete|my tasks|reminders)\b/.test(l) || l.startsWith('/todo') },
+  { category: CATEGORY.CALENDAR, test: (l) => /\b(calendar|diary|what'?s on|free time|schedule|book an? event|my week|my day|upcoming events|what am i doing|what have i got)\b/.test(l) },
+  { category: CATEGORY.TRAVEL, test: (l) => /\b(trains?|flights?|hotels?|travel|fares?|depart\w*|lner|airbnb|accommodation|booking|glamping|cottages?)\b/.test(l) },
+  { category: CATEGORY.SYSTEM, test: (l) => /\b(system status|architecture|how do(?:es)? (?:the |my )?(?:voice|whatsapp|dashboard|routing|evo|pi|system|pipeline))\b/.test(l) || /\b(what(?:'s| is) running|what services|what components|system report|status report)\b/.test(l) || /\b(what changed|changelog|what version|current version|deployment|what(?:'s| is) deployed)\b/.test(l) || /\b(how are you running|how do you work|what are you running on|tell me about yourself)\b/.test(l) || /\b(self[- ]?aware|know yourself|what are you|who are you as a system)\b/.test(l) || /\b(evo x2|ollama|llama-server|whisper model|voice listener|noise suppression)\b/.test(l) || /\b(agi|your (?:plan|roadmap|capabilities|functions|features|progress)|how far along|what can you do|what do you do)\b/.test(l) || /\b(your evolution|your dream|your soul|your memory|your diary|overnight (?:report|coding|learning))\b/.test(l) || /\b(how (?:do|does) (?:clawd|you) (?:work|learn|think|evolve|improve|dream))\b/.test(l) || /\b(tell me (?:about|what) you(?:rself)?|describe yourself|explain yourself|what(?:'s| is) your status)\b/.test(l) },
+  { category: CATEGORY.GENERAL_KNOWLEDGE, test: (l) => /^(search for|google|look up|what is|who is|how does|how do you|how much does|where is|when did|when was|when is|when does)\b/.test(l) || /\b(search the web|web search|look this up)\b/.test(l) || /\b(tell me about|explain|latest news|current price|is .{2,30} legal|how many|how much|what happened|what's happening|what are the|who founded|who started|who owns|what year|what date|which country)\b/.test(l) || /\b(compare|difference between|pros and cons|best .{2,30} for|top \d|versus|vs\b)/.test(l) },
+];
+
+// --- RouterService class ---
+
+class RouterService {
+  constructor({ evoClassify, evo4BClassify, breakerCall }) {
+    this._evoClassify = evoClassify;
+    this._evo4BClassify = evo4BClassify;
+    this._breakerCall = breakerCall;
+    this._learnedRules = [];
+    this._learnedRulesLoadedAt = 0;
+    this._llmCircuitBreaker = { failures: 0, lastFailure: 0, openUntil: 0, THRESHOLD: 3, COOLDOWN_MS: 30000, WINDOW_MS: 60000 };
+    this._reloadLearnedRules();
+  }
+
+  // --- Learned rules ---
+
+  _reloadLearnedRules() {
+    try {
+      const LEARNED_RULES_FILE = join('data', 'learned-rules.json');
+      if (!existsSync(LEARNED_RULES_FILE)) { this._learnedRules = []; this._learnedRulesLoadedAt = Date.now(); return; }
+      const data = JSON.parse(readFileSync(LEARNED_RULES_FILE, 'utf-8'));
+      this._learnedRules = (data.rules || [])
+        .filter(r => r.approved !== false)
+        .map(r => ({ category: r.category, test: (lower) => new RegExp(r.pattern).test(lower), source: 'learned', id: r.id }));
+      this._learnedRulesLoadedAt = Date.now();
+      if (this._learnedRules.length > 0) logger.info({ count: this._learnedRules.length }, 'learned rules loaded');
+    } catch (err) {
+      logger.warn({ err: err.message }, 'failed to load learned rules');
+      this._learnedRules = [];
     }
+  }
+
+  _ensureLearnedRulesLoaded() {
+    if (Date.now() - this._learnedRulesLoadedAt > 300000) this._reloadLearnedRules();
+  }
+
+  // --- Write intent detection ---
+
+  _detectsWriteIntent(text) {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    if (/\b(create|add|book|schedule|move|cancel|update|change|reschedule)\b/.test(lower) && /\b(event|meeting|appointment|calendar)\b/.test(lower)) return true;
+    if (/\b(send|draft|compose|write|reply|forward)\b/.test(lower) && /\b(email|mail|message)\b/.test(lower)) return true;
     return false;
-  },
+  }
 
-  recordSuccess() {
-    this.failures = 0;
-  },
+  // --- Keyword classification ---
 
-  recordFailure() {
-    this.failures++;
-    this.lastFailure = Date.now();
-    if (this.failures >= this.THRESHOLD) {
-      this.openUntil = Date.now() + this.COOLDOWN_MS;
-      logger.warn({ failures: this.failures, cooldownMs: this.COOLDOWN_MS }, 'EVO circuit breaker opened');
+  classifyByKeywords(text) {
+    if (!text) return null;
+    const lower = text.toLowerCase().trim();
+    this._ensureLearnedRulesLoaded();
+    const allRules = [...KEYWORD_RULES, ...this._learnedRules];
+    const categories = [...new Set(allRules.filter(r => r.test(lower)).map(r => r.category))];
+    return categories.length === 1 ? categories[0] : null;
+  }
+
+  // --- LLM classification (0.6B fallback) ---
+
+  async classifyByLLM(text) {
+    const cb = this._llmCircuitBreaker;
+    if (Date.now() < cb.openUntil) { logger.debug('EVO circuit breaker open, skipping LLM classifier'); return null; }
+    if (cb.failures > 0 && Date.now() - cb.lastFailure > cb.WINDOW_MS) cb.failures = 0;
+
+    try {
+      const raw = await this._evoClassify(text, CLASSIFY_PROMPT);
+      if (raw && VALID_CATEGORIES.has(raw)) { cb.failures = 0; logger.info({ category: raw, source: 'llm_classifier' }, 'message classified'); return raw; }
+      logger.warn({ raw, text: text.slice(0, 80) }, 'LLM classifier returned invalid category');
+      cb.failures++; cb.lastFailure = Date.now();
+      if (cb.failures >= cb.THRESHOLD) cb.openUntil = Date.now() + cb.COOLDOWN_MS;
+      return null;
+    } catch (err) {
+      cb.failures++; cb.lastFailure = Date.now();
+      if (cb.failures >= cb.THRESHOLD) { cb.openUntil = Date.now() + cb.COOLDOWN_MS; logger.warn({ failures: cb.failures }, 'EVO circuit breaker opened'); }
+      logger.warn({ err: err.message }, 'LLM classifier failed');
+      return null;
     }
-  },
-};
-
-export async function classifyByLLM(text) {
-  // Circuit breaker: skip if EVO has been failing
-  if (circuitBreaker.isOpen()) {
-    logger.debug('EVO circuit breaker open, skipping LLM classifier');
-    return null;
   }
 
-  try {
-    const raw = await classifyViaEvo(text, CLASSIFY_PROMPT);
+  // --- Main entry point ---
 
-    if (raw && VALID_CATEGORIES.has(raw)) {
-      circuitBreaker.recordSuccess();
-      logger.info({ category: raw, source: 'llm_classifier' }, 'message classified');
-      return raw;
+  async classify(text, hasImage, isGroup = false) {
+    if (hasImage) {
+      logger.info({ category: CATEGORY.PLANNING, source: 'image' }, 'message classified');
+      return { category: CATEGORY.PLANNING, source: 'image', forceClaude: false, reason: 'image input — EVO VL model preferred', needsPlan: false, planReason: null, confidence: null };
     }
 
-    logger.warn({ raw, text: text.slice(0, 80) }, 'LLM classifier returned invalid category');
-    circuitBreaker.recordFailure();
-    return null;
-  } catch (err) {
-    circuitBreaker.recordFailure();
-    logger.warn({ err: err.message }, 'LLM classifier failed');
-    return null;
+    // Layer 1: 4B classifier
+    const classResult = await this._breakerCall(() => this._evo4BClassify(text), null);
+    if (classResult && VALID_CATEGORIES.has(classResult.category)) {
+      const writeIntent = this._detectsWriteIntent(text);
+      const forceClaude = CLAUDE_CATEGORIES.has(classResult.category) || WRITE_LIKELY_CATEGORIES.has(classResult.category) || writeIntent || classResult.needsPlan;
+      logger.info({ category: classResult.category, source: '4b_classifier', forceClaude, needsPlan: classResult.needsPlan, confidence: classResult.confidence }, 'message classified');
+      return { category: classResult.category, source: '4b_classifier', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: classResult.needsPlan || false, planReason: classResult.planReason || null, confidence: classResult.confidence || null };
+    }
+
+    // Layer 2: keyword heuristics
+    const keywordResult = this.classifyByKeywords(text);
+    if (keywordResult) {
+      const writeIntent = this._detectsWriteIntent(text);
+      const forceClaude = CLAUDE_CATEGORIES.has(keywordResult) || WRITE_LIKELY_CATEGORIES.has(keywordResult) || writeIntent;
+      logger.info({ category: keywordResult, source: 'keywords_fallback', forceClaude, writeIntent }, 'message classified');
+      return { category: keywordResult, source: 'keywords_fallback', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: false, planReason: null, confidence: null };
+    }
+
+    // Layer 3: 0.6B LLM classifier
+    const llmResult = await this.classifyByLLM(text);
+    if (llmResult) {
+      const writeIntent = this._detectsWriteIntent(text);
+      const forceClaude = CLAUDE_CATEGORIES.has(llmResult) || WRITE_LIKELY_CATEGORIES.has(llmResult) || writeIntent;
+      return { category: llmResult, source: 'llm_classifier', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: false, planReason: null, confidence: null };
+    }
+
+    // Fallback
+    logger.info({ category: CATEGORY.PLANNING, source: 'fallback', isGroup }, 'message classified');
+    return { category: CATEGORY.PLANNING, source: 'fallback', forceClaude: true, reason: 'no confident classification', needsPlan: false, planReason: null, confidence: null };
   }
 }
 
-// --- Main classification entry point ---
-// Returns a rich routing decision object
+// --- Singleton ---
+const router = new RouterService({
+  evoClassify: classifyViaEvo,
+  evo4BClassify: classifyVia4B,
+  breakerCall: (fn, fallback) => plannerBreaker.call(fn, fallback),
+});
 
-export async function classifyMessage(text, hasImage, isGroup = false) {
-  // Images — EVO VL model handles locally when available, Claude as fallback
-  if (hasImage) {
-    logger.info({ category: CATEGORY.PLANNING, source: 'image' }, 'message classified');
-    return {
-      category: CATEGORY.PLANNING,
-      source: 'image',
-      forceClaude: false,
-      reason: 'image input — EVO VL model preferred',
-      needsPlan: false,
-      planReason: null,
-      confidence: null,
-    };
-  }
-
-  // Layer 1: 4B classifier (primary — handles category + needsPlan for all messages)
-  const classResult = await plannerBreaker.call(() => classifyVia4B(text), null);
-  if (classResult && VALID_CATEGORIES.has(classResult.category)) {
-    const writeIntent = detectsWriteIntent(text);
-    const forceClaude = CLAUDE_CATEGORIES.has(classResult.category)
-      || WRITE_LIKELY_CATEGORIES.has(classResult.category)
-      || writeIntent
-      || classResult.needsPlan;
-
-    logger.info({
-      category: classResult.category,
-      source: '4b_classifier',
-      forceClaude,
-      needsPlan: classResult.needsPlan,
-      planReason: classResult.planReason,
-      confidence: classResult.confidence,
-    }, 'message classified');
-
-    return {
-      category: classResult.category,
-      source: '4b_classifier',
-      forceClaude,
-      reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
-      needsPlan: classResult.needsPlan || false,
-      planReason: classResult.planReason || null,
-      confidence: classResult.confidence || null,
-    };
-  }
-
-  // Layer 2: keyword heuristics (fallback if 4B unavailable — circuit breaker open, EVO down)
-  const keywordResult = classifyByKeywords(text);
-  if (keywordResult) {
-    const writeIntent = detectsWriteIntent(text);
-    const forceClaude = CLAUDE_CATEGORIES.has(keywordResult)
-      || WRITE_LIKELY_CATEGORIES.has(keywordResult)
-      || writeIntent;
-
-    logger.info({ category: keywordResult, source: 'keywords_fallback', forceClaude, writeIntent }, 'message classified');
-    return {
-      category: keywordResult,
-      source: 'keywords_fallback',
-      forceClaude,
-      reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
-      needsPlan: false, // keywords can't determine needsPlan — 4B does that
-      planReason: null,
-      confidence: null,
-    };
-  }
-
-  // Layer 3: Legacy 0.6B LLM classifier (fallback if keywords also miss)
-  const llmResult = await classifyByLLM(text);
-  if (llmResult) {
-    const writeIntent = detectsWriteIntent(text);
-    const forceClaude = CLAUDE_CATEGORIES.has(llmResult)
-      || WRITE_LIKELY_CATEGORIES.has(llmResult)
-      || writeIntent;
-
-    return {
-      category: llmResult,
-      source: 'llm_classifier',
-      forceClaude,
-      reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null),
-      needsPlan: false,
-      planReason: null,
-      confidence: null,
-    };
-  }
-
-  // Fallback: PLANNING with Claude
-  logger.info({ category: CATEGORY.PLANNING, source: 'fallback', isGroup }, 'message classified');
-  return {
-    category: CATEGORY.PLANNING,
-    source: 'fallback',
-    forceClaude: true,
-    reason: 'no confident classification',
-    needsPlan: false,
-    planReason: null,
-    confidence: null,
-  };
+// --- Facade exports (identical API) ---
+export { RouterService };
+export function getToolsForCategory(category, allTools) {
+  const allowed = CATEGORY_TOOLS[category];
+  if (allowed === null) return allTools;
+  return allTools.filter(t => allowed.has(t.name) || WEB_TOOLS.has(t.name));
 }
-
-// Must this category use Claude? (legacy compat — prefer route.forceClaude)
-export function mustUseClaude(category) {
-  return CLAUDE_CATEGORIES.has(category);
-}
-
-// Exported for router eval / tooling (not used by runtime LLM path)
-export { READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS };
-
-// Exported for eval suite and self-improvement
-export { detectsWriteIntent, KEYWORD_RULES, CLAUDE_CATEGORIES, WRITE_LIKELY_CATEGORIES };
+export function needsMemories(category) { return MEMORY_CATEGORIES.has(category); }
+export function mustUseClaude(category) { return CLAUDE_CATEGORIES.has(category); }
+export const classifyMessage = (text, hasImage, isGroup) => router.classify(text, hasImage, isGroup);
+export const classifyByKeywords = (text) => router.classifyByKeywords(text);
+export const classifyByLLM = (text) => router.classifyByLLM(text);
+export const reloadLearnedRules = () => router._reloadLearnedRules();
+export function detectsWriteIntent(text) { return router._detectsWriteIntent(text); }
+export { READ_SAFE_TOOLS, WRITE_DANGEROUS_TOOLS, KEYWORD_RULES, CLAUDE_CATEGORIES, WRITE_LIKELY_CATEGORIES };
