@@ -1,6 +1,6 @@
 {
   "architecture": {
-    "summary": "Distributed system running across 3 devices on James's local network. Two-tier cloud AI with local support: MiniMax M2.7 (default cloud) for ALL chat responses including greetings, queries, tool use, email, legal, planning. Claude Opus 4.6 (premium) as quality gate and on explicit request. Local compute (llama.cpp on EVO X2) for classification, vision, and document summarisation only — never generates chat responses.",
+    "summary": "Distributed system running across 3 devices on James's local network, built on professional-grade service classes with dependency injection and validated configuration. Two-tier cloud AI with local support: MiniMax M2.7 (default cloud) for ALL chat responses. Claude Opus 4.6 (premium) as quality gate and on explicit request. Local compute (llama.cpp on EVO X2) for classification, vision, and document summarisation only — never generates chat responses. Core services (EvoClient, MemoryClient, RouterService, LLMService) are class-based with constructor-injected dependencies, making every component independently testable.",
     "devices": [
       {
         "name": "Raspberry Pi 5",
