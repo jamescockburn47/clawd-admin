@@ -188,8 +188,16 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     if (isGroup && text) scanMessage(text);
 
-    if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
-      if (text) broadcastSSE('message', { sender: senderName, text, timestamp: Date.now() });
+    // Broadcast all messages (not just owner) for mission control feed
+    if (text) {
+      broadcastSSE('message', {
+        sender: senderName,
+        text,
+        timestamp: Date.now(),
+        chatJid,
+        isBot: false,
+        isGroup,
+      });
     }
 
     const repliedToBot = message.message?.extendedTextMessage?.contextInfo?.participant === botJid;
@@ -440,9 +448,17 @@ export async function handleIncomingMessage(sock, message, botJid) {
     pushMessage(chatJid, { senderName: 'Clawd', text: finalResponse, hasImage: false, isBot: true });
     if (isGroup) recordGroupResponse(chatJid);
 
-    if (isOwnerChat(chatJid) || isOwnerJid(senderJid)) {
-      broadcastSSE('message', { sender: 'Clawd', text: finalResponse, timestamp: Date.now() });
-    }
+    // Broadcast bot response for mission control feed
+    broadcastSSE('message', {
+      sender: 'Clawd',
+      text: finalResponse,
+      timestamp: Date.now(),
+      chatJid,
+      isBot: true,
+      isGroup,
+      category: routingResult?.category,
+      model: routingResult?.model,
+    });
 
     logInteraction({
       sender: { name: senderName, jid: senderJid }, source: 'whatsapp',
