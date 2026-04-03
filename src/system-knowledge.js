@@ -10,15 +10,28 @@ import logger from './logger.js';
 
 const KNOWLEDGE_SOURCE = 'system_knowledge';
 const KNOWLEDGE_CATEGORY = 'system';
-const KNOWLEDGE_FILE = join('data', 'system-knowledge.json');
+const KNOWLEDGE_DIR = join('data', 'system-knowledge');
+const KNOWLEDGE_FILE_LEGACY = join('data', 'system-knowledge.json');
 
-// Load the structured knowledge document
+// Load the structured knowledge document from modular sub-files
+// Falls back to legacy monolithic file if directory doesn't exist
 function loadKnowledgeDoc() {
   try {
-    if (!existsSync(KNOWLEDGE_FILE)) return null;
-    return JSON.parse(readFileSync(KNOWLEDGE_FILE, 'utf-8'));
+    if (existsSync(KNOWLEDGE_DIR)) {
+      const files = readdirSync(KNOWLEDGE_DIR).filter(f => f.endsWith('.json'));
+      if (files.length === 0) return null;
+      const merged = {};
+      for (const file of files) {
+        const content = JSON.parse(readFileSync(join(KNOWLEDGE_DIR, file), 'utf-8'));
+        Object.assign(merged, content);
+      }
+      return merged;
+    }
+    // Legacy fallback — single monolithic file
+    if (!existsSync(KNOWLEDGE_FILE_LEGACY)) return null;
+    return JSON.parse(readFileSync(KNOWLEDGE_FILE_LEGACY, 'utf-8'));
   } catch (err) {
-    logger.warn({ err: err.message }, 'failed to load system-knowledge.json');
+    logger.warn({ err: err.message }, 'failed to load system knowledge');
     return null;
   }
 }
@@ -109,8 +122,24 @@ function generateKnowledgeEntries() {
   // Memory system
   entries.push({
     fact: doc.memorySystem.summary,
-    tags: ['memory', 'evo', 'vector', 'search'],
+    tags: ['memory', 'evo', 'vector', 'search', 'bm25', 'rrf'],
   });
+
+  // Cortex — parallel intelligence layer
+  if (doc.cortex) {
+    entries.push({
+      fact: doc.cortex.summary,
+      tags: ['cortex', 'parallel', 'intelligence', 'fan-out', 'pipeline'],
+    });
+  }
+
+  // Web search with speculative prefetch
+  if (doc.webSearch?.speculativePrefetch) {
+    entries.push({
+      fact: doc.webSearch.speculativePrefetch,
+      tags: ['web', 'search', 'prefetch', 'cortex', 'cache'],
+    });
+  }
 
   // Henry weekends
   entries.push({
@@ -202,19 +231,36 @@ function generateKnowledgeEntries() {
     'guardrails', 'users', 'selfImprovement', 'techStack',
     'circuitBreakers', 'dataPersistence', 'lquorum', 'version', 'lastUpdated',
   ]);
+
+  // Tag enrichment — ensures security/specialist entries get discoverable tags
+  const TAG_ENRICHMENT = {
+    canaryToken: ['canary', 'security', 'prompt-leak', 'detection', 'output-filter'],
+    antiInjection: ['anti-injection', 'security', 'prompt-hardening', 'identity-lock', 'role-play'],
+    defenseInDepth: ['defense-in-depth', 'security', 'output-filter', 'canary', 'regex'],
+    theForge: ['forge', 'overnight', 'coding', 'skills', 'autonomous', 'self-improvement'],
+    engagementClassifier: ['engagement', 'classifier', 'groups', 'mention-only'],
+    cortex: ['cortex', 'parallel', 'intelligence', 'fan-out', 'pipeline'],
+    agenticTaskPlanner: ['planner', 'agentic', 'multi-step', 'goal-reasoning'],
+    agiRoadmap: ['agi', 'roadmap', 'phases', 'experiment'],
+  };
+
   for (const [key, val] of Object.entries(doc)) {
     if (handledKeys.has(key)) continue;
     if (val && typeof val === 'object' && val.summary) {
+      const baseTags = TAG_ENRICHMENT[key]
+        || [key.replace(/([A-Z])/g, '_$1').toLowerCase(), 'subsystem'];
       entries.push({
         fact: val.summary,
-        tags: [key.replace(/([A-Z])/g, '_$1').toLowerCase(), 'subsystem'],
+        tags: baseTags,
       });
       // Also add any additional string fields beyond summary
       for (const [subKey, subVal] of Object.entries(val)) {
         if (subKey === 'summary' || typeof subVal !== 'string') continue;
+        const subTags = TAG_ENRICHMENT[subKey]
+          || [key.replace(/([A-Z])/g, '_$1').toLowerCase(), subKey, 'subsystem'];
         entries.push({
           fact: subVal,
-          tags: [key.replace(/([A-Z])/g, '_$1').toLowerCase(), subKey, 'subsystem'],
+          tags: subTags,
         });
       }
     }
@@ -319,12 +365,23 @@ export async function refreshSystemKnowledge() {
       }
     }
 
-    // 2. Update the knowledge doc timestamp
+    // 2. Update the knowledge doc timestamp in meta.json (or legacy monolith)
     try {
-      const doc = loadKnowledgeDoc();
-      if (doc) {
+      const metaPath = join(KNOWLEDGE_DIR, 'meta.json');
+      if (existsSync(metaPath)) {
+        const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+        meta.lastUpdated = new Date().toISOString();
+        try {
+          const vPath = join(process.cwd(), 'version.json');
+          if (existsSync(vPath)) {
+            const { version } = JSON.parse(readFileSync(vPath, 'utf-8'));
+            meta.version = version;
+          }
+        } catch {}
+        writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+      } else if (existsSync(KNOWLEDGE_FILE_LEGACY)) {
+        const doc = JSON.parse(readFileSync(KNOWLEDGE_FILE_LEGACY, 'utf-8'));
         doc.lastUpdated = new Date().toISOString();
-        // Update version from version.json
         try {
           const vPath = join(process.cwd(), 'version.json');
           if (existsSync(vPath)) {
@@ -332,7 +389,7 @@ export async function refreshSystemKnowledge() {
             doc.version = version;
           }
         } catch {}
-        writeFileSync(KNOWLEDGE_FILE, JSON.stringify(doc, null, 2));
+        writeFileSync(KNOWLEDGE_FILE_LEGACY, JSON.stringify(doc, null, 2));
       }
     } catch {}
 

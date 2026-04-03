@@ -272,12 +272,20 @@ function analyseQualityGate(traces) {
 // --- Timing analysis ---
 
 function analyseTiming(traces) {
-  const routingTimes = traces.map(t => t.routing?.timeMs).filter(t => typeof t === 'number');
+  // classifyMs = pure 4B classifier time (phase 1 of cortex). Falls back to timeMs for old traces.
+  const classifyTimes = traces.map(t => t.routing?.classifyMs ?? t.routing?.timeMs).filter(t => typeof t === 'number');
+  // cortexMs = full intelligence gather (classify + memory + dreams etc). Uses timeMs which is cortex total.
+  const cortexTimes = traces.map(t => t.routing?.timeMs).filter(t => typeof t === 'number');
   const totalTimes = traces.map(t => t.totalTimeMs).filter(t => typeof t === 'number');
 
   return {
-    routingAvgMs: routingTimes.length > 0 ? Math.round(avg(routingTimes)) : null,
-    routingP95Ms: routingTimes.length > 0 ? Math.round(percentile(routingTimes, 95)) : null,
+    classifyAvgMs: classifyTimes.length > 0 ? Math.round(avg(classifyTimes)) : null,
+    classifyP95Ms: classifyTimes.length > 0 ? Math.round(percentile(classifyTimes, 95)) : null,
+    cortexAvgMs: cortexTimes.length > 0 ? Math.round(avg(cortexTimes)) : null,
+    cortexP95Ms: cortexTimes.length > 0 ? Math.round(percentile(cortexTimes, 95)) : null,
+    // Legacy fields for backward compat with dashboard/reports
+    routingAvgMs: classifyTimes.length > 0 ? Math.round(avg(classifyTimes)) : null,
+    routingP95Ms: classifyTimes.length > 0 ? Math.round(percentile(classifyTimes, 95)) : null,
     totalAvgMs: totalTimes.length > 0 ? Math.round(avg(totalTimes)) : null,
     totalP95Ms: totalTimes.length > 0 ? Math.round(percentile(totalTimes, 95)) : null,
   };
@@ -330,16 +338,30 @@ function detectAnomalies(traces) {
     });
   }
 
-  // Slow routing (p95 > 5s)
-  const routingTimes = traces.map(t => t.routing?.timeMs).filter(t => typeof t === 'number');
-  if (routingTimes.length > 10) {
-    const p95 = percentile(routingTimes, 95);
-    if (p95 > 5000) {
+  // Slow classifier (p95 > 2s for pure classification, not full cortex gather)
+  const classifyTimes = traces.map(t => t.routing?.classifyMs).filter(t => typeof t === 'number');
+  if (classifyTimes.length > 10) {
+    const p95 = percentile(classifyTimes, 95);
+    if (p95 > 2000) {
       anomalies.push({
         type: 'slow_routing',
         severity: 'warning',
-        detail: `Routing p95 is ${p95}ms (threshold: 5000ms)`,
+        detail: `Classifier p95 is ${p95}ms (threshold: 2000ms)`,
         suggestion: 'Check 4B classifier latency — may need to adjust timeout or fall back to keywords',
+      });
+    }
+  }
+
+  // Slow cortex (p95 > 8s for full intelligence gather)
+  const cortexTimes = traces.map(t => t.routing?.timeMs).filter(t => typeof t === 'number');
+  if (cortexTimes.length > 10) {
+    const p95 = percentile(cortexTimes, 95);
+    if (p95 > 8000) {
+      anomalies.push({
+        type: 'slow_cortex',
+        severity: 'warning',
+        detail: `Cortex gather p95 is ${p95}ms (threshold: 8000ms)`,
+        suggestion: 'Check memory search latency on EVO — may need to reduce search scope or add caching',
       });
     }
   }
@@ -433,7 +455,7 @@ function formatAnalysisSummary(result) {
   // Timing
   const t = result.timing;
   if (t.routingAvgMs) {
-    lines.push(`*Timing:* routing avg ${t.routingAvgMs}ms p95 ${t.routingP95Ms}ms | total avg ${t.totalAvgMs}ms p95 ${t.totalP95Ms}ms`);
+    lines.push(`*Timing:* classify avg ${t.classifyAvgMs}ms p95 ${t.classifyP95Ms}ms | cortex avg ${t.cortexAvgMs}ms p95 ${t.cortexP95Ms}ms | total avg ${t.totalAvgMs}ms p95 ${t.totalP95Ms}ms`);
   }
 
   // Anomalies

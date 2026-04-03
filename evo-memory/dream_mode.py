@@ -326,7 +326,7 @@ def store_diary(summary, group_id, date_str, warnings=None):
             f'{MEMORY_SERVICE_URL}/memory/store',
             json={
                 'fact': narrative,
-                'category': 'diary',
+                'category': 'dream',
                 'tags': tags,
                 'confidence': 0.85 if not warnings else 0.6,
                 'source': 'dream_mode',

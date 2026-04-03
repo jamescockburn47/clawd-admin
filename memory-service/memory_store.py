@@ -65,7 +65,9 @@ EPHEMERAL_SOURCES = {"diary_extraction", "diary_insight", "dream_mode", "image_a
 GENERAL_EPHEMERAL_HALF_LIFE = 60
 
 # --- Frontal lobe: contradiction suppression ---
-CONTRADICTION_THRESHOLD = 0.75
+# 0.83 avoids suppressing related-but-distinct short facts while still
+# catching genuine contradictions (which embed at 0.88+ due to shared words).
+CONTRADICTION_THRESHOLD = 0.83
 
 # --- Frontal lobe: auto-supersession ---
 SUPERSESSION_THRESHOLD_LOW = 0.70
@@ -169,8 +171,12 @@ class MemoryStore:
         self._doc_lengths = []
         df = Counter()  # Document frequency per term
         for m in self.memories:
-            # Tokenise fact + tags together
-            tokens = _tokenise(m["fact"]) + [t for t in m.get("tags", []) if t not in _STOP_WORDS]
+            # Tokenise fact + tags together (tags go through _tokenise too so
+            # compound tags like "ai_consultancy" split into ["ai", "consultancy"])
+            tag_tokens = []
+            for t in m.get("tags", []):
+                tag_tokens.extend(_tokenise(t))
+            tokens = _tokenise(m["fact"]) + tag_tokens
             self._doc_tokens.append(tokens)
             self._doc_lengths.append(len(tokens))
             for term in set(tokens):
@@ -436,11 +442,12 @@ class MemoryStore:
                 days_old,
             )
 
-            # Combined: RRF is the primary signal, boosted by recency + confidence
-            # RRF is typically 0.01-0.03 range, so we scale it up
-            combined = (rrf * 30.0 +         # RRF scaled to ~0.3-0.9 range
-                        0.10 * recency +
-                        0.20 * eff_conf)
+            # Combined: RRF is the primary signal, frontal lobe signals can promote/demote.
+            # RRF ~0.01-0.03 range, scaled so recency and confidence have real influence
+            # on the top 10-20 results (not just tiebreakers).
+            combined = (rrf * 12.0 +         # RRF scaled to ~0.12-0.40 range
+                        0.25 * recency +
+                        0.30 * eff_conf)
 
             # Source authority boost
             source_weight = SOURCE_WEIGHTS.get(m.get("source", "unknown"), 1.0)

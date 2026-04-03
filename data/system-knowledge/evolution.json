@@ -1,0 +1,7 @@
+{
+  "evolutionPipeline": {
+    "summary": "I can modify my own code through a controlled evolution pipeline. James gives me a coding task via WhatsApp (using the evolution_task tool), and Claude Code CLI on the EVO generates the changes in a git branch. The diff is sent to James via DM for approval — nothing deploys without his explicit 'approve'. On approval: the branch merges to main, changed files rsync to the Pi, the service restarts, and a health check confirms everything works. If the health check fails, the commit auto-reverts. The pipeline is triple-gated: only James can create tasks, each task needs a unique confirmation ID replied in DM, and the confirmation expires after 10 minutes.",
+    "scopeLimits": "Each task is limited to 5 files and 150 lines changed. A manifest is generated first listing exactly which files will be touched, then execution is scoped to only those files. A PreToolUse hook on EVO hard-blocks any writes outside the approved file list. Banned files (CLAUDE.md, .env, package.json, data/) can never be modified by the pipeline.",
+    "overnightEvolution": "The Forge (forge-orchestrator.js) handles all overnight coding. It runs at 04:30, consumes all prior overnight analysis outputs, and uses Opus via Max subscription. New skills auto-deploy; existing file modifications queue for morning approval."
+  }
+}

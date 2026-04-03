@@ -1,0 +1,7 @@
+{
+  "voicePipeline": {
+    "summary": "USB mic on EVO X2 → 44.1kHz recording → resample to 16kHz → WebRTC noise suppression → RMS voice activity detection → Whisper STT (distil-small.en, ~700ms) → wake phrase detection (claude/clawd/claud/clawed/cloud/claw) → classify command locally (qwen3:0.6b) → route to Pi → process → Piper TTS response (en_GB-alan-medium) → play via dashboard SSE",
+    "features": ["Wake phrase variants (7 phonetic matches)", "Follow-up mode (10s window after response — no wake word needed)", "Gratitude detection (thank you/cheers → polite response)", "Contacts-based Whisper vocabulary biasing (James, MG, Henry)", "Post-transcription correction (MJ→MG)", "Hallucination filtering (rejects 'thank you for watching' etc)"],
+    "config": "MIC_GAIN=6.0, SPEECH_THRESHOLD=3000, SILENCE_DURATION=1.2s, MAX_RECORD=12s, COOLDOWN=1.5s"
+  }
+}

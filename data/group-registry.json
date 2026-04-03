@@ -1,39 +1,25 @@
 {
   "groups": {
-    "open@g.us": {
-      "label": "Open",
-      "mode": "open"
-    },
-    "project@g.us": {
-      "label": "Project",
-      "mode": "project"
-    },
-    "colleague@g.us": {
-      "label": "Colleague",
-      "mode": "colleague"
-    },
-    "colleague-topics@g.us": {
-      "label": "Colleague+Topics",
+    "tom@g.us": {
+      "label": "AGI (Tom Glover)",
       "mode": "colleague",
+      "blockedTopics": [
+        "Learned Hand",
+        "Shlomo",
+        "Legal Quants"
+      ]
+    },
+    "lq@g.us": {
+      "label": "LQ Discussion",
+      "mode": "project",
       "blockedTopics": [
         "Learned Hand",
         "Shlomo"
       ]
     },
-    "project-topics@g.us": {
-      "label": "Project+Topics",
-      "mode": "project",
-      "blockedTopics": [
-        "Legal Quants",
-        "Project Phoenix"
-      ]
-    },
-    "open-topics@g.us": {
-      "label": "Open+Topics",
-      "mode": "open",
-      "blockedTopics": [
-        "Secret Sauce"
-      ]
+    "open@g.us": {
+      "label": "Inner Circle",
+      "mode": "open"
     }
   }
 }

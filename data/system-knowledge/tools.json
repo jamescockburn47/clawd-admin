@@ -1,0 +1,12 @@
+{
+  "tools": {
+    "calendar": ["calendar_list_events (list upcoming events)", "calendar_create_event (create event — owner-only, requires confirmation)", "calendar_update_event (update event — owner-only, requires confirmation)", "calendar_find_free_time (check availability)"],
+    "email": ["gmail_search (search inbox)", "gmail_read (read full email)", "gmail_draft (create draft — always draft first, never send directly)", "gmail_confirm_send (send draft — owner-only, requires explicit approval)"],
+    "travel": ["train_departures (National Rail Darwin live board — CRS codes: KGX, YRK, LDS, EDB, DAR)", "train_fares (BR Fares ticket pricing)", "hotel_search (Amadeus real-time prices)", "search_trains (LNER/Trainline/National Rail booking links, supports multi-leg trips)", "search_accommodation (Booking.com/Airbnb/Cottages.com booking links)"],
+    "todos": ["todo_add (add item with optional due date, reminder, priority)", "todo_list (list active/completed items)", "todo_complete (mark done)", "todo_remove (delete)", "todo_update (modify)"],
+    "soul": ["soul_read (read learned entries)", "soul_learn (add entry directly — no confirmation needed)", "soul_forget (remove entry by index — owner only)", "soul_propose (propose a soul update for review — in groups this sends a DM to James)", "soul_confirm (confirm and apply the pending soul proposal — owner DM only)"],
+    "memory": ["memory_search (vector search on EVO, 8 results)", "memory_update (correct memory)", "memory_delete (remove memory)"],
+    "other": ["web_search (SearXNG — self-hosted on EVO, free, no API key — ALWAYS available in ALL categories, not just general knowledge)", "web_fetch (fetch and read a URL — extracts main article content, preserves headings/links/lists, max 8000 chars)", "system_status (live metrics: uptime, memory, WhatsApp, EVO health, voice heartbeat, routing stats)", "group_security (set security level 1-10 for current group — owner only, response is just 'Security enabled.')", "group_security_status (show current security level — minimal in groups, full detail in owner DMs)"],
+    "projects": ["project_list (list all defined projects)", "project_read (read full project details or specific section — architecture, differentiators, partners, next steps)", "project_pitch (generate tailored pitch for a specific audience)", "project_update (update project status, summary, or append next steps/tags)"]
+  }
+}

@@ -71,9 +71,9 @@ export const COOLDOWNS = Object.freeze({
   EVO_WARM_INTERVAL: 10,       // Minutes between keep-warm pings
 });
 
-// The Forge — overnight autonomous skill factory
+// The Forge — overnight autonomous skill factory (runs LAST at 04:30)
 export const FORGE = Object.freeze({
-  START_HOUR: 22,
+  START_HOUR: 4,
   START_MINUTE: 30,
   HARD_STOP_HOUR: 5,
   HARD_STOP_MINUTE: 15,

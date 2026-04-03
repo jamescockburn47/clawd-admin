@@ -6,14 +6,13 @@ import { executeTool } from './tools/handler.js';
 // EVO local model no longer used for chat — only classification, vision, doc summarisation
 // import { getEvoToolResponse } from './evo-llm.js';
 // import { checkLlamaHealth } from './evo-client.js';
-import { classifyMessage, getToolsForCategory, needsMemories, mustUseClaude, CATEGORY } from './router.js';
-import { getRelevantMemories, formatMemoriesForPrompt, analyseImage, isEvoOnline, getDreamMemories, getIdentityMemories, getInsightMemories, searchMemory } from './memory.js';
+import { getToolsForCategory, mustUseClaude, CATEGORY } from './router.js';
+import { analyseImage } from './memory.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { logRouting } from './router-telemetry.js';
 import { logReasoningTrace } from './reasoning-trace.js';
-import { getWorkingKnowledge, warmFromQuery } from './lquorum-rag.js';
 import { PLANNING } from './constants.js';
-import { getLiveSystemSnapshot } from './system-knowledge.js';
+import { gatherIntelligence } from './cortex.js';
 import { trackTokens, checkDailyLimit, incrementDailyCalls, getDailyCalls, recordCallInUsage, getUsageStats, flushUsage } from './usage-tracker.js';
 import { shouldCritique, runCritique } from './quality-gate.js';
 import logger from './logger.js';
@@ -77,16 +76,16 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
   const isOwner = !senderJid || ownerJids.size === 0 || ownerJids.has(senderJid);
   const tools = getAvailableTools(isOwner);
 
-  // --- Smart activity-based routing ---
+  // --- Cortex: parallel intelligence fan-out ---
+  // Fires classification, memory search, identity, dreams, insights, lquorum,
+  // and speculative web prefetch concurrently instead of sequentially.
   const routeStart = Date.now();
   const isGroup = chatJid && chatJid.endsWith('@g.us');
-  const route = await classifyMessage(context, !!imageData, isGroup);
-  // Secretary mode (clawdsec): skip planner, single-tool admin only
-  if (options.secretaryMode) {
-    route.needsPlan = false;
-    route.planReason = null;
-    logger.info({ category: route.category }, 'secretary mode — planner bypassed');
-  }
+
+  const { route, memoryFragment, timing: cortexTiming } = await gatherIntelligence(
+    context, !!imageData, isGroup, { secretaryMode: options.secretaryMode },
+  );
+
   const { category, source: classifySource, forceClaude, reason: routeReason } = route;
 
   // Detect explicit user request for Claude/Opus (overrides default MiniMax routing)
@@ -105,103 +104,6 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
   // Group check — gates personal admin tools, NOT memories/dreams/insights
   const isGroupChat = isProfessionalGroup(chatJid);
 
-  let memoryFragment = '';
-  if (config.evoMemoryEnabled && needsMemories(category)) {
-    try {
-      const memories = await getRelevantMemories(context);
-      memoryFragment = formatMemoriesForPrompt(memories);
-      if (memories.length > 0) {
-        logger.info({ count: memories.length, category }, 'memories injected');
-      }
-    } catch (err) {
-      logger.warn({ err: err.message }, 'memory fetch failed');
-    }
-  }
-
-  // Identity memories — always inject
-  if (config.evoMemoryEnabled) {
-    try {
-      const identityMems = await getIdentityMemories();
-      if (identityMems.length > 0) {
-        const idLines = identityMems.map(m => `- ${m.fact}`).join('\n');
-        memoryFragment += `\n\n## Who I am\n${idLines}`;
-      }
-    } catch (err) {
-      logger.warn({ err: err.message }, 'identity memory fetch failed');
-    }
-  }
-
-  // Dream memories — always inject (part of Clawd's intelligence, not personal admin)
-  if (config.evoMemoryEnabled && config.dreamModeEnabled) {
-    try {
-      const isDreamQuery = /\b(dream|diary|dreamt|dreamed|last night|overnight)\b/i.test(context);
-      const dreamLimit = isDreamQuery ? 5 : 2;
-      const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-      const dreamQuery = isDreamQuery ? `dream diary ${yesterday}` : 'dream summary recent';
-      const dreams = await searchMemory(dreamQuery, 'dream', dreamLimit);
-      const dreamMems = dreams.map(r => r.memory || r).filter(Boolean);
-      if (dreamMems.length > 0) {
-        const dreamLines = dreamMems.map(d => `- ${d.fact}`).join('\n');
-        const header = isDreamQuery
-          ? '## My diary entries (dream mode summaries)'
-          : '## Recent experiences (dream summaries)';
-        memoryFragment += `\n\n${header}\n${dreamLines}`;
-        logger.info({ count: dreamMems.length, explicit: isDreamQuery }, 'dream memories injected');
-      }
-    } catch (err) {
-      logger.warn({ err: err.message }, 'dream memory injection failed');
-    }
-  }
-
-  // Inject lquorum working memory
-  warmFromQuery(context);
-  const lquorumContext = getWorkingKnowledge();
-  if (lquorumContext) {
-    memoryFragment += '\n\n' + lquorumContext;
-    logger.info({ topics: lquorumContext.split('###').length - 1 }, 'lquorum working knowledge injected');
-  }
-
-  // Insight memories — always inject
-  if (config.evoMemoryEnabled) {
-    try {
-      const insights = await getInsightMemories(context, 3);
-      if (insights.length > 0) {
-        const insightLines = insights.map(m => `- ${m.fact}`).join('\n');
-        memoryFragment += `\n\n## Prior insights\n${insightLines}`;
-        logger.info({ count: insights.length }, 'diary insights injected');
-      }
-    } catch (err) {
-      logger.warn({ err: err.message }, 'insight memory injection failed');
-    }
-  }
-
-  // For SYSTEM queries: inject live status snapshot
-  if (category === CATEGORY.SYSTEM) {
-    try {
-      const liveSnapshot = await getLiveSystemSnapshot();
-      memoryFragment += liveSnapshot;
-    } catch (err) {
-      logger.warn({ err: err.message }, 'live snapshot failed');
-    }
-  }
-
-  // Token budget enforcement — prevent memory overflow into context window
-  // ~4 chars per token, cap at 3000 tokens (~12000 chars) for all memory combined
-  const MEMORY_TOKEN_BUDGET = 12000;
-  if (memoryFragment.length > MEMORY_TOKEN_BUDGET) {
-    const overBy = memoryFragment.length - MEMORY_TOKEN_BUDGET;
-    logger.warn({ totalChars: memoryFragment.length, overBy, approxTokens: Math.round(memoryFragment.length / 4) },
-      'memory fragment exceeds token budget — truncating');
-    // Truncate from the end (lowest-priority sections: insights, lquorum, dreams)
-    // Identity and relevance memories at the top are preserved
-    memoryFragment = memoryFragment.slice(0, MEMORY_TOKEN_BUDGET);
-    // Clean cut at last complete section boundary to avoid partial content
-    const lastSection = memoryFragment.lastIndexOf('\n\n## ');
-    if (lastSection > MEMORY_TOKEN_BUDGET * 0.5) {
-      memoryFragment = memoryFragment.slice(0, lastSection);
-    }
-  }
-
   // --- Task planner: multi-step requests ---
   if (route.needsPlan && (route.confidence || 0) >= PLANNING.MIN_CONFIDENCE) {
     try {
@@ -214,7 +116,7 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
             category, layer: classifySource, needsPlan: true,
             planReason: route.planReason, forceClaude,
             writeIntent: !!routeReason?.includes('write'),
-            confidence: route.confidence, timeMs: Date.now() - routeStart,
+            confidence: route.confidence, timeMs: cortexTiming.totalMs, classifyMs: cortexTiming.phase1Ms,
           },
           model: { selected: 'evo-30b', reason: 'needsPlan', qualityGate: false },
           plan: planResult.plan,
@@ -356,7 +258,8 @@ export async function getClawdResponse(context, mode, senderJid, imageData = nul
     const selectedModel = useClaudeClient ? 'claude' : (minimaxClient ? 'minimax' : 'claude');
     logRouting({
       category, confidence: null, model: selectedModel,
-      latencyMs: Date.now() - routeStart,
+      latencyMs: cortexTiming.totalMs,
+      classifyMs: cortexTiming.phase1Ms,
       fallback: !forceClaude && config.evoToolEnabled,
       reason: routeReason || classifySource,
       toolsCalled: _lastToolsCalled, text: context,

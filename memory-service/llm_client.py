@@ -21,29 +21,43 @@ _QUERY_PREFIX = "Instruct: Given a search query, retrieve relevant passages\nQue
 _EOS_TOKEN = "<|endoftext|>"
 
 
+_EMBED_BATCH_SIZE = 10  # llama.cpp handles small batches well; avoids timeout on large sets
+
+
 async def embed(texts: list[str], is_query: bool = False) -> list[list[float]]:
     """Embed texts using Qwen3-Embedding-8B llama.cpp server.
+
+    Sends texts in batches (llama.cpp /v1/embeddings accepts list input).
+    Single texts still work — just wrapped in a list internally.
 
     Args:
         texts: List of strings to embed.
         is_query: If True, prepend instruction prefix (improves retrieval for queries).
                   Documents/facts should be embedded with is_query=False.
     """
+    if not texts:
+        return []
+
     results = []
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            for text in texts:
-                # Prepare input with optional query prefix and required EOS token
-                prepared = f"{_QUERY_PREFIX}{text}{_EOS_TOKEN}" if is_query else f"{text}{_EOS_TOKEN}"
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            for i in range(0, len(texts), _EMBED_BATCH_SIZE):
+                batch = texts[i:i + _EMBED_BATCH_SIZE]
+                prepared = [
+                    f"{_QUERY_PREFIX}{t}{_EOS_TOKEN}" if is_query else f"{t}{_EOS_TOKEN}"
+                    for t in batch
+                ]
                 resp = await client.post(
                     f"{EMBED_URL}/v1/embeddings",
                     json={"input": prepared, "model": "qwen3-embedding"},
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                results.append(data["data"][0]["embedding"])
+                # llama.cpp returns embeddings sorted by index
+                batch_embeddings = sorted(data["data"], key=lambda x: x["index"])
+                results.extend([item["embedding"] for item in batch_embeddings])
     except Exception as e:
-        logger.warning(f"Embedding failed: {e} — returning empty for remaining")
+        logger.warning(f"Embedding failed at batch offset {len(results)}: {e}")
         while len(results) < len(texts):
             results.append([])
     return results

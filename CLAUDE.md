@@ -271,6 +271,23 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 159. **Self-knowledge is live.** Capabilities queried from skill registry, not static JSON.
 160. **Orchestrator is human-only.** `forge-orchestrator.js` cannot be modified by the Forge.
 
+### Cortex — Parallel Intelligence Fan-Out (2026-04-03)
+161. **Cortex replaces sequential classify→memory pipeline.** `src/cortex.js` fires classification, relevant memories, identity, dreams, insights, lquorum, and speculative web prefetch all concurrently via `Promise.all`. Shaves 1-3s off every response.
+162. **Speculative web prefetch on heuristic match.** If the message matches `WEB_HINT_PATTERN` (search/latest/current/news/etc.), SearXNG fires in parallel with classification. Results cached 60s. Tool executor checks cache before hitting SearXNG again.
+163. **Web prefetch is cache-only, never injected into prompt.** Prefetch results sit in a Map. Only used when the LLM explicitly calls `web_search` via tool use. No extra tokens, no cost increase.
+164. **Category-based late prefetch.** If heuristic didn't fire but classifier returns GENERAL_KNOWLEDGE or PLANNING, a fire-and-forget SearXNG call is launched. May land in time for the tool loop.
+165. **Each cortex stream fails independently.** Memory down? Identity still works. SearXNG timeout? Classification still returns. No single failure blocks the pipeline.
+
+### Overnight Pipeline Reorder (2026-04-03)
+170. **Forge moved to 04:30 (was 22:30).** Runs LAST so it consumes all prior overnight outputs: dream diary (22:05), Deep Think (23:00), self-improve (01:00), extraction (02:00), trace analysis (03:00), ground truth (03:30), retrospective (04:00 Sun). Phase 1 intelligence now reads trace-analysis.json, self-improve-log.jsonl, ground-truth.json, and weekly-retrospective.json.
+171. **Ground truth harvester at 03:30.** `src/tasks/ground-truth.js`. Extracts verifiable factual claims from yesterday's traces, searches authoritative sources (legislation.gov.uk, BAILII, gov.uk), stores verified fact→source pairs in `data/ground-truth.json`. Max 10 claims per night, 500 entry cap. Conservative: only marks verified if authoritative source confirms key terms.
+
+### Memory Search Tuning (2026-04-03)
+166. **RRF rebalanced: `rrf * 12.0 + 0.25 * recency + 0.30 * eff_conf`.** Was `30.0 / 0.10 / 0.20`. Frontal lobe signals (recency, confidence, source weight) now meaningfully influence top-10 results.
+167. **Contradiction suppression threshold raised to 0.83.** Was 0.75. Prevents suppressing related-but-distinct short facts.
+168. **BM25 tags tokenised through `_tokenise()`.** Compound tags like `ai_consultancy` now split into `["ai", "consultancy"]` to match query tokens.
+169. **Embedding calls batched in llm_client.py.** Up to 10 texts per request instead of one-at-a-time. `/reembed` is ~10x faster.
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.

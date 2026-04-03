@@ -4,7 +4,18 @@ import { gmailSearch, gmailRead, gmailDraft, gmailConfirmSend } from './gmail.js
 import { searchTrains, searchAccommodation } from './travel.js';
 import { trainDepartures, trainFares } from './darwin.js';
 import { hotelSearch } from './amadeus.js';
-import { webSearch, webFetch } from './search.js';
+import { webSearch as _rawWebSearch, webFetch } from './search.js';
+import { getWebPrefetch } from '../cortex.js';
+
+// Wrap webSearch to check the cortex prefetch cache first
+async function webSearch(input) {
+  const cached = getWebPrefetch(input.query);
+  if (cached) {
+    logger.info({ query: input.query }, 'web_search served from cortex prefetch');
+    return cached;
+  }
+  return _rawWebSearch(input);
+}
 import { soulRead, soulPropose, soulConfirm, soulLearn, soulForget } from './soul.js';
 import { todoAdd, todoList, todoComplete, todoRemove, todoUpdate, getAllTodos } from './todo.js';
 import { searchMemory, updateMemory, deleteMemory } from '../memory.js';

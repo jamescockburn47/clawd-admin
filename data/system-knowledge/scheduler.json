@@ -1,0 +1,23 @@
+{
+  "scheduler": {
+    "interval": "60 seconds",
+    "tasks": [
+      "Todo reminders — sends WhatsApp at configured reminder time",
+      "Side gig meeting alerts — 30 minutes before meetings tagged 'Side Gig'",
+      "Morning briefing at 07:00 — weather, calendar, todos, Henry status, memory stats, overnight diary insights (surfaces up to 4 non-obvious insights from last night's diary) — zero Claude API calls",
+      "Self-improvement cycle at 01:00 — probes keyword classifier, proposes new rules, validates against eval suite",
+      "Overnight extraction at 02:00 — extracts facts from yesterday's conversation logs into EVO memory, then indexes group topics via EVO 30B into data/topic-index/ (30-day pruning)",
+      "System knowledge refresh at 02:00 — regenerates self-knowledge entries in EVO memory from live codebase state",
+      "Trace analyser at 03:00 — analyses reasoning traces from last 7 days, outputs routing breakdown, needsPlan F1, plan success rates, timing percentiles, anomaly detection",
+      "Ground truth harvester at 03:30 — extracts verifiable factual claims from yesterday's traces, searches authoritative sources, stores verified fact-source pairs",
+      "Daily backup at 03:00 — todos, soul, soul_history (7-day retention)",
+      "Daily retrospective at 04:00 (bootstrap period) — EVO 30B reasons about top 3 improvement priorities from trace data, auto-creates evolution tasks",
+      "The Forge at 04:30 — autonomous recursive self-improvement. 7-phase pipeline: intelligence gathering, architect, implement+test, review, deploy/queue, meta-improvement, report. Uses Opus via Max subscription. Consumes all prior overnight outputs",
+      "Project Deep Think at 23:00 — multi-model strategic analysis on active projects using MiniMax M2.7 (default) with Claude Opus 4.6 available on request. Runs web research via SearXNG to surface SOTA innovations, then feeds everything to the cloud model for deep analysis. Stores insights in memory and sends summary to James",
+      "Weekly memory review on Sundays at 20:00 — memory stats summary via WhatsApp",
+      "Widget cache refresh every 5 minutes — Henry weekends, side gig, emails, calendar, weather",
+      "EVO model warm-keeping every 10 minutes — prevents llama.cpp from evicting model from VRAM",
+      "Memory cache sync every 30 minutes — syncs EVO memory to local cache"
+    ]
+  }
+}

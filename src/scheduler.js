@@ -18,6 +18,7 @@ import {
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
 import { checkWeeklyRetrospective, getLastRetroDate } from './tasks/weekly-retrospective.js';
 import { checkOvernightEvolution, getLastOvernightEvoDate } from './tasks/overnight-to-evolution.js';
+import { checkGroundTruth, getLastHarvestDate } from './tasks/ground-truth.js';
 import { checkForge, getLastForgeDate } from './tasks/forge-orchestrator.js';
 import config from './config.js';
 import logger from './logger.js';
@@ -95,6 +96,7 @@ async function runScheduler() {
   await runTask('systemKnowledgeRefresh', () => checkSystemKnowledgeRefresh(todayStr, hours));
   await runTask('projectDeepThink', () => checkProjectDeepThink(sendFn, todayStr, hours));
   await runTask('traceAnalysis', () => checkTraceAnalysis(sendFn, todayStr, hours));
+  await runTask('groundTruth', () => checkGroundTruth(sendFn, todayStr, hours, minutes));
   await runTask('weeklyRetrospective', () => checkWeeklyRetrospective(sendFn, todayStr, hours));
   await runTask('overnightReport', () => checkOvernightReport(sendFn, todayStr, hours, minutes));
   await runTask('overnightEvolution', () => checkOvernightEvolution(sendFn, todayStr, hours));

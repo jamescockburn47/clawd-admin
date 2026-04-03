@@ -1,0 +1,64 @@
+{
+  "lastUpdated": "2026-04-03T22:00:00.000Z",
+  "version": "2.8.0",
+  "users": {
+    "james": "Owner — full access to all tools. Solicitor advocate, commercial litigation. Has son Henry near York. Travels LNER regularly. Building AI consultancy alongside legal practice.",
+    "mg": "James's wife — can use calendar reading, todos, travel tools, web search. Cannot use email, soul, or calendar mutation tools."
+  },
+  "guardrails": [
+    "Email: ALWAYS draft first (gmail_draft), ONLY send after explicit approval (gmail_confirm_send). NEVER chain draft→send.",
+    "Calendar: state event details to James first, wait for explicit confirmation before creating/updating.",
+    "Soul: soul_learn writes directly, soul_forget removes entries. Dream observations accumulate and promote via severity thresholds. Blocked patterns prevent guardrail overrides.",
+    "Tool results: report ONLY what tools return. NEVER fabricate, embellish, or infer data.",
+    "MG access: calendar reading, todos, travel, web search only. No email, soul, or calendar mutations.",
+    "No delete operations for email (no trash, archive, delete)."
+  ],
+  "techStack": {
+    "runtime": "Node.js 20+ (ESM modules, no TypeScript, no database, no build step)",
+    "whatsapp": "@whiskeysockets/baileys v6.x",
+    "ai_cloud": "@anthropic-ai/sdk — MiniMax M2.7 (default, Anthropic-compatible API), Claude Opus 4.6 (premium, explicit request only)",
+    "ai_local": "llama.cpp (Vulkan) — Qwen3-VL-30B-A3B Q4_K_M (tool-calling + vision, 65K ctx), Qwen3-4B (primary classifier), Qwen3-0.6B Q8_0 (last-resort fallback classifier)",
+    "google": "googleapis — Calendar v3, Gmail v1",
+    "weather": "Open-Meteo (free, no API key)",
+    "travel": "Darwin (live trains), BR Fares (ticket prices), Amadeus (hotels)",
+    "search": "SearXNG (self-hosted on EVO, Docker, port 8888, no API key)",
+    "document_parsing": "pdf-parse (PDFs), mammoth (DOCX/Word) — on Pi",
+    "logging": "Pino (structured JSON)",
+    "dashboard": "Rust native app (eframe/egui), Wayland backend",
+    "voice": "Python 3 — faster-whisper, piper-tts, webrtc-noise-gain, PyAudio"
+  },
+  "circuitBreakers": {
+    "google": "3 failures → 2 min reset. Returns cached widget data.",
+    "minimax": "3 failures → 30s reset. Falls back to Claude on failure.",
+    "claude": "3 failures → 30s reset.",
+    "weather": "3 failures → 2 min reset. Returns last known conditions."
+  },
+  "dataPersistence": {
+    "summary": "All data stored as JSON files in data/ directory — no database. Files: todos.json, soul.json, soul_pending.json, soul_backup.json, soul_history.json, messages.json (DM context), audit.json (tool log, last 1000), usage.json (token costs), router-stats.jsonl (routing telemetry), learned-rules.json (self-improvement), learned-eval-labels.json, notified_meetings.json, memory-cache.json. System knowledge in data/system-knowledge/ directory (modular sub-files). Topic index in data/topic-index/<group>.jsonl (overnight topic clusters, 30-day retention). Conversation logs in data/conversation-logs/<date>_<group>.jsonl. Daily backups in data/backups/."
+  },
+  "documentation": {
+    "summary": "My codebase is fully documented across multiple files. CLAUDE.md holds all binding design decisions (170+ numbered rules) and session protocol. architecture.md describes the full system architecture across all three devices. The docs/ folder contains detailed references for specific subsystems.",
+    "files": {
+      "CLAUDE.md": "Master design decisions, session protocol, quick reference (IPs, paths, models), known gotchas. Read at the start of every session.",
+      "architecture.md": "Full system architecture — device topology, message flow, routing layers, memory system, dream mode, voice pipeline, evolution pipeline, tool definitions.",
+      "docs/api-reference.md": "All HTTP API endpoints on Pi port 3000 — dashboard, status, memory, voice, chat, SSE, evolution, todos, soul, widgets.",
+      "docs/data-flows.md": "Visual data flow diagrams — message routing, memory lifecycle, dream mode pipeline, evolution task flow.",
+      "docs/deployment.md": "Deploy commands, SSH patterns, systemd service management, rsync targets, health check procedures.",
+      "docs/evo-x2-reference.md": "EVO X2 hardware specs, all running services with ports, model details, systemd timers, overnight model swap procedure.",
+      "docs/refactoring-vibed-codebases.md": "Guide for refactoring AI-generated code — principles, patterns, code structure rules."
+    }
+  },
+  "agenticTaskPlanner": {
+    "summary": "When the 4B classifier flags needsPlan, the task planner runs a two-phase process: first, goal reasoning — understanding WHAT the user actually needs, not just what they literally asked for. Second, decomposition into dependency-aware steps with tool calls. Steps without dependencies execute in parallel. Between levels, adaptive re-planning evaluates results and adjusts remaining steps. The planner uses the 30B model on EVO for reasoning (MiniMax fallback) and the same tool execution pipeline as single-shot requests. Plans are held in memory for diagnostics (/api/plans endpoint).",
+    "addressingModes": "'clawd' or '@clawd' = full advisory mode with planner available. 'clawdsec' = secretary mode, planner bypassed, single-tool admin only.",
+    "adaptiveReplanning": "After each execution level, the planner evaluates whether remaining steps are still needed. If step 1 reveals the answer to step 3, step 3 is skipped. If results expose a gap, new steps are added. This makes the planner genuinely agentic rather than executing a fixed list."
+  },
+  "agiRoadmap": {
+    "summary": "Clawd is an ongoing AGI experiment scoring 81/100 on a 10-pillar framework. Phase 1 (Task Planner + Reasoning Traces) complete — planning/reasoning jumped 4→7/10. Phase 2 (Autonomous Goal Generation + Trace Analysis) in progress — trace analyser runs nightly at 3 AM, daily retrospective auto-creates evolution tasks, The Forge runs autonomous recursive self-improvement at 04:30. Phase 3 planned: Predictive Scheduler + Inference Critique. Phase 4: World Model + Persistent Identity.",
+    "currentPhase": "Phase 2 — Autonomous Improvement. The system analyses its own cognitive performance overnight (routing accuracy, plan success rates, needsPlan F1, timing percentiles, anomaly detection), reasons about improvement priorities daily via the 30B model, and auto-queues evolution tasks. The Forge implements improvements overnight using Opus. Two addressing modes enable appropriate cognitive depth: 'clawd' for full advisory, 'clawdsec' for fast admin.",
+    "traceAnalysis": "Every message generates a reasoning trace (routing layer, category, model, plan details, timing). Nightly trace analyser computes metrics. Daily retrospective uses EVO 30B to identify top 3 improvement priorities and create scoped evolution tasks. Endpoints: /api/traces, /api/traces/live, /api/retrospective."
+  },
+  "systemHealthApi": {
+    "summary": "The /api/system-health endpoint provides a consolidated view of all subsystem statuses. It reports on WhatsApp connection, EVO reachability, briefing/diary/self-improve/knowledge-refresh/backup last-run times, memory statistics (total count + category breakdown), system uptime, and memory usage. The dashboard's Admin panel fetches this on startup and displays it as a real-time status grid with green/red indicators."
+  }
+}

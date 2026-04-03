@@ -1,0 +1,55 @@
+{
+  "henryWeekends": {
+    "summary": "James visits his son Henry near York. Route: London Kings Cross ↔ York (LNER, ~1h50). Patterns: Fri-Sun (2 train legs, 2 nights), Sat-Sun (2 legs, 1 night), 4-trip (4 legs, complex multi-leg), driving (no train). Accommodation: North York Moors villages (Helmsley, Pickering, Kirkbymoorside) or coast (Whitby, Robin Hood's Bay). Dashboard shows travel/accommodation booking status badges (green=booked, red=missing)."
+  },
+  "lquorum": {
+    "summary": "LQuorum is James's major side project — a mobile-first PWA for a private community of 80+ lawyers across 17 jurisdictions collaborating on legal AI tools and analysis. The platform turns topic-based discussion into a living knowledge repository.",
+    "domain": "lquorum.blog",
+    "localPath": "C:\\Users\\James\\Desktop\\Quorum",
+    "knowledgeRepoFile": "data/lquorum-knowledge.json",
+    "knowledgeRepoDescription": "Structured knowledge synthesised from community discussions — 18 topics, 115 key findings, 44 active debates, 101 detailed sections. Covers: RAG/hallucinations, data security & privilege, legal AI platform reviews, AI-native firms, AI disruption & opportunity, document processing, the DOCX problem, vibe coding, community tool showcase, tool & model reviews, contract review with AI agents, Claude Code, local models & hardware, Microsoft Copilot, IT gatekeepers, agent security, model comparison, and about LQuorum itself.",
+    "topicsList": [
+      "RAG for Legal: Architecture, Hallucinations & Provenance",
+      "Data Security & Legal Privilege in AI Practice",
+      "Legal AI Platform Reviews: Harvey, Legora & Others",
+      "Will AI-Native Law Firms Replace Traditional Firms?",
+      "The Lawyer's AI Reckoning: Disruption & Opportunity",
+      "Legal Document Processing: Tools, Formats & OCR",
+      "The DOCX Problem: Why Legal AI Struggles with Word",
+      "Vibe Coding for Lawyers: Getting Started",
+      "Community Tool Showcase",
+      "Opinions & Reviews of Specific Tools and Models",
+      "Contract Review with AI Agents",
+      "Claude Code for Legal Professionals",
+      "Running Legal AI Locally: Hardware & Models",
+      "Microsoft Copilot for Legal Workflows",
+      "Navigating IT Gatekeepers for Legal AI",
+      "Securing AI Coding Agents & Multi-Agent Systems",
+      "Which AI Model for Which Legal Task?",
+      "Legal Quants: What It Is and What It Might Become"
+    ]
+  },
+  "imageHandling": {
+    "summary": "I can see images now — my local model (Qwen3-VL on EVO) understands photos sent via WhatsApp. I process them locally without needing Claude. If the local model is down, Claude handles it as fallback. Follow-up questions within 5 minutes reuse the same image, so people don't need to resend. No tools are used for pure vision queries."
+  },
+  "documentHandling": {
+    "summary": "I can read PDFs and Word documents shared via WhatsApp. PDFs are parsed using Granite-Docling-258M (a dedicated document understanding model on EVO port 8084) which renders each page and extracts structured markdown with headings, tables, and reading order preserved. Word documents use mammoth for text extraction. After parsing, the full text is summarised locally via EVO (port 8080) before involving Claude — cutting token costs by about 71%. Documents are stored permanently in my vector memory: a summary entry for quick recall, chunked raw text for detailed retrieval, and an index entry as a registry of everything I've read. Raw text is also logged for my overnight diary to reflect on. Follow-up questions within 5 minutes reuse the cached raw text; after that, document chunks are retrieved from the vector DB."
+  },
+  "webSearch": {
+    "summary": "I search the web using a self-hosted SearXNG instance on the EVO. It's free with no API key needed. I'm instructed to search before answering factual questions rather than relying on potentially stale training data. Web search (web_search + web_fetch) tools are available in EVERY routing category — not just general knowledge. This means I can always search regardless of how the router classifies the message. The web_fetch tool now extracts article content intelligently: headings, links, list items are preserved as structured text. Max 8000 characters per page.",
+    "speculativePrefetch": "The cortex layer fires a speculative SearXNG search in parallel with classification when the message matches web-hint patterns (search, latest, current, news, price, weather, who/what/when/where is, etc.). Results are cached for 60 seconds. When my tool loop later calls web_search, the handler checks the prefetch cache first — if the query words overlap >= 50%, it serves the cached result instantly, saving 1-2 seconds. If the heuristic didn't fire but the classifier returns GENERAL_KNOWLEDGE or PLANNING, a fire-and-forget search launches (may land in time for the tool loop). The cache holds max 20 entries with LRU eviction. This costs nothing — SearXNG is self-hosted and free."
+  },
+  "cortex": {
+    "summary": "My cortex (src/cortex.js) is a parallel intelligence fan-out layer that replaced the old sequential classify→memory→identity→dreams→insights→lquorum pipeline. Instead of waiting for each step to complete before starting the next (~3 seconds total), the cortex fires all streams concurrently via Promise.all and returns everything as a single bundle. Total time equals the slowest stream — typically ~1 second (memory search). Each stream fails independently: if memory is down, identity still works; if SearXNG times out, classification still returns. Zero extra cloud API calls. The cortex also manages speculative web prefetch with a 60-second LRU cache (max 20 entries) that the tool executor checks before hitting SearXNG.",
+    "streams": [
+      "Stream 1: 4B classification on EVO (~200ms) — must complete for routing decisions",
+      "Stream 2: Relevant memory search (~1s) — fired optimistically, discarded if category doesn't need memories",
+      "Stream 3: Identity memories (~500ms) — always injected",
+      "Stream 4: Dream memories (~500ms) — always injected, limit varies by dream-query detection",
+      "Stream 5: Insight memories (~500ms) — always injected, top 3",
+      "Stream 6: LQuorum working knowledge (~5ms) — synchronous warm, near-instant",
+      "Stream 7: Speculative web prefetch (~800ms) — fires on web-hint pattern match, cached for tool loop"
+    ],
+    "file": "src/cortex.js"
+  }
+}

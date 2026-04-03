@@ -48,7 +48,11 @@ let lastForgeDate = null;
 
 export async function checkForge(sendFn, todayStr, hours, minutes) {
   if (lastForgeDate === todayStr) return;
-  if (hours !== 22 || minutes < 30) return;
+  // Forge runs LAST in the overnight pipeline (04:30) so it can consume:
+  // dream diary (22:05), deep think (23:00), self-improve (01:00),
+  // extraction (02:00), trace analysis (03:00), ground truth (03:30),
+  // retrospective (04:00 Sunday)
+  if (hours !== 4 || minutes < 30) return;
 
   lastForgeDate = todayStr;
   logger.info('forge: starting overnight session');
@@ -218,9 +222,12 @@ function appendToHistory(session) {
 async function phaseIntelligence(session) {
   const systemPrompt = readPrompt('analyst.md');
 
-  // Gather inputs
+  // Gather inputs — all freshly written by earlier overnight tasks
   const traceAnalysis = readOptional(join('data', 'trace-analysis.json'));
   const learnedRules = readOptional(join('data', 'learned-rules.json'));
+  const groundTruth = readOptional(join('data', 'ground-truth.json'));
+  const selfImproveLog = readOptional(join('data', 'self-improve-log.jsonl'));
+  const weeklyRetro = readOptional(join('data', 'weekly-retrospective.json'));
 
   // Recent conversation logs (last 24h summary)
   let logSummary = '';
@@ -252,9 +259,35 @@ async function phaseIntelligence(session) {
     skillInfo = skills.map(s => `${s.name} v${s.version || '?'}: triggered=${s.metrics?.timesTriggered || 0}`).join('\n');
   } catch { /* non-fatal */ }
 
+  // Extract tonight's self-improve summary (last entry only)
+  let selfImproveSummary = 'No self-improvement data.';
+  if (selfImproveLog) {
+    const lines = selfImproveLog.trim().split('\n').filter(Boolean);
+    if (lines.length > 0) {
+      try {
+        const last = JSON.parse(lines[lines.length - 1]);
+        selfImproveSummary = `Iterations: ${last.iterations}, Probes: ${last.totalProbes}, Misses: ${last.totalMisses}, Proposals: ${last.proposals?.length || 0}`;
+      } catch { /* use default */ }
+    }
+  }
+
+  // Ground truth gaps
+  let groundTruthSummary = 'No ground truth data yet.';
+  if (groundTruth) {
+    try {
+      const gt = JSON.parse(groundTruth);
+      const total = gt.entries?.length || 0;
+      const unverified = gt.entries?.filter(e => !e.verified)?.length || 0;
+      groundTruthSummary = `${total} entries, ${unverified} unverified claims`;
+    } catch { /* use default */ }
+  }
+
   const userPrompt = [
     '## Trace Analysis', traceAnalysis || 'No trace analysis available.',
     '## Learned Rules', learnedRules || 'No learned rules.',
+    '## Self-Improvement (tonight)', selfImproveSummary,
+    '## Ground Truth', groundTruthSummary,
+    '## Weekly Retrospective', weeklyRetro || 'No retrospective available.',
     '## Conversation Activity', logSummary || 'No recent logs.',
     '## Previous Forge Reports', prevReports || 'No previous reports.',
     '## Skill Metrics', skillInfo || 'No skills loaded.',
