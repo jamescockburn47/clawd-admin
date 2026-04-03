@@ -1,50 +1,92 @@
-"""Configuration for the Clawd Memory Service."""
+"""Configuration for the Clawd Memory Service.
+
+Uses Pydantic BaseSettings for validation at import time.
+All values read from environment variables with sensible defaults.
+"""
 
 import os
+from enum import Enum
+from pydantic_settings import BaseSettings
+from pydantic import Field
 
-# --- LLM backends (llama.cpp servers) ---
-LLM_URL = os.environ.get("LLM_URL", "http://localhost:8080")           # Main model (Qwen3-VL-30B, daytime)
-LLM_EMBED_URL = os.environ.get("LLM_EMBED_URL", "http://localhost:8083")  # Embedding model (Qwen3-Embedding-8B, always on)
-EMBED_MODEL = os.environ.get("EMBED_MODEL", "qwen3-embedding-8b")
-EXTRACT_MODEL = os.environ.get("EXTRACT_MODEL", "qwen3.5:35b")        # Legacy — extraction uses LLM_URL
-EXTRACT_TEMPERATURE = float(os.environ.get("EXTRACT_TEMPERATURE", "0.1"))
-VISION_MODEL = os.environ.get("VISION_MODEL", "qwen3.5:35b")          # Legacy — vision uses LLM_URL
 
-WHISPER_MODEL_SIZE = os.environ.get("WHISPER_MODEL_SIZE", "large-v3")
-WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "auto")  # auto, cpu, cuda
-WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
+class MemoryCategory(str, Enum):
+    """Valid memory categories — must match Pi-side constants."""
+    PREFERENCE = "preference"
+    PERSON = "person"
+    LEGAL = "legal"
+    TRAVEL = "travel"
+    ACCOMMODATION = "accommodation"
+    HENRY = "henry"
+    AI_CONSULTANCY = "ai_consultancy"
+    SCHEDULE = "schedule"
+    GENERAL = "general"
+    IDENTITY = "identity"
+    DREAM = "dream"
+    SYSTEM = "system"
+    INSIGHT = "insight"
+    DOCUMENT = "document"
+    DOCUMENT_CHUNK = "document_chunk"
+    DOCUMENT_INDEX = "document_index"
 
-DATA_DIR = os.environ.get("DATA_DIR", os.path.expanduser("~/clawdbot-memory/data"))
+
+class Settings(BaseSettings):
+    """Validated configuration — fast-fails on startup if env vars are malformed."""
+
+    # LLM backends (llama.cpp servers)
+    llm_url: str = Field(default="http://localhost:8080", description="Main model URL")
+    llm_embed_url: str = Field(default="http://localhost:8083", description="Embedding model URL")
+    embed_model: str = "qwen3-embedding-8b"
+    extract_model: str = "qwen3.5:35b"
+    extract_temperature: float = 0.1
+    vision_model: str = "qwen3.5:35b"
+
+    # Whisper
+    whisper_model_size: str = "large-v3"
+    whisper_device: str = "auto"
+    whisper_compute_type: str = "float16"
+
+    # Data paths
+    data_dir: str = Field(default_factory=lambda: os.path.expanduser("~/clawdbot-memory/data"))
+
+    # Server
+    memory_service_port: int = 5100
+
+    class Config:
+        env_prefix = ""
+        case_sensitive = False
+
+
+# Singleton — validates on import
+settings = Settings()
+
+# Derived paths
+DATA_DIR = settings.data_dir
 MEMORIES_FILE = os.path.join(DATA_DIR, "memories.json")
 ARCHIVE_FILE = os.path.join(DATA_DIR, "memories_archive.json")
 PROCESSED_DIR = os.path.join(DATA_DIR, "processed")
+PORT = settings.memory_service_port
 
-PORT = int(os.environ.get("MEMORY_SERVICE_PORT", "5100"))
+# Backward-compatible module-level constants (existing code imports these directly)
+LLM_URL = settings.llm_url
+LLM_EMBED_URL = settings.llm_embed_url
+EMBED_MODEL = settings.embed_model
+EXTRACT_MODEL = settings.extract_model
+EXTRACT_TEMPERATURE = settings.extract_temperature
+VISION_MODEL = settings.vision_model
+WHISPER_MODEL_SIZE = settings.whisper_model_size
+WHISPER_DEVICE = settings.whisper_device
+WHISPER_COMPUTE_TYPE = settings.whisper_compute_type
 
-CATEGORIES = [
-    "preference", "person", "legal", "travel", "accommodation",
-    "henry", "ai_consultancy", "schedule", "general",
-    "identity", "dream", "system", "insight",
-    "document", "document_chunk", "document_index",
-]
+# Categories and TTLs
+CATEGORIES = [c.value for c in MemoryCategory]
 
-# Default TTL in days per category (0 = permanent)
-DEFAULT_TTL = {
-    "preference": 0,
-    "person": 0,
-    "legal": 0,
-    "travel": 14,
-    "accommodation": 90,
-    "henry": 30,
-    "ai_consultancy": 0,
-    "schedule": 7,
-    "general": 90,
-    "identity": 0,
-    "dream": 0,
-    "system": 7,
-    "insight": 0,
-    "document": 0,
-    "document_chunk": 90,
+DEFAULT_TTL: dict[str, int] = {
+    "preference": 0, "person": 0, "legal": 0,
+    "travel": 14, "accommodation": 90, "henry": 30,
+    "ai_consultancy": 0, "schedule": 7, "general": 90,
+    "identity": 0, "dream": 0, "system": 7,
+    "insight": 0, "document": 0, "document_chunk": 90,
     "document_index": 0,
 }
 
