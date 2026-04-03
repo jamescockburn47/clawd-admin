@@ -65,22 +65,27 @@ Work through each check. Mark pass/fail with evidence.
 ## Verdict Rules
 
 ### auto_deploy
-All checks pass AND the skill demonstrably improves Clawd's capabilities. The spec's auto_deploy_classification must also be "auto_deploy".
+All checks pass (no fails in the checklist above) AND `is_improvement` is true. That's it. Do not escalate to needs_approval just because you have minor concerns — log them in `concerns` instead. The file-based safety gate in phaseDeploy handles the hard boundaries; your job is correctness and value, not second-guessing the deployment tier.
 
 ### needs_approval
-All checks pass BUT:
-- Spec classification is needs_approval, OR
-- You have concerns about edge cases that tests don't cover, OR
-- The improvement is real but marginal (owner should decide if it's worth the complexity)
+Use this ONLY when:
+- Tests produce unexpected output or partial failures that aren't clearly benign
+- The diff contains meaningful code outside the manifest (scope concern worth flagging)
+- You have a specific, reproducible concern that isn't covered by any test and could cause a user-visible failure
+- Confidence is below 0.65 after reading the full diff
+
+Do NOT use needs_approval for:
+- "The improvement is marginal" — marginal improvements compound; deploy them
+- "Edge cases exist that tests don't cover" — all software has untested edges; name a specific one or don't mention it
+- "Owner should decide" — the owner has delegated this via auto_deployable flag and file safety rules
 
 ### reject
 Any of:
-- Tests fail
-- Scope violation (files outside manifest)
-- Contract violation
+- Tests fail (non-zero exit or assertions fail)
+- Scope violation (files outside manifest that aren't trivially additive)
+- Contract violation (canHandle/execute signatures wrong)
 - Banned file modification
-- The skill adds no measurable value
-- The implementation contradicts the spec's goal
+- The skill demonstrably makes things worse (contradicts spec's stated goal)
 
 ## Output Schema
 
@@ -116,10 +121,10 @@ Produce valid JSON matching this schema exactly:
 
 ## Field Notes
 
-- `confidence`: 0.0-1.0. How confident you are in the verdict. Below 0.7 should trigger needs_approval even if checks pass.
-- `override_architect`: Set to a string if you disagree with the spec's auto_deploy_classification. Explain why.
-- `concerns`: Things that don't block deployment but should be tracked. Empty array if none.
-- `improvement_notes`: Suggestions for v1.1. Feed these back to the analyst for future cycles.
+- `confidence`: 0.0-1.0. Below 0.65 should trigger needs_approval. Between 0.65-0.80 means "auto_deploy with concerns logged". Above 0.80 means clean auto_deploy.
+- `override_architect`: Set to a string ONLY if the spec's auto_deploy_classification is wrong in a way that matters for deployment safety. Don't override just to be conservative.
+- `concerns`: Things worth tracking that don't block deployment. Empty array if none. Be specific — vague concerns are useless.
+- `improvement_notes`: Concrete suggestions for v1.1 that the analyst should pick up next cycle.
 
 ## Rules
 

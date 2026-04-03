@@ -232,15 +232,21 @@ class MemoryClient {
   }
 
   async delete(memoryId) {
-    if (!this._online) return { deleted: false, offline: true };
+    /** Soft-archive a memory (sets status='archived'). Nothing is ever hard-deleted. */
+    if (!this._online) return { archived: false, offline: true };
     try {
       return await this._fetch(`/memory/${memoryId}`, {
         method: 'DELETE', timeout: TIMEOUTS.MEMORY_DEFAULT,
       });
     } catch (err) {
-      logger.error({ err: err.message }, 'memory delete failed');
-      return { deleted: false, error: err.message };
+      logger.error({ err: err.message }, 'memory archive failed');
+      return { archived: false, error: err.message };
     }
+  }
+
+  async archive(memoryId) {
+    /** Explicitly soft-archive a memory — alias for delete() with clearer intent. */
+    return this.delete(memoryId);
   }
 
   // --- Stats / List ---
@@ -556,6 +562,7 @@ export const analyseImage = (b, p, e, s) => client.analyseImage(b, p, e, s);
 export const transcribeAudio = (b, l, e, s) => client.transcribeAudio(b, l, e, s);
 export const updateMemory = (id, u) => client.update(id, u);
 export const deleteMemory = (id) => client.delete(id);
+export const archiveMemory = (id) => client.archive(id);
 export const getMemoryStats = () => client.getStats();
 export const listMemories = () => client.list();
 export const getRelevantMemories = (t) => client.getRelevantMemories(t);

@@ -1,9 +1,8 @@
 // Scheduler — 60-second interval, dispatches all scheduled tasks.
 // Each task is isolated: one failing task doesn't block others.
 
-import { checkEvoHealth, isEvoOnline, syncCache } from './memory.js';
+import { checkEvoHealth, isEvoOnline, syncCache, getEvoStatus } from './memory.js';
 import { keepEvoWarm } from './evo-llm.js';
-import { getEvoStatus } from './memory.js';
 import { checkTodoReminders } from './tasks/todo-reminders.js';
 import { checkSideGigMeetings } from './tasks/meeting-alerts.js';
 import { checkMorningBriefing, checkWeeklyReview, getLastBriefingDate, getLastReviewDate } from './tasks/briefing.js';

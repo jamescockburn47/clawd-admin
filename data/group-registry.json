@@ -1,6 +1,7 @@
 {
+  "_comment": "Restored by tests",
   "groups": {
-    "tom@g.us": {
+    "120363426226720044@g.us": {
       "label": "AGI (Tom Glover)",
       "mode": "colleague",
       "blockedTopics": [
@@ -8,18 +9,6 @@
         "Shlomo",
         "Legal Quants"
       ]
-    },
-    "lq@g.us": {
-      "label": "LQ Discussion",
-      "mode": "project",
-      "blockedTopics": [
-        "Learned Hand",
-        "Shlomo"
-      ]
-    },
-    "open@g.us": {
-      "label": "Inner Circle",
-      "mode": "open"
     }
   }
 }

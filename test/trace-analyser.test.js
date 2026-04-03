@@ -474,11 +474,11 @@ describe('trace-analyser', () => {
       assert.ok(npAnomaly.detail.includes('3'));
     });
 
-    it('p95 routing >5000ms — warning generated', () => {
-      // Need >10 traces. Most fast, a few very slow.
+    it('p95 classifier >2000ms — slow_routing warning generated', () => {
+      // Need >10 traces. Most fast, one with very slow classifyMs.
       const traces = [
-        ...Array(10).fill(null).map(() => makeTrace({ routing: { timeMs: 100 } })),
-        makeTrace({ routing: { timeMs: 6000 } }),
+        ...Array(10).fill(null).map(() => makeTrace({ routing: { classifyMs: 100 } })),
+        makeTrace({ routing: { classifyMs: 3000 } }),
       ];
       writeTraces(traces);
       const result = analyseTraces(365);

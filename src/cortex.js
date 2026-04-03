@@ -14,8 +14,7 @@
 // - Category determines what fires, not a blind scatter
 
 import config from './config.js';
-import { classifyMessage } from './router.js';
-import { needsMemories, CATEGORY } from './router.js';
+import { classifyMessage, needsMemories, CATEGORY } from './router.js';
 import {
   getRelevantMemories, formatMemoriesForPrompt, searchMemory,
   getIdentityMemories, getInsightMemories,

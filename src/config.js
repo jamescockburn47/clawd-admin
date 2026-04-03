@@ -90,6 +90,16 @@ const ConfigSchema = z.object({
 
   // Professional groups (comma-separated JIDs)
   PROFESSIONAL_GROUPS: z.string().optional().default(''),
+
+  // Forge overnight window
+  FORGE_HARD_STOP_HOUR: intFromEnv(7).default('7'),
+
+  // Claude Code CLI for forge phases 2-6
+  // FORGE_CLAUDE_MODEL: model to use (default: claude-opus-4-6)
+  // FORGE_USE_SUBSCRIPTION: unset ANTHROPIC_API_KEY so CLI uses Max/Pro OAuth creds
+  //   Set to 'false' only if you want to use API key billing instead.
+  FORGE_CLAUDE_MODEL: z.string().optional().default('claude-opus-4-6'),
+  FORGE_USE_SUBSCRIPTION: boolFromEnv.default('true'),
 });
 
 // --- Parse & validate ---
@@ -170,6 +180,10 @@ const config = {
   evoRepoPath: env.EVO_REPO_PATH,
 
   professionalGroups: env.PROFESSIONAL_GROUPS.split(',').map(s => s.trim()).filter(Boolean),
+
+  forgeHardStopHour: env.FORGE_HARD_STOP_HOUR,
+  forgeClaudeModel: env.FORGE_CLAUDE_MODEL,
+  forgeUseSubscription: env.FORGE_USE_SUBSCRIPTION,
 };
 
 Object.freeze(config);

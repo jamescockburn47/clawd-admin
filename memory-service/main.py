@@ -40,6 +40,7 @@ class SearchRequest(BaseModel):
     query: str
     category: Optional[str] = None
     limit: int = 8
+    search_archive: bool = False
 
 
 class UpdateRequest(BaseModel):
@@ -47,6 +48,14 @@ class UpdateRequest(BaseModel):
     category: Optional[str] = None
     tags: Optional[list[str]] = None
     confidence: Optional[float] = None
+    status: Optional[str] = None
+
+
+class ConsolidateClusterRequest(BaseModel):
+    merged_fact: str
+    merged_tags: list[str] = []
+    merged_confidence: float = 0.9
+    source_ids: list[str]
 
 
 class ExtractRequest(BaseModel):
@@ -113,6 +122,7 @@ async def memory_search(req: SearchRequest):
         query_text=req.query,
         category=req.category,
         limit=req.limit,
+        search_archive=req.search_archive,
     )
     # Strip embeddings from response
     for r in results:
@@ -121,8 +131,8 @@ async def memory_search(req: SearchRequest):
 
 
 @app.get("/memory/list")
-async def memory_list(include_embeddings: bool = False):
-    memories = store.list_all(include_embeddings=include_embeddings)
+async def memory_list(include_embeddings: bool = False, include_archived: bool = False):
+    memories = store.list_all(include_embeddings=include_embeddings, include_archived=include_archived)
     return {"memories": memories, "count": len(memories)}
 
 
@@ -139,6 +149,7 @@ async def memory_update(memory_id: str, req: UpdateRequest):
         tags=req.tags,
         confidence=req.confidence,
         embedding=embedding,
+        status=req.status,
     )
     if updated is None:
         raise HTTPException(status_code=404, detail="Memory not found")
@@ -147,10 +158,50 @@ async def memory_update(memory_id: str, req: UpdateRequest):
 
 @app.delete("/memory/{memory_id}")
 async def memory_delete(memory_id: str):
-    deleted = store.delete(memory_id)
-    if not deleted:
+    """Soft-archive a memory. Nothing is ever hard-deleted."""
+    archived = store.delete(memory_id)
+    if not archived:
         raise HTTPException(status_code=404, detail="Memory not found")
-    return {"deleted": True}
+    return {"archived": True, "note": "memory soft-archived, not hard-deleted"}
+
+
+@app.post("/memory/{memory_id}/archive")
+async def memory_archive(memory_id: str):
+    """Explicitly soft-archive a memory by ID."""
+    archived = store.archive_memory(memory_id)
+    if not archived:
+        raise HTTPException(status_code=404, detail="Memory not found")
+    return {"archived": True}
+
+
+@app.post("/memory/consolidate")
+async def memory_consolidate(req: ConsolidateClusterRequest):
+    """Store a consolidated (LLM-merged) fact and supersede the source memories."""
+    embedding = await llm_client.embed_single(req.merged_fact)
+    record = store.consolidate_cluster(
+        merged_fact=req.merged_fact,
+        merged_tags=req.merged_tags,
+        merged_confidence=req.merged_confidence,
+        source_ids=req.source_ids,
+        embedding=embedding,
+    )
+    return {"stored": True, "memory": {k: v for k, v in record.items() if k != "embedding"},
+            "superseded_count": len(req.source_ids)}
+
+
+@app.get("/memory/consolidation-candidates")
+async def consolidation_candidates(min_sim: float = 0.55, max_sim: float = 0.70,
+                                   max_clusters: int = 20):
+    """Return clusters of related-but-distinct active memories for consolidation review."""
+    clusters = store.get_consolidation_candidates(min_sim=min_sim, max_sim=max_sim,
+                                                   max_clusters=max_clusters)
+    result = []
+    for cluster in clusters:
+        result.append({
+            "memories": [{k: v for k, v in m.items() if k != "embedding"} for m in cluster],
+            "count": len(cluster),
+        })
+    return {"clusters": result, "cluster_count": len(result)}
 
 
 @app.get("/memory/stats")
@@ -340,13 +391,15 @@ async def analyse_image(
 
 @app.post("/maintain")
 async def maintain():
-    """Run maintenance: expire old memories, deduplicate."""
-    expired_count = store.expire_old()
+    """Run maintenance: soft-archive expired memories, deduplicate."""
+    archived_count = store.archive_expired()
     dedup_count = store.deduplicate()
+    stats = store.stats()
     return {
-        "expired": expired_count,
+        "archived": archived_count,
         "deduplicated": dedup_count,
-        "total_after": len(store.memories),
+        "total_after": stats["total"],
+        "active_after": stats["active"],
     }
 
 

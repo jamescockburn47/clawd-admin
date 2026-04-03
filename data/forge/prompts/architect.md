@@ -61,18 +61,18 @@ Explicit lists of files created and modified. The implementation agent is scope-
 Classify the spec for deployment gating:
 
 **Auto-deploy** (all must be true):
-- Modifies max 3 existing files
-- Total new code under 80 lines
-- No new dependencies
-- Does not touch: message-handler.js, router.js, classifier, any prompt files, personality/soul
-- Risk assessment: low
+- All changed files are in `src/skills/`, `tests/skills/`, or `data/` directories
+- No new npm dependencies (built-in modules are fine)
+- Does not touch: message-handler.js, router.js, claude.js, memory.js, config.js, prompt.js, scheduler.js, output-filter.js, index.js (the banned core list)
+- Risk assessment: low or medium
 
 **Needs-approval** (any one triggers):
-- Modifies message-handler.js, router.js, or classifier logic
-- Changes system prompts or personality configuration
-- Adds new dependencies
-- Risk assessment: medium or high
-- Total changes exceed 80 lines or touch more than 3 existing files
+- Modifies a banned core file (see list above)
+- Adds new npm dependencies
+- Risk assessment: high
+- Makes changes to routing logic that could misclassify messages
+
+Note: Line count and file count are NOT triggers for needs-approval. A well-tested 250-line skill that only touches src/skills/ is auto-deployable. A 10-line change to message-handler.js is not.
 
 ## Output Schema
 

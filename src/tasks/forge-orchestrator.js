@@ -31,14 +31,13 @@ const HISTORY_FILE = join(DATA_DIR, 'history.jsonl');
 // --- Phase timeouts (ms) ---
 const PHASE_TIMEOUT = {
   analysis: 30 * 60 * 1000,
+  nightlyTouch: 15 * 60 * 1000,
   architect: 30 * 60 * 1000,
   implement: 2 * 60 * 60 * 1000,
   review: 30 * 60 * 1000,
   meta: 60 * 60 * 1000,
 };
 
-const HARD_STOP_HOUR = 5;
-const HARD_STOP_MINUTE = 15;
 // Bot now runs on EVO — all execution is local
 const REPO_DIR = process.cwd();
 
@@ -48,14 +47,52 @@ let lastForgeDate = null;
 
 export async function checkForge(sendFn, todayStr, hours, minutes) {
   if (lastForgeDate === todayStr) return;
-  // Forge runs LAST in the overnight pipeline (04:30) so it can consume:
-  // dream diary (22:05), deep think (23:00), self-improve (01:00),
-  // extraction (02:00), trace analysis (03:00), ground truth (03:30),
-  // retrospective (04:00 Sunday)
-  if (hours !== 4 || minutes < 30) return;
+  // Forge runs at 04:00 (was 04:30 — shifted to give 3h before 07:00 hard stop).
+  // Consumes: dream diary (22:05), deep think (23:00), self-improve (01:00),
+  // extraction (02:00), trace analysis (03:00), ground truth (03:30).
+  if (hours !== 4 || minutes < 0) return;
 
   lastForgeDate = todayStr;
   logger.info('forge: starting overnight session');
+
+  // Pre-flight: check Claude Code CLI is available and authenticated for phases 2-6
+  let claudeCliAvailable = false;
+  try {
+    // 1. Check the binary exists
+    const { stdout: binCheck } = await localExec(
+      'test -x ~/.local/bin/claude && echo ok || which claude 2>/dev/null || echo missing',
+      5000,
+    );
+    const binFound = binCheck.includes('ok') || (binCheck.includes('/') && !binCheck.includes('missing'));
+
+    if (!binFound) {
+      logger.error('forge: claude CLI not found — phases 2-6 will be skipped. Install via: npm install -g @anthropic-ai/claude-code');
+    } else {
+      // 2. Verify authentication — if using subscription, check OAuth creds exist
+      //    `claude auth status` exits 0 and prints account info when authenticated
+      const authCmd = config.forgeUseSubscription
+        ? 'env -u ANTHROPIC_API_KEY ~/.local/bin/claude auth status 2>&1 || echo AUTH_FAIL'
+        : 'echo API_KEY_MODE';
+      const { stdout: authCheck } = await localExec(authCmd, 10000);
+
+      if (authCheck.includes('AUTH_FAIL') || authCheck.includes('not logged in') || authCheck.includes('No account')) {
+        logger.error(
+          'forge: claude CLI not authenticated with Max subscription. Run: claude login',
+        );
+        // Fall back to API key mode if available
+        if (config.anthropicApiKey) {
+          logger.warn('forge: falling back to API key mode — will use API credits');
+          claudeCliAvailable = true;
+        }
+      } else {
+        claudeCliAvailable = true;
+        const mode = config.forgeUseSubscription ? 'Max subscription' : 'API key';
+        logger.info({ mode, model: config.forgeClaudeModel }, 'forge: claude CLI ready');
+      }
+    }
+  } catch (err) {
+    logger.error({ err: err.message }, 'forge: claude CLI check failed — phases 2-6 will be skipped');
+  }
 
   const session = {
     date: todayStr,
@@ -71,18 +108,28 @@ export async function checkForge(sendFn, todayStr, hours, minutes) {
       session.phases.analysis = await runPhase('analysis', () => phaseIntelligence(session));
     }
 
-    // Phase 2: Architect
-    if (isBeforeHardStop() && session.phases.analysis?.brief) {
+    // Phase 1.5: Nightly touch — always runs, edits text files directly (no branch)
+    // Produces a real committed change every night even if Phases 2-4 don't complete.
+    if (claudeCliAvailable && isBeforeHardStop() && session.phases.analysis?.brief) {
+      session.phases.nightlyTouch = await runPhase('nightlyTouch', () => phaseNightlyTouch(session));
+    }
+
+    // Phase 2: Architect — requires Claude Code CLI
+    if (claudeCliAvailable && isBeforeHardStop() && session.phases.analysis?.brief) {
       session.phases.architect = await runPhase('architect', () => phaseArchitect(session));
     }
 
-    // Phase 3: Implement + Test
-    if (isBeforeHardStop() && session.phases.architect?.spec) {
+    // Phase 3: Implement + Test — only if 60+ minutes remain (needs enough for TDD cycle)
+    if (claudeCliAvailable && isBeforeHardStop() && remainingMinutes() >= 60 && session.phases.architect?.spec) {
       session.phases.implement = await runPhase('implement', () => phaseImplement(session));
+    } else if (session.phases.architect?.spec && !isBeforeHardStop()) {
+      logger.warn('forge: skipping implement — past hard stop');
+    } else if (session.phases.architect?.spec && remainingMinutes() < 60) {
+      logger.warn({ remainingMinutes: Math.round(remainingMinutes()) }, 'forge: skipping implement — less than 60 min remaining');
     }
 
-    // Phase 4: Review
-    if (isBeforeHardStop() && session.phases.implement?.branch) {
+    // Phase 4: Review — requires Claude Code CLI
+    if (claudeCliAvailable && isBeforeHardStop() && session.phases.implement?.branch) {
       session.phases.review = await runPhase('review', () => phaseReview(session));
     }
 
@@ -91,8 +138,8 @@ export async function checkForge(sendFn, todayStr, hours, minutes) {
       session.phases.deploy = await runPhase('deploy', () => phaseDeploy(session, sendFn));
     }
 
-    // Phase 6: Meta-Improvement
-    if (isBeforeHardStop()) {
+    // Phase 6: Meta-Improvement — requires Claude Code CLI
+    if (claudeCliAvailable && isBeforeHardStop()) {
       session.phases.meta = await runPhase('meta', () => phaseMeta(session));
     }
   } catch (err) {
@@ -113,9 +160,19 @@ export function getLastForgeDate() {
   return lastForgeDate;
 }
 
-// --- Time guard ---
+// --- Time guards ---
 
-function isBeforeHardStop() {
+/**
+ * Compute the hard-stop timestamp in ms.
+ * Uses current London time to calculate minutes until stopHour:00.
+ * Handles the overnight window correctly:
+ *   - 04:30 London → 07:00 London same morning = 150 min
+ *   - 22:30 London → 07:00 London next morning = 510 min
+ *   - 08:00 London (daytime, past stop) → returns Date.now()-1 so isBeforeHardStop() = false
+ */
+function getHardStopMs() {
+  const stopHour = config.forgeHardStopHour ?? 7;
+
   const now = new Date();
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/London',
@@ -127,10 +184,30 @@ function isBeforeHardStop() {
   }
   const h = parseInt(parts.hour, 10);
   const m = parseInt(parts.minute, 10);
-  // Between 22:30 and 05:15 next day: hours >= 22 OR hours < 5 OR (hours === 5 && minutes < 15)
-  if (h >= 22 || h < HARD_STOP_HOUR) return true;
-  if (h === HARD_STOP_HOUR && m < HARD_STOP_MINUTE) return true;
-  return false;
+
+  let minsUntilStop;
+  if (h < stopHour) {
+    // Early morning, before the stop — stop is later today
+    minsUntilStop = (stopHour - h) * 60 - m;
+  } else if (h >= 22) {
+    // Evening — forge starts overnight, stop is next morning
+    minsUntilStop = (24 - h + stopHour) * 60 - m;
+  } else {
+    // Daytime (stopHour ≤ h < 22) — already past the stop for today
+    return Date.now() - 1;
+  }
+
+  return Date.now() + minsUntilStop * 60 * 1000;
+}
+
+/** Returns true if we still have time to run more phases. */
+function isBeforeHardStop() {
+  return Date.now() < getHardStopMs();
+}
+
+/** Returns minutes remaining before the hard stop. */
+function remainingMinutes() {
+  return Math.max(0, (getHardStopMs() - Date.now()) / 60000);
 }
 
 // --- Phase runner with timeout and error isolation ---
@@ -169,7 +246,14 @@ async function runClaudeCode(promptContent, timeoutMs = PHASE_TIMEOUT.implement)
   const { writeFileSync: wfs } = await import('fs');
   wfs('/tmp/forge-prompt.md', promptContent);
 
-  const cmd = `cd ${REPO_DIR} && ~/.local/bin/claude -p --model claude-opus-4-6 --allowedTools "Edit,Write,Read,Bash,Glob,Grep" < /tmp/forge-prompt.md`;
+  const model = config.forgeClaudeModel || 'claude-opus-4-6';
+
+  // If using Max subscription, unset ANTHROPIC_API_KEY so the CLI uses OAuth credentials.
+  // `env -u VAR cmd` removes the variable from the child process environment cleanly.
+  // Without this, Claude Code CLI would pick up the bot's API key and bill against it.
+  const envPrefix = config.forgeUseSubscription ? 'env -u ANTHROPIC_API_KEY' : '';
+
+  const cmd = `cd ${REPO_DIR} && ${envPrefix} ~/.local/bin/claude -p --model ${model} --allowedTools "Edit,Write,Read,Bash,Glob,Grep" < /tmp/forge-prompt.md`;
   const result = await localExec(cmd, timeoutMs);
   return result.stdout;
 }
@@ -222,44 +306,95 @@ function appendToHistory(session) {
 async function phaseIntelligence(session) {
   const systemPrompt = readPrompt('analyst.md');
 
-  // Gather inputs — all freshly written by earlier overnight tasks
+  // Gather structured data — all freshly written by earlier overnight tasks
   const traceAnalysis = readOptional(join('data', 'trace-analysis.json'));
   const learnedRules = readOptional(join('data', 'learned-rules.json'));
   const groundTruth = readOptional(join('data', 'ground-truth.json'));
   const selfImproveLog = readOptional(join('data', 'self-improve-log.jsonl'));
   const weeklyRetro = readOptional(join('data', 'weekly-retrospective.json'));
 
-  // Recent conversation logs (last 24h summary)
-  let logSummary = '';
+  // --- Actual conversation samples (not just counts) ---
+  // Read the last 150 messages from yesterday's logs, including bot responses.
+  // This is what the analyst actually needs to spot patterns.
+  let conversationSamples = 'No recent conversation logs.';
   const logsDir = join('data', 'conversation-logs');
   if (existsSync(logsDir)) {
-    const files = readdirSync(logsDir).filter(f => f.endsWith('.jsonl')).sort().slice(-3);
-    const lineCount = files.reduce((sum, f) => {
-      try { return sum + readFileSync(join(logsDir, f), 'utf-8').split('\n').filter(Boolean).length; } catch { return sum; }
-    }, 0);
-    logSummary = `Recent conversation log files: ${files.join(', ')} (${lineCount} total messages)`;
+    const files = readdirSync(logsDir).filter(f => f.endsWith('.jsonl')).sort().slice(-2);
+    const messages = [];
+    for (const f of files) {
+      try {
+        const lines = readFileSync(join(logsDir, f), 'utf-8').trim().split('\n').filter(Boolean);
+        for (const line of lines) {
+          try {
+            const msg = JSON.parse(line);
+            if (msg.text && msg.text.length > 3) {
+              messages.push(`[${(msg.timestamp || '').split('T')[1]?.slice(0, 5) || '?'}] ${msg.isBot ? 'Clawd' : (msg.sender || 'User')}: ${msg.text.slice(0, 200)}`);
+            }
+          } catch { /* skip malformed */ }
+        }
+      } catch { /* skip unreadable file */ }
+    }
+    if (messages.length > 0) {
+      // Keep the last 150 messages — enough for pattern spotting, not so many the model loses focus
+      const sample = messages.slice(-150);
+      conversationSamples = `${messages.length} messages total. Last ${sample.length} shown:\n\n${sample.join('\n')}`;
+    }
   }
 
-  // Previous forge reports
+  // --- Quality gate rejections from the last 7 days ---
+  // These are responses the quality gate rejected before sending — high-signal failure data.
+  let qualityFailures = 'No quality gate data.';
+  const qualityLog = readOptional(join('data', 'quality-gate-rejections.jsonl'));
+  if (qualityLog) {
+    const lines = qualityLog.trim().split('\n').filter(Boolean).slice(-30);
+    qualityFailures = `Last ${lines.length} quality gate rejections:\n` +
+      lines.map(l => { try { const r = JSON.parse(l); return `[${r.category}] "${r.prompt?.slice(0, 100)}"→ rejected: ${r.reason}`; } catch { return l; } }).join('\n');
+  }
+
+  // --- Dream insights from memory service (direct evidence from overnight diary) ---
+  let dreamInsights = 'Memory service not available.';
+  try {
+    const { evoFetchJSON } = await import('../evo-client.js');
+    const resp = await evoFetchJSON(`${config.evoMemoryUrl}/memory/search`, {
+      method: 'POST',
+      body: JSON.stringify({ query: 'insight observation pattern behaviour', category: 'insight', limit: 15 }),
+      timeout: 15000,
+    });
+    if (resp?.results?.length > 0) {
+      dreamInsights = resp.results
+        .map(r => `- [${r.memory?.sourceDate || '?'}] ${r.memory?.fact || r.fact || ''}`)
+        .join('\n');
+    } else {
+      dreamInsights = 'No insights in memory service yet.';
+    }
+  } catch { dreamInsights = 'Could not query memory service.'; }
+
+  // Previous forge reports (with more context than before)
   let prevReports = '';
   ensureDir(REPORTS_DIR);
-  const reportFiles = readdirSync(REPORTS_DIR).filter(f => f.endsWith('.json')).sort().slice(-3);
+  const reportFiles = readdirSync(REPORTS_DIR).filter(f => f.endsWith('.json')).sort().slice(-7);
   if (reportFiles.length) {
     prevReports = reportFiles.map(f => {
       const data = readOptional(join(REPORTS_DIR, f));
       if (!data) return '';
-      try { const r = JSON.parse(data); return `${f}: tasks=${r.tasks?.length || 0}, phases=${Object.keys(r.phases || {}).join(',')}`; } catch { return f; }
+      try {
+        const r = JSON.parse(data);
+        const touch = r.nightlyTouchFiles?.length ? ` touch:${r.nightlyTouchFiles.join(',')}` : '';
+        return `${f}: spec=${r.spec || 'none'} deploy=${r.deployAction || 'none'}${touch}`;
+      } catch { return f; }
     }).join('\n');
   }
 
   // Skill metrics
-  let skillInfo = '';
+  let skillInfo = 'No skills loaded.';
   try {
     const skills = await loadSkills();
-    skillInfo = skills.map(s => `${s.name} v${s.version || '?'}: triggered=${s.metrics?.timesTriggered || 0}`).join('\n');
+    if (skills.length > 0) {
+      skillInfo = skills.map(s => `${s.name} v${s.version || '?'}: triggered=${s.metrics?.timesTriggered || 0} success=${s.metrics?.successRate?.toFixed(2) || '?'}`).join('\n');
+    }
   } catch { /* non-fatal */ }
 
-  // Extract tonight's self-improve summary (last entry only)
+  // Self-improve summary
   let selfImproveSummary = 'No self-improvement data.';
   if (selfImproveLog) {
     const lines = selfImproveLog.trim().split('\n').filter(Boolean);
@@ -283,18 +418,115 @@ async function phaseIntelligence(session) {
   }
 
   const userPrompt = [
+    '## Conversation Samples (actual messages — primary signal)',
+    conversationSamples,
+    '## Quality Gate Rejections',
+    qualityFailures,
+    '## Dream Insights (from memory service)',
+    dreamInsights,
     '## Trace Analysis', traceAnalysis || 'No trace analysis available.',
-    '## Learned Rules', learnedRules || 'No learned rules.',
     '## Self-Improvement (tonight)', selfImproveSummary,
     '## Ground Truth', groundTruthSummary,
     '## Weekly Retrospective', weeklyRetro || 'No retrospective available.',
-    '## Conversation Activity', logSummary || 'No recent logs.',
-    '## Previous Forge Reports', prevReports || 'No previous reports.',
-    '## Skill Metrics', skillInfo || 'No skills loaded.',
+    '## Previous Forge Reports (last 7)', prevReports || 'No previous reports.',
+    '## Skill Metrics', skillInfo,
+    '## Learned Rules', learnedRules ? `${JSON.parse(learnedRules || '{}')?.rules?.length || 0} learned rules in router` : 'None.',
   ].join('\n\n');
 
-  const brief = await queryEvo30B(systemPrompt, userPrompt);
+  const brief = await queryEvo30B(systemPrompt, userPrompt, 6000);
   return { brief };
+}
+
+// --- Phase 1.5: Nightly Touch ---
+// Lightweight prompt/knowledge improvement that runs every night.
+// Edits text files directly on main — no branch, no TDD, no 3-gate review.
+// This ensures every Forge session produces at least one committed improvement.
+// Target files: data/forge/prompts/*.md, data/system-knowledge/*.json, soul entries.
+
+const NIGHTLY_TOUCH_PROMPT = `# Nightly Touch — Lightweight Improvement
+
+You have access to the full brief from tonight's intelligence gathering. Your job is to make ONE small, concrete improvement to a text or config file that does not require code changes to core logic.
+
+## Brief
+{BRIEF}
+
+## Previous 7 nights of nightly touches
+{PREV_TOUCHES}
+
+## Allowed targets — pick the ONE with highest value tonight
+
+### Text files (always safe, commit directly to main)
+1. \`data/forge/prompts/analyst.md\` — improve if tonight's brief was thin or missed obvious patterns
+2. \`data/forge/prompts/architect.md\` — refine auto-deploy classification or spec structure
+3. \`data/forge/prompts/reviewer.md\` — adjust verdict guidance if review decisions seem off
+4. \`data/system-knowledge/*.json\` — update any stale facts about Clawd's own capabilities
+5. \`evo-memory/dream_mode.py\` — DREAM_PROMPT only — if diary entries were too long/short/missing sections
+
+### Skill improvements (safe if tests still pass, commit to main)
+6. \`src/skills/*.js\` canHandle only — if a skill has 0 invocations but the pattern clearly exists in tonight's conversations, add matching phrases to canHandle. Do NOT change execute logic.
+
+### Eval coverage (always safe)
+7. \`data/learned-eval-labels.json\` — add 3-5 new labelled examples from tonight's conversations to improve future routing eval. Format: [{"text":"...", "expected_category":"..."}]. Only add examples where the correct category is unambiguous.
+
+### Soul/insight entry (append only)
+8. New insight via curl: \`curl -s -X POST http://localhost:5100/memory/store -H 'Content-Type: application/json' -d '{"fact":"...","category":"insight","tags":["forge","nightly"],"confidence":0.8,"source":"forge"}'\`
+
+## What makes a good nightly touch
+- Directly addresses a specific pattern from tonight's conversation samples or insights
+- Changes fewer than 25 lines
+- Not a repeat of the last 7 nights
+- For skills: don't broaden canHandle so far it starts matching unrelated messages — add 2-4 specific phrases maximum
+- For eval labels: only add examples you're certain about from tonight's actual conversations
+
+## Instructions
+1. Read the brief and previous touches
+2. Identify the single best improvement (prefer text files — lowest risk)
+3. Read the target file first before editing
+4. Make the edit
+5. \`git add -A && git commit -m "forge/nightly-touch: <concise description>"\`
+6. Output JSON: { "action": "improved" | "none", "target": "filepath or memory-store", "description": "what changed", "reasoning": "why this matters" }
+
+If nothing warrants changing tonight, output { "action": "none", "reason": "explain why" } and do NOT commit.`;
+
+async function phaseNightlyTouch(session) {
+  const brief = session.phases.analysis?.brief || 'No brief available.';
+
+  // Build context from last 7 nightly touches
+  const reports = readdirSync(REPORTS_DIR).filter(f => f.endsWith('.json')).sort().slice(-7);
+  const prevTouches = reports.map(f => {
+    const data = readOptional(join(REPORTS_DIR, f));
+    if (!data) return '';
+    try {
+      const r = JSON.parse(data);
+      if (!r.nightlyTouchFiles?.length && r.nightlyTouchAction !== 'improved') return '';
+      return `${f}: ${r.nightlyTouchFiles?.join(', ') || 'none'} — ${r.nightlyTouchAction || 'none'}`;
+    } catch { return ''; }
+  }).filter(Boolean).join('\n') || 'No previous touches.';
+
+  const prompt = NIGHTLY_TOUCH_PROMPT
+    .replace('{BRIEF}', brief.slice(0, 3000))
+    .replace('{PREV_TOUCHES}', prevTouches);
+
+  const output = await runClaudeCode(prompt, 15 * 60 * 1000); // 15 min max
+
+  let result = null;
+  const jsonMatch = output.match(/```json\n([\s\S]*?)```/) || output.match(/\{[\s\S]*"action"[\s\S]*\}/);
+  if (jsonMatch) {
+    try { result = JSON.parse(jsonMatch[1] || jsonMatch[0]); } catch { /* fallback */ }
+  }
+  if (!result) {
+    result = { action: 'unknown', description: output.slice(0, 300) };
+  }
+
+  // Get the list of files actually changed
+  let files = [];
+  try {
+    const { stdout } = await localExec(`cd ${REPO_DIR} && git diff HEAD~1 HEAD --name-only 2>/dev/null || echo ''`, 10000);
+    files = stdout.split('\n').filter(Boolean);
+  } catch { /* non-fatal */ }
+
+  logger.info({ action: result.action, target: result.target, files }, 'forge: nightly touch complete');
+  return { action: result.action, files, description: result.description, reasoning: result.reasoning };
 }
 
 // --- Phase 2: Architect ---
@@ -353,15 +585,18 @@ async function phaseImplement(session) {
 
   const output = await runClaudeCode(prompt, PHASE_TIMEOUT.implement);
 
-  // Get diff info
+  // Get diff info — write full diff to temp file, pass path to reviewer
   const { stdout: diffStat } = await localExec(`cd ${REPO_DIR} && git diff main --stat`, 15000);
   const { stdout: diffFull } = await localExec(`cd ${REPO_DIR} && git diff main`, 30000);
   const { stdout: filesChanged } = await localExec(`cd ${REPO_DIR} && git diff main --name-only`, 15000);
 
+  const diffFile = `/tmp/forge-diff-${session.date}.patch`;
+  writeFileSync(diffFile, diffFull, 'utf-8');
+
   return {
     branch,
     diffStat,
-    diff: diffFull.slice(0, 10000),
+    diffFile,
     files: filesChanged.split('\n').filter(Boolean),
     implementOutput: output.slice(0, 2000),
   };
@@ -381,15 +616,16 @@ async function phaseReview(session) {
     JSON.stringify(spec, null, 2),
     '',
     '## Diff',
-    '```',
-    impl.diff || 'No diff available',
-    '```',
+    impl.diffFile
+      ? `The full diff is at: ${impl.diffFile}\nRead it with: cat ${impl.diffFile}\n\nStat summary:\n${impl.diffStat || 'unavailable'}`
+      : '```\nNo diff available\n```',
     '',
     '## Files Changed',
     (impl.files || []).join(', '),
     '',
     '## Instructions',
-    'Review this diff against the spec. Output JSON with: verdict ("auto-deploy" or "needs-approval"), test_pass (boolean), eval_regression (boolean), issues (array of strings), summary (string).',
+    'Review this diff against the spec. Read the full diff file above before forming your verdict.',
+    'Output JSON with: verdict ("auto-deploy" or "needs-approval"), test_pass (boolean), eval_regression (boolean), issues (array of strings), summary (string).',
   ].join('\n');
 
   const output = await runClaudeCode(prompt, PHASE_TIMEOUT.review);
@@ -411,29 +647,74 @@ async function phaseReview(session) {
 
 // --- Phase 5: Deploy or Queue ---
 
+// Core files that must never be touched by an auto-deploy, regardless of reviewer verdict.
+const BANNED_CORE_FILES = new Set([
+  'src/message-handler.js', 'src/router.js', 'src/claude.js', 'src/memory.js',
+  'src/config.js', 'src/constants.js', 'src/output-filter.js', 'src/group-registry.js',
+  'src/prompt.js', 'src/index.js', 'src/scheduler.js', 'src/cortex.js',
+  'src/evo-llm.js', 'src/evo-client.js', 'src/task-planner.js',
+]);
+
+// Paths where changes are inherently sandboxed — can auto-deploy even if the
+// reviewer conservatively said "needs-approval", as long as tests pass.
+const SAFE_AUTO_DEPLOY_PATTERNS = [
+  /^src\/skills\//,           // new or modified skills
+  /^src\/skills$/,
+  /^tests?\/skills?\//,       // skill tests
+  /^data\//,                  // prompts, knowledge, eval labels
+];
+
+function classifyChangedFiles(files) {
+  const bannedFiles = files.filter(f => BANNED_CORE_FILES.has(f));
+  const allSafe = files.length > 0 && files.every(f =>
+    SAFE_AUTO_DEPLOY_PATTERNS.some(re => re.test(f))
+  );
+  return { bannedFiles, allSafe };
+}
+
 async function phaseDeploy(session, sendFn) {
   const review = session.phases.review.verdict;
   const impl = session.phases.implement;
   const spec = session.phases.architect?.spec;
   const branch = impl.branch;
+  const changedFiles = impl.files || [];
 
-  const canAutoDeploy =
+  const { bannedFiles, allSafe } = classifyChangedFiles(changedFiles);
+
+  // Hard rule: banned core files → always queue for approval, no exceptions
+  if (bannedFiles.length > 0) {
+    logger.warn({ bannedFiles }, 'forge: banned core files touched — forcing needs-approval');
+    return queueForApproval(session, sendFn, branch, review, spec,
+      `Banned files modified: ${bannedFiles.join(', ')}`);
+  }
+
+  // File-based auto-deploy: if ALL files are in safe paths and tests pass,
+  // override a conservative "needs-approval" reviewer verdict.
+  const testsPassed = review.test_pass === true;
+  const noRegression = review.eval_regression !== true;
+
+  const canAutoDeployByFiles = allSafe && testsPassed && noRegression;
+
+  // Reviewer + spec gate: reviewer said auto-deploy AND spec is flagged auto_deployable
+  const canAutoDeployByReview =
     review.verdict === 'auto-deploy' &&
-    review.test_pass === true &&
-    review.eval_regression !== true &&
+    testsPassed &&
+    noRegression &&
     spec?.auto_deployable === true;
 
+  const canAutoDeploy = canAutoDeployByFiles || canAutoDeployByReview;
+
   if (canAutoDeploy) {
+    const reason = canAutoDeployByFiles && !canAutoDeployByReview
+      ? 'file-safe-override'
+      : 'reviewer-approved';
+    logger.info({ reason, branch, files: changedFiles }, 'forge: auto-deploying');
+
     try {
-      // Merge on EVO
       await localExec(`cd ${REPO_DIR} && git checkout main && git merge --no-ff ${branch}`, 30000);
-
-      // Skills are local — just reload the registry
       await loadSkills();
-
-      return { action: 'auto-deployed', branch, files: impl.files };
+      return { action: 'auto-deployed', reason, branch, files: changedFiles };
     } catch (deployErr) {
-      // Revert on failure
       logger.error({ err: deployErr.message }, 'forge: auto-deploy failed, reverting');
       try {
         await localExec(`cd ${REPO_DIR} && git revert --no-commit HEAD && git commit -m "revert: forge auto-deploy failed"`, 30000);
@@ -442,7 +723,10 @@ async function phaseDeploy(session, sendFn) {
     }
   }
 
-  // Queue for approval
+  return queueForApproval(session, sendFn, branch, review, spec);
+}
+
+function queueForApproval(session, sendFn, branch, review, spec, forcedReason = null) {
   const task = createTask(
     `Forge: ${spec?.title || 'overnight improvement'} — ${review.summary || 'see spec'}`,
     'forge',
@@ -451,16 +735,18 @@ async function phaseDeploy(session, sendFn) {
   session.tasks.push(task?.id);
 
   if (sendFn && config.ownerJid) {
+    const reason = forcedReason || `Reviewer: ${review.verdict}`;
     const msg = [
-      '*FORGE — Overnight Result*',
+      '*FORGE — Needs Approval*',
       `Branch: ${branch}`,
-      `Files: ${(impl.files || []).join(', ')}`,
-      `Verdict: ${review.verdict}`,
+      `Files: ${(session.phases.implement?.files || []).join(', ')}`,
+      `Reason: ${reason}`,
       review.summary || '',
+      review.issues?.length ? `Issues: ${review.issues.join('; ')}` : '',
       '',
-      `Task ${task?.id} queued for approval.`,
-    ].join('\n');
-    try { await sendFn(msg); } catch { /* non-fatal */ }
+      `Task ${task?.id} queued. Reply "approve forge" to deploy.`,
+    ].filter(Boolean).join('\n');
+    sendFn(msg).catch(() => {});
   }
 
   return { action: 'queued', taskId: task?.id, branch };
@@ -518,6 +804,8 @@ async function phaseReport(session, sendFn) {
     spec: session.phases.architect?.spec?.title || null,
     branch: session.phases.implement?.branch || null,
     deployAction: session.phases.deploy?.action || null,
+    nightlyTouchAction: session.phases.nightlyTouch?.action || null,
+    nightlyTouchFiles: session.phases.nightlyTouch?.files || [],
     metaAction: session.phases.meta?.result?.action || null,
   };
 
@@ -538,6 +826,9 @@ async function phaseReport(session, sendFn) {
       `Duration: ${session.startedAt} to ${report.finishedAt}`,
       '',
       `Phases:\n${phaseLines}`,
+      report.nightlyTouchFiles?.length
+        ? `Nightly touch: ${report.nightlyTouchFiles.join(', ')}`
+        : '',
       report.spec ? `Spec: ${report.spec}` : '',
       report.branch ? `Branch: ${report.branch}` : '',
       report.deployAction ? `Deploy: ${report.deployAction}` : '',

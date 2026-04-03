@@ -49,7 +49,7 @@ SOURCE_WEIGHTS = {
 # Only volatile categories decay. Stable facts (identity, preference, legal, etc.) never decay.
 # Half-life in days: confidence halves every N days for these categories.
 VOLATILE_CATEGORIES = {
-    "system": 30,
+    "system": 7,       # matches DEFAULT_TTL["system"]=7; reseeded nightly so 30d half-life was unreachable
     "schedule": 7,
     "travel": 14,
     "accommodation": 60,
@@ -217,6 +217,7 @@ class MemoryStore:
         Looks for memories in the 0.70-0.91 cosine similarity range (same topic,
         different content). Below dedup threshold but clearly related.
         Protected categories and older-than-existing facts are exempt.
+        Only considers active memories — archived/superseded records are skipped.
         """
         if (not embedding or category in PROTECTED_CATEGORIES
                 or self._embeddings_matrix is None or len(self.memories) == 0):
@@ -230,8 +231,14 @@ class MemoryStore:
         qvec = qvec / qnorm
         similarities = self._embeddings_matrix @ qvec
 
-        best_idx = int(np.argmax(similarities))
-        best_sim = float(similarities[best_idx])
+        # Mask inactive memories so argmax only finds active candidates
+        active_mask = np.array(
+            [m.get("status", "active") == "active" for m in self.memories],
+            dtype=bool,
+        )
+        masked = np.where(active_mask, similarities, -1.0)
+        best_idx = int(np.argmax(masked))
+        best_sim = float(masked[best_idx])
 
         if SUPERSESSION_THRESHOLD_LOW <= best_sim < SUPERSESSION_THRESHOLD_HIGH:
             candidate = self.memories[best_idx]
@@ -252,7 +259,9 @@ class MemoryStore:
     def store(self, fact, category, tags, embedding=None, confidence=0.9,
               source="unknown", supersedes=None, expires=None):
         """Store a new memory. Returns the record, or a duplicate marker if skipped."""
-        # Pre-store dedup: skip if a near-identical memory already exists
+        # Pre-store dedup: skip if a near-identical ACTIVE memory already exists.
+        # Archived/superseded memories are excluded from the match — a new fact should
+        # be stored even if it closely matches an old archived one.
         safe_category = category if category in config.CATEGORIES else "general"
         if (embedding and safe_category not in PROTECTED_CATEGORIES
                 and self._embeddings_matrix is not None and len(self.memories) > 0):
@@ -261,8 +270,14 @@ class MemoryStore:
             if qnorm > 0:
                 qvec = qvec / qnorm
                 similarities = self._embeddings_matrix @ qvec
-                best_idx = int(np.argmax(similarities))
-                best_sim = float(similarities[best_idx])
+                # Mask inactive memories so dedup only matches against active records
+                active_mask = np.array(
+                    [m.get("status", "active") == "active" for m in self.memories],
+                    dtype=bool,
+                )
+                masked = np.where(active_mask, similarities, -1.0)
+                best_idx = int(np.argmax(masked))
+                best_sim = float(masked[best_idx])
                 if best_sim >= DEDUP_THRESHOLD:
                     existing = self.memories[best_idx]
                     return {
@@ -295,6 +310,7 @@ class MemoryStore:
             "source": source,
             "sourceDate": datetime.utcnow().strftime("%Y-%m-%d"),
             "confidence": min(1.0, max(0.0, confidence)),
+            "status": "active",
             "supersedes": supersedes,
             "expires": expires,
             "lastAccessed": now,
@@ -303,10 +319,13 @@ class MemoryStore:
         }
 
         if supersedes:
+            now_iso = datetime.utcnow().isoformat() + "Z"
             for m in self.memories:
                 if m["id"] == supersedes:
-                    self._archive_memory(m, reason="superseded", superseded_by=mem_id)
-                    self.memories.remove(m)
+                    m["status"] = "superseded"
+                    m["archivedAt"] = now_iso
+                    m["archiveReason"] = "superseded"
+                    m["supersededBy"] = mem_id
                     break
 
         self.memories.append(record)
@@ -355,15 +374,18 @@ class MemoryStore:
 
         return kept
 
-    def search(self, query_embedding=None, query_text="", category=None, limit=8):
+    def search(self, query_embedding=None, query_text="", category=None, limit=8,
+               search_archive=False):
         """Hybrid search: BM25 + vector via RRF, boosted by recency, confidence, and source.
 
         Pipeline:
-        1. Filter eligible memories (not expired, matching category)
+        1. Filter eligible memories (not archived/superseded, not expired, matching category)
         2. Score each via BM25 (lexical) and cosine similarity (vector)
         3. Rank separately, fuse via Reciprocal Rank Fusion (RRF)
         4. Apply recency, effective confidence, and source weight boosts
         5. Contradiction suppression on top results
+
+        Pass search_archive=True to include archived/superseded memories (admin queries only).
         """
         now = datetime.utcnow()
 
@@ -383,6 +405,10 @@ class MemoryStore:
         eligible = []  # (index, memory, bm25_score, vector_score, days_old)
 
         for i, m in enumerate(self.memories):
+            # Skip non-active memories unless explicitly searching the archive
+            if not search_archive and m.get("status", "active") != "active":
+                continue
+
             if m.get("expires"):
                 try:
                     exp = datetime.strptime(m["expires"], "%Y-%m-%d")
@@ -476,8 +502,8 @@ class MemoryStore:
         return [{"score": s, "memory": m} for s, m in top]
 
     def update(self, memory_id, fact=None, category=None, tags=None,
-               confidence=None, embedding=None):
-        """Update an existing memory."""
+               confidence=None, embedding=None, status=None):
+        """Update an existing memory. Can update active or archived memories."""
         for m in self.memories:
             if m["id"] == memory_id:
                 if fact is not None:
@@ -490,97 +516,255 @@ class MemoryStore:
                     m["confidence"] = min(1.0, max(0.0, confidence))
                 if embedding is not None:
                     m["embedding"] = embedding
+                if status is not None and status in ("active", "archived", "superseded"):
+                    m["status"] = status
+                    if status != "active":
+                        m["archivedAt"] = datetime.utcnow().isoformat() + "Z"
+                        m["archiveReason"] = m.get("archiveReason", "manual")
                 self._save()
                 self._build_index()
                 return m
         return None
 
+    def archive_memory(self, memory_id):
+        """Explicitly soft-archive a memory by ID. Returns True if found, False otherwise."""
+        return self.delete(memory_id)  # delete() is already a soft-archive
+
+    def consolidate_cluster(self, merged_fact, merged_tags, merged_confidence,
+                            source_ids, embedding=None):
+        """Store a merged/consolidated fact and supersede the source memories.
+
+        Called by the dream mode consolidation phase after LLM rewrites a cluster.
+        Source memories are set to status='superseded', not hard-deleted.
+        Returns the new consolidated memory record.
+        """
+        now_iso = datetime.utcnow().isoformat() + "Z"
+
+        # Supersede all source memories
+        for m in self.memories:
+            if m["id"] in source_ids and m.get("status", "active") == "active":
+                m["status"] = "superseded"
+                m["archivedAt"] = now_iso
+                m["archiveReason"] = "consolidated"
+
+        # Store the merged fact
+        mem_id = f"mem_{uuid.uuid4().hex[:8]}"
+        record = {
+            "id": mem_id,
+            "fact": merged_fact[:300],
+            "category": self._get_dominant_category(source_ids),
+            "tags": [t.lower().strip() for t in merged_tags],
+            "source": "consolidation",
+            "sourceDate": datetime.utcnow().strftime("%Y-%m-%d"),
+            "confidence": min(1.0, merged_confidence),
+            "status": "active",
+            "supersedes": source_ids[0] if source_ids else None,
+            "expires": None,
+            "lastAccessed": now_iso,
+            "accessCount": 0,
+            "embedding": embedding or [],
+        }
+        self.memories.append(record)
+        self._save()
+        self._build_index()
+        return record
+
+    def _get_dominant_category(self, source_ids):
+        """Return the most common category among source memories."""
+        from collections import Counter
+        cats = []
+        for m in self.memories:
+            if m["id"] in source_ids:
+                cats.append(m.get("category", "general"))
+        if not cats:
+            return "general"
+        return Counter(cats).most_common(1)[0][0]
+
+    def get_consolidation_candidates(self, min_sim=0.55, max_sim=0.70, max_clusters=20):
+        """Find clusters of related-but-distinct active memories for consolidation.
+
+        Returns clusters as lists of memory dicts. Each cluster is a candidate for
+        LLM rewriting into a single consolidated fact.
+
+        Similarity window: min_sim to max_sim
+        - Below 0.55: unrelated (no value in merging)
+        - 0.55–0.70: related, worth consolidating
+        - 0.70–0.91: auto-supersession range (handled elsewhere)
+        - 0.92+: near-duplicate (handled by dedup)
+
+        Protected categories (identity, person, legal) are excluded.
+        """
+        PROTECTED = {"identity", "person", "legal", "preference"}
+
+        if self._embeddings_matrix is None or len(self.memories) < 2:
+            return []
+
+        active_indices = [
+            i for i, m in enumerate(self.memories)
+            if m.get("status", "active") == "active"
+            and m.get("category", "general") not in PROTECTED
+        ]
+        if len(active_indices) < 2:
+            return []
+
+        # Build similarity matrix for active non-protected memories
+        mat = self._embeddings_matrix[active_indices]
+        sim_matrix = mat @ mat.T
+
+        visited = set()
+        clusters = []
+
+        for i_pos, i in enumerate(active_indices):
+            if i in visited:
+                continue
+            cluster = [self.memories[i]]
+            visited.add(i)
+
+            for j_pos, j in enumerate(active_indices):
+                if j in visited or j == i:
+                    continue
+                sim = float(sim_matrix[i_pos, j_pos])
+                if min_sim <= sim <= max_sim:
+                    cluster.append(self.memories[j])
+                    visited.add(j)
+
+            if len(cluster) >= 2:
+                clusters.append(cluster)
+                if len(clusters) >= max_clusters:
+                    break
+
+        return clusters
+
     def delete(self, memory_id):
-        """Delete a memory (archive it)."""
+        """Soft-archive a memory (sets status='archived'). Nothing is ever hard-deleted."""
+        now = datetime.utcnow().isoformat() + "Z"
         for m in self.memories:
             if m["id"] == memory_id:
-                self._archive_memory(m, reason="deleted")
-                self.memories.remove(m)
+                m["status"] = "archived"
+                m["archivedAt"] = now
+                m["archiveReason"] = "deleted"
                 self._save()
                 self._build_index()
                 return True
         return False
 
-    def list_all(self, include_embeddings=False):
-        """List all memories, optionally without embeddings (for cache sync)."""
+    def list_all(self, include_embeddings=False, include_archived=False):
+        """List memories, optionally without embeddings (for cache sync).
+
+        By default returns only active memories. Pass include_archived=True for
+        admin queries (dashboard, archive inspection).
+        """
+        mems = self.memories if include_archived else [
+            m for m in self.memories if m.get("status", "active") == "active"
+        ]
         if include_embeddings:
-            return self.memories
-        return [{k: v for k, v in m.items() if k != "embedding"} for m in self.memories]
+            return mems
+        return [{k: v for k, v in m.items() if k != "embedding"} for m in mems]
 
     def stats(self):
-        """Return memory statistics."""
+        """Return memory statistics, split by active vs archived."""
         cats = {}
+        archived_count = 0
+        superseded_count = 0
         for m in self.memories:
+            status = m.get("status", "active")
+            if status == "archived":
+                archived_count += 1
+                continue
+            if status == "superseded":
+                superseded_count += 1
+                continue
             c = m.get("category", "general")
             cats[c] = cats.get(c, 0) + 1
+        active_count = sum(cats.values())
         return {
             "total": len(self.memories),
+            "active": active_count,
+            "archived": archived_count,
+            "superseded": superseded_count,
             "categories": cats,
-            "oldest": min((m["sourceDate"] for m in self.memories), default=None),
-            "newest": max((m["sourceDate"] for m in self.memories), default=None),
+            "oldest": min((m["sourceDate"] for m in self.memories if m.get("status", "active") == "active"), default=None),
+            "newest": max((m["sourceDate"] for m in self.memories if m.get("status", "active") == "active"), default=None),
         }
 
     def deduplicate(self, similarity_threshold=DEDUP_THRESHOLD):
-        """Find and merge duplicate memories based on vector similarity."""
+        """Find and soft-archive duplicate memories based on vector similarity.
+
+        Keeps the higher-confidence copy; marks the other status='superseded'.
+        Superseded memories remain in self.memories but are excluded from active search.
+        """
         if self._embeddings_matrix is None or len(self.memories) < 2:
             return 0
 
-        removed = 0
-        to_remove = set()
+        superseded = 0
+        to_supersede = set()
         n = len(self.memories)
 
         for i in range(n):
-            if i in to_remove:
+            if i in to_supersede:
+                continue
+            # Skip already-inactive memories
+            if self.memories[i].get("status", "active") != "active":
                 continue
             for j in range(i + 1, n):
-                if j in to_remove:
+                if j in to_supersede:
+                    continue
+                if self.memories[j].get("status", "active") != "active":
                     continue
                 sim = float(np.dot(self._embeddings_matrix[i], self._embeddings_matrix[j]))
                 if sim >= similarity_threshold:
                     # Keep the newer or higher-confidence one
                     mi, mj = self.memories[i], self.memories[j]
                     if mi.get("confidence", 0) >= mj.get("confidence", 0):
-                        to_remove.add(j)
+                        to_supersede.add(j)
                     else:
-                        to_remove.add(i)
-                    removed += 1
+                        to_supersede.add(i)
+                    superseded += 1
 
-        if to_remove:
-            for idx in sorted(to_remove, reverse=True):
-                self._archive_memory(self.memories[idx], reason="deduplicated")
-                self.memories.pop(idx)
+        if to_supersede:
+            now = datetime.utcnow().isoformat() + "Z"
+            for idx in to_supersede:
+                self.memories[idx]["status"] = "superseded"
+                self.memories[idx]["archivedAt"] = now
+                self.memories[idx]["archiveReason"] = "deduplicated"
             self._save()
             self._build_index()
 
-        return removed
+        return superseded
 
-    def expire_old(self):
-        """Remove expired memories."""
+    def archive_expired(self):
+        """Soft-archive expired memories — sets status='archived' rather than deleting.
+
+        Archived memories remain in self.memories but are excluded from all active
+        searches. Pass search_archive=True to search() to retrieve them.
+        """
         now = datetime.utcnow()
-        expired = []
+        archived = []
         for m in self.memories:
+            if m.get("status", "active") != "active":
+                continue
             if m.get("expires"):
                 try:
                     exp = datetime.strptime(m["expires"], "%Y-%m-%d")
                     if exp < now:
-                        expired.append(m)
+                        archived.append(m)
                 except ValueError:
                     pass
 
-        for m in expired:
-            self._archive_memory(m, reason="expired")
-            self.memories.remove(m)
+        for m in archived:
+            m["status"] = "archived"
+            m["archivedAt"] = now.isoformat() + "Z"
+            m["archiveReason"] = "expired"
 
-        if expired:
+        if archived:
             self._save()
             self._build_index()
 
-        return len(expired)
+        return len(archived)
+
+    def expire_old(self):
+        """Deprecated alias for archive_expired(). Kept for backwards compatibility."""
+        return self.archive_expired()
 
     def _archive_memory(self, memory, reason="unknown", superseded_by=None):
         """Move a memory to the archive."""

@@ -30,14 +30,14 @@ MAX_CONTEXT_TOKENS = 4000                                                    # M
 LLM_TIMEOUT = 180                                                           # Seconds to wait for LLM diary generation
 MEMORY_STORE_TIMEOUT = 30                                                    # Seconds for memory store operations
 MEMORY_SEARCH_TIMEOUT = 15                                                   # Seconds for memory search/dedup checks
-PRIOR_DREAM_DAYS = 3                                                         # How many prior days to chain
-MAX_LOG_CHARS = 8000                                                         # Max chars of conversation log in prompt
-STALE_MEMORY_AGE_DAYS = 30                                                   # Prune machine-extracted memories older than this
-STALE_MEMORY_MIN_ACCESS = 5                                                  # Don't prune if accessed this many times
-MIN_MESSAGES_FOR_DIARY = 10                                                  # Skip full diary for groups with fewer messages
-TOKENS_PER_MESSAGE = 15                                                      # Dynamic max_tokens scaling factor
-MIN_DIARY_TOKENS = 300                                                       # Floor for dynamic token budget
-MAX_DIARY_TOKENS = 1200                                                      # Ceiling for dynamic token budget
+PRIOR_DREAM_DAYS = 7                                                         # How many prior days to chain
+MAX_LOG_CHARS = 40000                                                        # Max chars of conversation log in prompt
+STALE_MEMORY_AGE_DAYS = 30                                                   # Reduce confidence of old machine-extracted memories
+STALE_MEMORY_MIN_ACCESS = 5                                                  # Don't touch if accessed this many times
+MIN_MESSAGES_FOR_DIARY = 5                                                   # Skip full diary for groups with fewer messages
+TOKENS_PER_MESSAGE = 30                                                      # Dynamic max_tokens scaling factor
+MIN_DIARY_TOKENS = 800                                                       # Floor for dynamic token budget
+MAX_DIARY_TOKENS = 4000                                                      # Ceiling for dynamic token budget
 
 DREAM_PROMPT = """You are Clawd. You are writing tonight's diary — first person, always. Not "Clawd did X" but "I did X."
 
@@ -181,6 +181,25 @@ def load_log_file(filepath):
     return entries
 
 
+def smart_sample_log(text, max_chars):
+    """Sample a conversation log preserving temporal structure.
+
+    Takes head (25%), midday (25%), and tail (50%) so morning context is
+    not lost when the log exceeds max_chars. Inserts markers at cut points.
+    """
+    if len(text) <= max_chars:
+        return text
+    head_size = max_chars // 4
+    mid_size = max_chars // 4
+    tail_size = max_chars // 2
+
+    head = text[:head_size]
+    mid_start = len(text) // 2 - mid_size // 2
+    middle = text[mid_start:mid_start + mid_size]
+    tail = text[-tail_size:]
+    return head + "\n[...]\n" + middle + "\n[...]\n" + tail
+
+
 def format_log_for_prompt(entries, max_chars=MAX_LOG_CHARS):
     """Format log entries into readable text for the prompt."""
     lines = []
@@ -196,7 +215,7 @@ def format_log_for_prompt(entries, max_chars=MAX_LOG_CHARS):
 
     result = '\n'.join(lines)
     if len(result) > max_chars:
-        result = result[-max_chars:]
+        result = smart_sample_log(result, max_chars)
     return result
 
 
@@ -234,8 +253,8 @@ def format_document_log(doc_entries):
         if raw_path and os.path.exists(raw_path):
             try:
                 with open(raw_path, 'r', encoding='utf-8') as f:
-                    raw = f.read()[:8000]
-                lines.append(f'Content (first 8K chars):\n{raw}')
+                    raw = f.read()[:20000]
+                lines.append(f'Content (first 20K chars):\n{raw}')
             except Exception as e:
                 print(f'  Warning: failed to read raw text {raw_path}: {e}', file=sys.stderr)
     return '\n'.join(lines) + '\n'
@@ -915,9 +934,13 @@ Output one line per memory. Be conservative — KEEP unless clearly wrong or sta
                 except Exception:
                     pass
             elif line.startswith('DUPLICATE'):
-                # Delete duplicates
+                # Soft-archive duplicates rather than hard-delete
                 try:
-                    requests.delete(f'{MEMORY_SERVICE_URL}/memory/{mem_id}', timeout=10)
+                    requests.put(
+                        f'{MEMORY_SERVICE_URL}/memory/{mem_id}',
+                        json={'status': 'archived'},
+                        timeout=10,
+                    )
                     duped += 1
                 except Exception:
                     pass
@@ -928,25 +951,125 @@ Output one line per memory. Be conservative — KEEP unless clearly wrong or sta
         print(f'  WARNING: Memory curation failed: {e}', file=sys.stderr)
 
 
-def prune_stale_memories(date_str, max_age_days=STALE_MEMORY_AGE_DAYS):
-    """Phase 5: Prune stale memories — run /maintain plus date-based staleness check."""
-    target_date = datetime.strptime(date_str, '%Y-%m-%d')
-    pruned = 0
+def consolidate_memories(date_str):
+    """Phase 4.9: KAIROS-style consolidation — merge related-but-distinct memories.
 
-    # 1. Run built-in maintenance (expire + dedup)
+    Fetches clusters of active memories in the 0.55–0.70 cosine similarity range
+    (related but not duplicates), rewrites each cluster with the LLM into a single
+    concise fact, and archives the originals. This compresses the memory store
+    without losing any history — originals remain with status='superseded'.
+
+    Protected categories (identity, person, legal, preference) are never touched.
+    """
+    print('\n  Phase 4.9: Memory consolidation (KAIROS-style)...')
+
+    try:
+        # Fetch consolidation candidates from memory service
+        resp = requests.get(
+            f'{MEMORY_SERVICE_URL}/memory/consolidation-candidates',
+            params={'min_sim': 0.55, 'max_sim': 0.70, 'max_clusters': 15},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        clusters = data.get('clusters', [])
+
+        if not clusters:
+            print('  No consolidation candidates found')
+            return 0
+
+        print(f'  Found {len(clusters)} candidate cluster(s) across {sum(c["count"] for c in clusters)} memories')
+
+        merged = 0
+        for cluster in clusters:
+            mems = cluster['memories']
+            if len(mems) < 2:
+                continue
+
+            # Format cluster for LLM rewrite
+            facts_text = '\n'.join(f'- [{m["category"]}] {m["fact"]}' for m in mems)
+            prompt = (
+                f'You have {len(mems)} related facts about the same topic:\n\n'
+                f'{facts_text}\n\n'
+                f'Rewrite these as ONE concise fact that captures all the information. '
+                f'Max 150 characters. Output only the merged fact, no explanation. /no_think'
+            )
+
+            try:
+                resp_llm = requests.post(
+                    f'{EVO_LLM_URL}/v1/chat/completions',
+                    json={
+                        'messages': [
+                            {'role': 'system', 'content': 'You merge related facts into one concise statement.'},
+                            {'role': 'user', 'content': prompt},
+                        ],
+                        'temperature': 0.1,
+                        'max_tokens': 200,
+                    },
+                    timeout=30,
+                )
+                resp_llm.raise_for_status()
+                merged_fact = resp_llm.json()['choices'][0]['message']['content'].strip()
+                # Strip common LLM preamble
+                for prefix in ('Merged fact: ', 'Fact: ', '- '):
+                    if merged_fact.startswith(prefix):
+                        merged_fact = merged_fact[len(prefix):]
+
+                if not merged_fact or len(merged_fact) < 10:
+                    continue
+
+                # Use highest confidence from cluster
+                max_conf = max(m.get('confidence', 0.5) for m in mems)
+                merged_tags = list({t for m in mems for t in m.get('tags', [])})
+                source_ids = [m['id'] for m in mems]
+
+                resp_store = requests.post(
+                    f'{MEMORY_SERVICE_URL}/memory/consolidate',
+                    json={
+                        'merged_fact': merged_fact,
+                        'merged_tags': merged_tags,
+                        'merged_confidence': max_conf,
+                        'source_ids': source_ids,
+                    },
+                    timeout=15,
+                )
+                resp_store.raise_for_status()
+                result = resp_store.json()
+                merged += 1
+                print(f'  Merged {result["superseded_count"]} → 1: {merged_fact[:80]}...')
+
+            except Exception as e:
+                print(f'  Warning: cluster merge failed: {e}', file=sys.stderr)
+                continue
+
+        print(f'  Consolidation: {merged} merge(s) completed')
+        return merged
+
+    except Exception as e:
+        print(f'  WARNING: Consolidation phase failed: {e}', file=sys.stderr)
+        return 0
+    """Phase 5: Soft-demote stale memories — run /maintain plus date-based staleness check.
+
+    Nothing is hard-deleted. Stale machine-extracted memories have their confidence
+    reduced to 0.1 so they decay rapidly at search time while remaining recoverable.
+    """
+    target_date = datetime.strptime(date_str, '%Y-%m-%d')
+    processed = 0
+
+    # 1. Run built-in maintenance (archive_expired + dedup)
     try:
         resp = requests.post(f'{MEMORY_SERVICE_URL}/maintain', timeout=60)
         resp.raise_for_status()
         result = resp.json()
-        expired = result.get('expired', 0)
+        archived = result.get('archived', result.get('expired', 0))
         deduped = result.get('deduplicated', 0)
-        print(f'  Maintenance: expired {expired}, deduplicated {deduped}')
-        pruned += expired + deduped
+        print(f'  Maintenance: archived {archived}, deduplicated {deduped}')
+        processed += archived + deduped
     except Exception as e:
         print(f'  WARNING: /maintain failed: {e}', file=sys.stderr)
 
     # 2. Date-based staleness: find diary_extraction memories with old dates
-    #    that aren't in protected categories
+    #    that aren't in protected categories — reduce confidence rather than delete
     protected = {'identity', 'person', 'legal', 'preference'}
     try:
         resp = requests.get(
@@ -965,7 +1088,7 @@ def prune_stale_memories(date_str, max_age_days=STALE_MEMORY_AGE_DAYS):
             tags = mem.get('tags', [])
             source = mem.get('source', '')
 
-            # Only prune machine-extracted memories, not manual ones
+            # Only touch machine-extracted memories, not manual ones
             if source not in ('diary_extraction', 'diary_insight', 'dream_mode'):
                 continue
 
@@ -975,20 +1098,23 @@ def prune_stale_memories(date_str, max_age_days=STALE_MEMORY_AGE_DAYS):
                         tag_date = datetime.strptime(tag, '%Y-%m-%d')
                         age_days = (target_date - tag_date).days
                         if age_days > max_age_days:
-                            # Check access frequency — don't prune frequently accessed memories
+                            # Respect access frequency — don't touch frequently used memories
                             if mem.get('accessCount', 0) >= STALE_MEMORY_MIN_ACCESS:
                                 continue
-                            # Delete
-                            mem_id = mem.get('id')
-                            if mem_id:
-                                try:
-                                    requests.delete(
-                                        f'{MEMORY_SERVICE_URL}/memory/{mem_id}',
-                                        timeout=10,
-                                    )
-                                    pruned += 1
-                                except Exception as e:
-                                    print(f'    Warning: failed to prune memory {mem_id}: {e}', file=sys.stderr)
+                            # Soft-demote: reduce confidence to accelerate decay, never delete
+                            current_conf = mem.get('confidence', 0.5)
+                            if current_conf > 0.1:
+                                mem_id = mem.get('id')
+                                if mem_id:
+                                    try:
+                                        requests.put(
+                                            f'{MEMORY_SERVICE_URL}/memory/{mem_id}',
+                                            json={'confidence': 0.1},
+                                            timeout=10,
+                                        )
+                                        processed += 1
+                                    except Exception as e:
+                                        print(f'    Warning: failed to demote memory {mem_id}: {e}', file=sys.stderr)
                     except ValueError:
                         continue
                     break  # Only check first date tag
@@ -996,9 +1122,9 @@ def prune_stale_memories(date_str, max_age_days=STALE_MEMORY_AGE_DAYS):
     except Exception as e:
         print(f'  WARNING: Staleness check failed: {e}', file=sys.stderr)
 
-    if pruned:
-        print(f'  Pruned {pruned} stale memories total')
-    return pruned
+    if processed:
+        print(f'  Processed {processed} stale memories total (archived or confidence-reduced)')
+    return processed
 
 
 def wait_for_llm(url=EVO_LLM_URL, max_wait=120, interval=5):
@@ -1134,7 +1260,7 @@ def main():
             print(f'  Oriented: {len(existing)} existing memories loaded')
 
         # Chain prior diary entries for continuity
-        prior_dreams = fetch_prior_dreams(group_id, date_str, days_back=3)
+        prior_dreams = fetch_prior_dreams(group_id, date_str, days_back=PRIOR_DREAM_DAYS)
         prior_dreams_text = format_prior_dreams(prior_dreams)
         yesterday_diary = get_yesterday_diary(prior_dreams)
         if prior_dreams:
@@ -1219,7 +1345,10 @@ def main():
     # Phase 4.5: Memory curation — review realtime-stored memories against full context
     curate_realtime_memories(date_str, report_groups)
 
-    # Phase 5: Prune stale memories + run maintenance
+    # Phase 4.9: KAIROS-style consolidation — merge related clusters, archive originals
+    consolidate_memories(date_str)
+
+    # Phase 5: Soft-demote stale memories + run maintenance
     prune_stale_memories(date_str)
 
     # Write report JSON file for overnight-report.js to fetch
