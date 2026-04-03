@@ -1,0 +1,25 @@
+[Unit]
+Description=Clawd Mission Control — Chromium kiosk on touchscreen
+After=network.target clawdbot.service clawd-console.service
+Wants=clawd-console.service
+
+[Service]
+Type=simple
+User=pi
+Environment=DISPLAY=:0
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/bin/chromium-browser \
+  --kiosk \
+  --noerrdialogs \
+  --disable-infobars \
+  --disable-session-crashed-bubble \
+  --disable-features=TranslateUI \
+  --user-data-dir=/tmp/chromium-mission-control \
+  --window-position=0,0 \
+  --window-size=1024,600 \
+  "http://localhost:3100/mission-control"
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,25 @@
+[Unit]
+Description=Clawd Calendar — Chromium kiosk on wall monitor (HDMI-2)
+After=network.target clawdbot.service clawd-console.service
+Wants=clawd-console.service
+
+[Service]
+Type=simple
+User=pi
+Environment=DISPLAY=:0
+ExecStartPre=/bin/sleep 12
+ExecStart=/usr/bin/chromium-browser \
+  --kiosk \
+  --noerrdialogs \
+  --disable-infobars \
+  --disable-session-crashed-bubble \
+  --disable-features=TranslateUI \
+  --user-data-dir=/tmp/chromium-calendar \
+  --window-position=1024,0 \
+  --window-size=1920,1080 \
+  "http://localhost:3100/calendar"
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical.target
