@@ -7,134 +7,156 @@ import logger from './logger.js';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { TIMEOUTS } from './constants.js';
 
-// --- Circuit breakers for EVO services ---
+// --- EvoClient class (owns circuit breakers and HTTP state) ---
 
-export const llamaBreaker = new CircuitBreaker('evo-llama', { threshold: 3, resetTimeout: 60000 });
-export const memoryBreaker = new CircuitBreaker('evo-memory', { threshold: 3, resetTimeout: 60000 });
-export const classifierBreaker = new CircuitBreaker('evo-classifier', { threshold: 3, resetTimeout: 30000 });
-export const plannerBreaker = new CircuitBreaker('evo-planner', { threshold: 3, resetTimeout: 60000 });
+class EvoClient {
+  /** @param {{ evoLlmUrl: string, evoClassifierUrl: string, evoPlannerUrl: string, evoMemoryUrl: string }} urls */
+  constructor(urls) {
+    this.urls = urls;
+    this.llamaBreaker = new CircuitBreaker('evo-llama', { threshold: 3, resetTimeout: 60000 });
+    this.memoryBreaker = new CircuitBreaker('evo-memory', { threshold: 3, resetTimeout: 60000 });
+    this.classifierBreaker = new CircuitBreaker('evo-classifier', { threshold: 3, resetTimeout: 30000 });
+    this.plannerBreaker = new CircuitBreaker('evo-planner', { threshold: 3, resetTimeout: 60000 });
+  }
 
-// --- Shared fetch with timeout and abort ---
+  /**
+   * Fetch from an EVO service with timeout, AbortController, and structured error logging.
+   * @param {string} url - Full URL to fetch
+   * @param {object} [options] - fetch options plus optional `timeout` (ms, default 10000)
+   * @returns {Promise<Response>}
+   */
+  async fetch(url, options = {}) {
+    const timeout = options.timeout || TIMEOUTS.MEMORY_DEFAULT;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const { timeout: _t, ...fetchOpts } = options;
 
-/**
- * Fetch from an EVO service with configurable timeout, AbortController, and structured error logging.
- *
- * @param {string} url - Full URL to fetch
- * @param {object} options - fetch options plus optional `timeout` (ms, default 10000)
- * @returns {Promise<Response>} - The raw fetch Response object
- * @throws {Error} on timeout, network error, or non-ok HTTP status
- */
-export async function evoFetch(url, options = {}) {
-  const timeout = options.timeout || TIMEOUTS.MEMORY_DEFAULT;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(url, {
+        ...fetchOpts,
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', ...fetchOpts.headers },
+      });
 
-  // Strip custom options before passing to fetch
-  const { timeout: _t, ...fetchOpts } = options;
+      if (!resp.ok) {
+        const errBody = await resp.text().catch(() => 'no body');
+        const err = new Error(`EVO HTTP ${resp.status}: ${errBody.slice(0, 500)}`);
+        err.status = resp.status;
+        throw err;
+      }
 
-  try {
-    const resp = await fetch(url, {
-      ...fetchOpts,
-      signal: controller.signal,
-      headers: { 'Content-Type': 'application/json', ...fetchOpts.headers },
-    });
-
-    if (!resp.ok) {
-      const errBody = await resp.text().catch(() => 'no body');
-      const err = new Error(`EVO HTTP ${resp.status}: ${errBody.slice(0, 500)}`);
-      err.status = resp.status;
+      return resp;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        const abortErr = new Error(`EVO request timed out after ${timeout}ms: ${url}`);
+        abortErr.name = 'AbortError';
+        abortErr.code = 'TIMEOUT';
+        logger.warn({ url, timeout }, 'evo request timed out');
+        throw abortErr;
+      }
       throw err;
+    } finally {
+      clearTimeout(timeoutId);
     }
+  }
 
-    return resp;
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      const abortErr = new Error(`EVO request timed out after ${timeout}ms: ${url}`);
-      abortErr.name = 'AbortError';
-      abortErr.code = 'TIMEOUT';
-      logger.warn({ url, timeout }, 'evo request timed out');
-      throw abortErr;
+  /**
+   * Fetch that returns parsed JSON.
+   * @param {string} url
+   * @param {object} [options]
+   * @returns {Promise<any>}
+   */
+  async fetchJSON(url, options = {}) {
+    const resp = await this.fetch(url, options);
+    return resp.json();
+  }
+
+  /**
+   * Check if llama-server (main LLM) is healthy.
+   * @returns {Promise<boolean>}
+   */
+  async checkLlamaHealth() {
+    try {
+      const resp = await this.fetch(`${this.urls.evoLlmUrl}/health`, {
+        timeout: TIMEOUTS.EVO_HEALTH_CHECK,
+      });
+      const data = await resp.json();
+      return data.status === 'ok' || data.status === 'no slot available';
+    } catch {
+      // intentional: health check failure is not an error — caller uses boolean
+      return false;
     }
-    throw err;
-  } finally {
-    clearTimeout(timeoutId);
   }
-}
 
-/**
- * Convenience: evoFetch that returns parsed JSON.
- * Used by memory.js and other clients that always expect JSON responses.
- */
-export async function evoFetchJSON(url, options = {}) {
-  const resp = await evoFetch(url, options);
-  return resp.json();
-}
-
-// --- Health checks ---
-
-/**
- * Check if EVO X2's llama-server (port 8080) is healthy.
- * Returns true if healthy, false otherwise.
- */
-export async function checkLlamaHealth() {
-  try {
-    const resp = await evoFetch(`${config.evoLlmUrl}/health`, {
-      timeout: TIMEOUTS.EVO_HEALTH_CHECK,
-    });
-    const data = await resp.json();
-    return data.status === 'ok' || data.status === 'no slot available';
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Check if EVO X2's memory service (port 5100) is healthy.
- * Returns the health data object on success, null on failure.
- */
-export async function checkMemoryHealth() {
-  try {
-    const resp = await evoFetch(`${config.evoMemoryUrl}/health`, {
-      timeout: TIMEOUTS.MEMORY_HEALTH_CHECK,
-    });
-    const data = await resp.json();
-    if (data.status === 'online') {
-      return data;
+  /**
+   * Check if memory service is healthy.
+   * @returns {Promise<object|null>} Health data or null on failure
+   */
+  async checkMemoryHealth() {
+    try {
+      const resp = await this.fetch(`${this.urls.evoMemoryUrl}/health`, {
+        timeout: TIMEOUTS.MEMORY_HEALTH_CHECK,
+      });
+      const data = await resp.json();
+      return data.status === 'online' ? data : null;
+    } catch {
+      // intentional: health check failure is not an error — caller uses null check
+      return null;
     }
-    return null;
-  } catch {
-    return null;
+  }
+
+  /**
+   * Check if classifier (0.6B) is healthy.
+   * @returns {Promise<boolean>}
+   */
+  async checkClassifierHealth() {
+    try {
+      const resp = await this.fetch(`${this.urls.evoClassifierUrl}/health`, {
+        timeout: TIMEOUTS.EVO_HEALTH_CHECK,
+      });
+      const data = await resp.json();
+      return data.status === 'ok' || data.status === 'no slot available';
+    } catch {
+      // intentional: health check failure is not an error — caller uses boolean
+      return false;
+    }
+  }
+
+  /**
+   * Check if 4B planner/classifier is healthy.
+   * @returns {Promise<boolean>}
+   */
+  async checkPlannerHealth() {
+    try {
+      const resp = await this.fetch(`${this.urls.evoPlannerUrl}/health`, {
+        timeout: TIMEOUTS.EVO_HEALTH_CHECK,
+      });
+      const data = await resp.json();
+      return data.status === 'ok' || data.status === 'no slot available';
+    } catch {
+      // intentional: health check failure is not an error — caller uses boolean
+      return false;
+    }
   }
 }
 
-/**
- * Check if EVO X2's classifier (port 8081) is healthy.
- * Returns true if healthy, false otherwise.
- */
-export async function checkClassifierHealth() {
-  try {
-    const resp = await evoFetch(`${config.evoClassifierUrl}/health`, {
-      timeout: TIMEOUTS.EVO_HEALTH_CHECK,
-    });
-    const data = await resp.json();
-    return data.status === 'ok' || data.status === 'no slot available';
-  } catch {
-    return false;
-  }
-}
+// --- Singleton instance ---
+const client = new EvoClient({
+  evoLlmUrl: config.evoLlmUrl,
+  evoClassifierUrl: config.evoClassifierUrl,
+  evoPlannerUrl: config.evoPlannerUrl,
+  evoMemoryUrl: config.evoMemoryUrl,
+});
 
-/**
- * Check if EVO X2's 4B planner/classifier (port 8085) is healthy.
- * Returns true if healthy, false otherwise.
- */
-export async function checkPlannerHealth() {
-  try {
-    const resp = await evoFetch(`${config.evoPlannerUrl}/health`, {
-      timeout: TIMEOUTS.EVO_HEALTH_CHECK,
-    });
-    const data = await resp.json();
-    return data.status === 'ok' || data.status === 'no slot available';
-  } catch {
-    return false;
-  }
-}
+// --- Facade exports (same API as before — zero breaking changes) ---
+export { EvoClient };
+export const llamaBreaker = client.llamaBreaker;
+export const memoryBreaker = client.memoryBreaker;
+export const classifierBreaker = client.classifierBreaker;
+export const plannerBreaker = client.plannerBreaker;
+export const evoFetch = (url, opts) => client.fetch(url, opts);
+export const evoFetchJSON = (url, opts) => client.fetchJSON(url, opts);
+export const checkLlamaHealth = () => client.checkLlamaHealth();
+export const checkMemoryHealth = () => client.checkMemoryHealth();
+export const checkClassifierHealth = () => client.checkClassifierHealth();
+export const checkPlannerHealth = () => client.checkPlannerHealth();
