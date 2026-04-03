@@ -8,6 +8,21 @@
 - **128 GB unified LPDDR5X in UMA configuration.** `free -h` reports only ~32 GB (CPU-visible). GPU has 96 GB VRAM heap (`/sys/class/drm/card1/device/mem_info_vram_total` = 103079215104 bytes). **Do not use `free` or `/proc/meminfo` to judge model capacity** — check VRAM via sysfs or `vulkaninfo`. Total usable: ~96 GB minus ~28 GB loaded = ~68 GB free.
 - **Direct Ethernet link** Pi (10.0.0.1) ↔ EVO (10.0.0.2): 0.4ms latency vs 124ms WiFi.
 
+## Networking Performance (fixed 2026-04-03)
+
+- **WiFi: MediaTek MT7925** (WiFi 7, EHT). Connected to EE Smart Hub on **6 GHz band**, channel 69, 160 MHz width.
+- **Link rate: ~1300 Mbps RX / ~1700 Mbps TX** on 6 GHz.
+- **Actual download: 55 MB/s single-stream, ~300 Mbps aggregate** (gigabit FTTP line).
+- **Model download time: ~18 GB model in ~5-6 minutes** from HuggingFace.
+- **Fixes applied (all persisted):**
+  - TCP buffer max: 64 MB (`/etc/sysctl.d/99-network-tuning.conf`)
+  - WiFi power save OFF (`/etc/NetworkManager/conf.d/default-wifi-powersave-on.conf`)
+  - MT7925 ASPM disabled (`/etc/modprobe.d/mt7925e.conf`)
+  - Regulatory DB updated for UK 6 GHz (5925-6425 MHz @ 320 MHz width)
+  - NetworkManager profile: SAE auth, band `a`, PMF required (prefers 6 GHz)
+- **If 6 GHz drops to 5 GHz after reboot:** `sudo modprobe -r mt7925e && sudo modprobe mt7925e disable_aspm=Y` then reconnect.
+- **Direct SSH from Windows:** `ssh -i ~/.ssh/id_ed25519 james@192.168.1.230` (LAN) or `james@100.90.66.54` (Tailscale). Both work.
+
 ## GPU & Compute
 
 - **ROCm/HIP segfaults on gfx1151** with ROCm 7.1.1. Crash in `libhsa-runtime64.so`. `HSA_OVERRIDE_GFX_VERSION=11.0.0` does NOT fix it. ROCm 7.2 reportedly works with `-mllvm --amdgpu-unroll-threshold-local=600` and `-DGGML_HIP_ROCWMMA_FATTN=ON`.
