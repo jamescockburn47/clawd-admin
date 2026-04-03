@@ -70,3 +70,18 @@ export const COOLDOWNS = Object.freeze({
   CACHE_SYNC_INTERVAL: 30,     // Minutes between cache syncs
   EVO_WARM_INTERVAL: 10,       // Minutes between keep-warm pings
 });
+
+// The Forge — overnight autonomous skill factory
+export const FORGE = Object.freeze({
+  START_HOUR: 22,
+  START_MINUTE: 30,
+  HARD_STOP_HOUR: 5,
+  HARD_STOP_MINUTE: 15,
+  PHASE_TIMEOUT_ANALYSIS: 30 * 60_000,
+  PHASE_TIMEOUT_ARCHITECT: 30 * 60_000,
+  PHASE_TIMEOUT_IMPLEMENT: 2 * 60 * 60_000,
+  PHASE_TIMEOUT_REVIEW: 30 * 60_000,
+  PHASE_TIMEOUT_META: 60 * 60_000,
+  AUTO_DEPLOY_MAX_EXISTING_FILES: 3,
+  AUTO_DEPLOY_MAX_LINES: 80,
+});

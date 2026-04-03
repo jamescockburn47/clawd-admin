@@ -258,6 +258,19 @@ These are agreed decisions. Do not revisit, reverse, or work around them.
 148. **Live Monitor shows ALL messages, not just bot.** `/api/messages` returns merged feed from all chat buffers via `getAllRecentMessages()`. Messages annotated with `chatJid` and `isBot`.
 149. **Memory cards show 6 lines before truncation.** `line-clamp-6` instead of `line-clamp-3`. Expand button says "More"/"Less".
 
+### The Forge — Autonomous Recursive Self-Improvement (2026-04-03)
+150. **The Forge replaces all overnight coding.** overnight-coder.py, evo-evolve, self-improve cycle, weekly-retrospective all replaced by forge-orchestrator.js.
+151. **Skills are the primary output.** New capabilities as `src/skills/` modules, not bug fixes. Skill contract: name, canHandle(), execute(), selfExplanation.
+152. **Skill registry auto-discovers.** `src/skill-registry.js` scans `src/skills/*.js` at startup. No manual registration.
+153. **Skills are post-processing hooks.** Inserted after getClawdResponse(), before filterResponse(). Augment, never replace.
+154. **Opus via Max subscription for all Forge coding.** Free on Max plan. No MiniMax for evolution.
+155. **Staged autonomy.** New skills auto-deploy (additive, sandboxed). Existing file modifications need approval.
+156. **Three-gate validation.** Architect classifies + tests pass + reviewer validates. All three for auto-deploy.
+157. **DGM evolutionary gate.** Changes must be improvements, not just correct.
+158. **Recursive meta-improvement.** Forge improves its own prompts in `data/forge/prompts/`.
+159. **Self-knowledge is live.** Capabilities queried from skill registry, not static JSON.
+160. **Orchestrator is human-only.** `forge-orchestrator.js` cannot be modified by the Forge.
+
 ## Known Gotchas
 
 - **Google Calendar all-day events use exclusive end dates.** Subtract 1 day for display.
