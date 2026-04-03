@@ -18,6 +18,7 @@ import {
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
 import { checkWeeklyRetrospective, getLastRetroDate } from './tasks/weekly-retrospective.js';
 import { checkOvernightEvolution, getLastOvernightEvoDate } from './tasks/overnight-to-evolution.js';
+import { checkForge, getLastForgeDate } from './tasks/forge-orchestrator.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -64,6 +65,7 @@ export function getSystemHealth() {
     traceAnalysis: { enabled: true, lastRun: getLastAnalysisDate() },
     weeklyRetrospective: { enabled: true, lastRun: getLastRetroDate() },
     overnightEvolution: { enabled: true, lastRun: getLastOvernightEvoDate() },
+    forge: { enabled: true, lastRun: getLastForgeDate() },
     backup: { lastRun: getLastBackupDate() },
   };
 }
@@ -96,6 +98,7 @@ async function runScheduler() {
   await runTask('weeklyRetrospective', () => checkWeeklyRetrospective(sendFn, todayStr, hours));
   await runTask('overnightReport', () => checkOvernightReport(sendFn, todayStr, hours, minutes));
   await runTask('overnightEvolution', () => checkOvernightEvolution(sendFn, todayStr, hours));
+  await runTask('forge', () => checkForge(sendFn, todayStr, hours, minutes));
   await runTask('evolutionTasks', () => checkEvolutionTasks(sendFn));
   await runTask('dailyBackup', () => checkDailyBackup(todayStr, hours));
 
