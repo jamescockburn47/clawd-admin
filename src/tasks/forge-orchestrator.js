@@ -173,7 +173,7 @@ async function sshClaudeCode(promptContent, timeoutMs = PHASE_TIMEOUT.implement)
   await sshExec(`cat > /tmp/forge-prompt.md << 'FORGE_EOF'\n${escaped}\nFORGE_EOF`, 30000);
 
   // Run Claude Code CLI
-  const cmd = `cd ${EVO_REPO} && claude -p --model claude-opus-4-6 --allowedTools "Edit,Write,Read,Bash,Glob,Grep" < /tmp/forge-prompt.md`;
+  const cmd = `cd ${EVO_REPO} && ~/.local/bin/claude -p --model claude-opus-4-6 --allowedTools "Edit,Write,Read,Bash,Glob,Grep" < /tmp/forge-prompt.md`;
   const result = await sshExec(cmd, timeoutMs);
   return result.stdout;
 }
