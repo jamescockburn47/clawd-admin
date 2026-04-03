@@ -85,7 +85,24 @@ export function startHttpServer(port, deps) {
       try {
         const h = getSystemHealth();
         try { const ms = await getMemoryStats(); h.memory = { total: ms.total || 0, categories: ms.categories || {} }; } catch { h.memory = { total: 0, categories: {} }; }
-        h.uptime = Math.round(process.uptime()); h.memoryMB = Math.round(process.memoryUsage().heapUsed / 1048576);
+        h.uptime = Math.round(process.uptime());
+        h.nodeHeapMB = Math.round(process.memoryUsage().heapUsed / 1048576);
+        // EVO system resources (bot runs on EVO, not Pi)
+        try {
+          const { execSync } = await import('child_process');
+          const vramBytes = parseInt(execSync('cat /sys/class/drm/card1/device/mem_info_vram_total 2>/dev/null || echo 0').toString().trim());
+          const freeLine = execSync('free -m').toString().split('\n').find(l => l.startsWith('Mem:'));
+          const totalRamMB = freeLine ? parseInt(freeLine.trim().split(/\s+/)[1]) : 0;
+          const usedRamMB = freeLine ? parseInt(freeLine.trim().split(/\s+/)[2]) : 0;
+          h.evoSystem = {
+            vramGB: Math.round(vramBytes / 1073741824),
+            totalRamMB,
+            usedRamMB,
+            cores: parseInt(execSync('nproc').toString().trim()) || 0,
+          };
+        } catch { /* intentional: system info is best-effort */ }
+        // Legacy field kept for backward compat with old dashboard builds
+        h.memoryMB = h.nodeHeapMB;
         return json(res, 200, h);
       } catch (err) { return json(res, 500, { error: err.message }); }
     }
