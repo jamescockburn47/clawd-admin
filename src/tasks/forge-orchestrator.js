@@ -39,10 +39,8 @@ const PHASE_TIMEOUT = {
 
 const HARD_STOP_HOUR = 5;
 const HARD_STOP_MINUTE = 15;
-const SSH_KEY = '/home/pi/.ssh/id_ed25519';
-const EVO_USER = 'james';
-const EVO_HOST = '10.0.0.2';
-const EVO_REPO = '/home/james/clawdbot-claude-code';
+// Bot now runs on EVO — all execution is local
+const REPO_DIR = process.cwd();
 
 let lastForgeDate = null;
 
@@ -153,28 +151,22 @@ async function runPhase(name, fn) {
   }
 }
 
-// --- SSH helper ---
+// --- Local execution helpers (bot runs on EVO now) ---
 
-async function sshExec(command, timeoutMs = 60000) {
-  const args = [
-    '-i', SSH_KEY,
-    '-o', 'ConnectTimeout=10',
-    '-o', 'StrictHostKeyChecking=no',
-    `${EVO_USER}@${EVO_HOST}`,
-    command,
-  ];
-  const { stdout, stderr } = await execAsync('ssh', args, { timeout: timeoutMs });
+async function localExec(command, timeoutMs = 60000) {
+  const { stdout, stderr } = await execAsync('bash', ['-c', command], {
+    timeout: timeoutMs,
+    cwd: REPO_DIR,
+  });
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
-async function sshClaudeCode(promptContent, timeoutMs = PHASE_TIMEOUT.implement) {
-  // Write prompt to EVO via SSH heredoc
-  const escaped = promptContent.replace(/'/g, "'\\''");
-  await sshExec(`cat > /tmp/forge-prompt.md << 'FORGE_EOF'\n${escaped}\nFORGE_EOF`, 30000);
+async function runClaudeCode(promptContent, timeoutMs = PHASE_TIMEOUT.implement) {
+  const { writeFileSync: wfs } = await import('fs');
+  wfs('/tmp/forge-prompt.md', promptContent);
 
-  // Run Claude Code CLI
-  const cmd = `cd ${EVO_REPO} && ~/.local/bin/claude -p --model claude-opus-4-6 --allowedTools "Edit,Write,Read,Bash,Glob,Grep" < /tmp/forge-prompt.md`;
-  const result = await sshExec(cmd, timeoutMs);
+  const cmd = `cd ${REPO_DIR} && ~/.local/bin/claude -p --model claude-opus-4-6 --allowedTools "Edit,Write,Read,Bash,Glob,Grep" < /tmp/forge-prompt.md`;
+  const result = await localExec(cmd, timeoutMs);
   return result.stdout;
 }
 
@@ -280,7 +272,7 @@ async function phaseArchitect(session) {
 
   const prompt = `${architectPrompt}\n\n## Tonight's Brief\n\n${brief}\n\n## Instructions\n\nProduce a detailed spec for the #1 ranked opportunity. Output JSON with fields: title, description, files_to_modify, approach, tests, auto_deployable (boolean), risks.`;
 
-  const output = await sshClaudeCode(prompt, PHASE_TIMEOUT.architect);
+  const output = await runClaudeCode(prompt, PHASE_TIMEOUT.architect);
 
   // Parse spec from output (look for JSON block)
   let spec = null;
@@ -312,7 +304,7 @@ async function phaseImplement(session) {
   const branch = `forge/${session.date}-${spec.title?.replace(/[^a-z0-9]+/gi, '-').slice(0, 30).toLowerCase() || 'task'}`;
 
   // Create branch on EVO
-  await sshExec(`cd ${EVO_REPO} && git checkout main && git pull && git checkout -b ${branch}`, 30000);
+  await localExec(`cd ${REPO_DIR} && git checkout main && git pull && git checkout -b ${branch}`, 30000);
 
   const prompt = [
     testerPrompt,
@@ -326,12 +318,12 @@ async function phaseImplement(session) {
     'Files to modify: ' + (spec.files_to_modify || []).join(', '),
   ].join('\n');
 
-  const output = await sshClaudeCode(prompt, PHASE_TIMEOUT.implement);
+  const output = await runClaudeCode(prompt, PHASE_TIMEOUT.implement);
 
   // Get diff info
-  const { stdout: diffStat } = await sshExec(`cd ${EVO_REPO} && git diff main --stat`, 15000);
-  const { stdout: diffFull } = await sshExec(`cd ${EVO_REPO} && git diff main`, 30000);
-  const { stdout: filesChanged } = await sshExec(`cd ${EVO_REPO} && git diff main --name-only`, 15000);
+  const { stdout: diffStat } = await localExec(`cd ${REPO_DIR} && git diff main --stat`, 15000);
+  const { stdout: diffFull } = await localExec(`cd ${REPO_DIR} && git diff main`, 30000);
+  const { stdout: filesChanged } = await localExec(`cd ${REPO_DIR} && git diff main --name-only`, 15000);
 
   return {
     branch,
@@ -367,7 +359,7 @@ async function phaseReview(session) {
     'Review this diff against the spec. Output JSON with: verdict ("auto-deploy" or "needs-approval"), test_pass (boolean), eval_regression (boolean), issues (array of strings), summary (string).',
   ].join('\n');
 
-  const output = await sshClaudeCode(prompt, PHASE_TIMEOUT.review);
+  const output = await runClaudeCode(prompt, PHASE_TIMEOUT.review);
 
   let verdict = null;
   const jsonMatch = output.match(/```json\n([\s\S]*?)```/) || output.match(/\{[\s\S]*"verdict"[\s\S]*\}/);
@@ -401,19 +393,9 @@ async function phaseDeploy(session, sendFn) {
   if (canAutoDeploy) {
     try {
       // Merge on EVO
-      await sshExec(`cd ${EVO_REPO} && git checkout main && git merge --no-ff ${branch}`, 30000);
+      await localExec(`cd ${REPO_DIR} && git checkout main && git merge --no-ff ${branch}`, 30000);
 
-      // Copy skills from EVO to Pi
-      try {
-        await execAsync('scp', [
-          '-i', SSH_KEY, '-o', 'ConnectTimeout=10', '-o', 'StrictHostKeyChecking=no',
-          '-r', `${EVO_USER}@${EVO_HOST}:${EVO_REPO}/src/skills/`, 'src/skills/',
-        ], { timeout: 30000 });
-      } catch (scpErr) {
-        logger.warn({ err: scpErr.message }, 'forge: scp skills failed (non-fatal)');
-      }
-
-      // Reload skills
+      // Skills are local — just reload the registry
       await loadSkills();
 
       return { action: 'auto-deployed', branch, files: impl.files };
@@ -421,7 +403,7 @@ async function phaseDeploy(session, sendFn) {
       // Revert on failure
       logger.error({ err: deployErr.message }, 'forge: auto-deploy failed, reverting');
       try {
-        await sshExec(`cd ${EVO_REPO} && git revert --no-commit HEAD && git commit -m "revert: forge auto-deploy failed"`, 30000);
+        await localExec(`cd ${REPO_DIR} && git revert --no-commit HEAD && git commit -m "revert: forge auto-deploy failed"`, 30000);
       } catch { /* best effort */ }
       return { action: 'deploy-failed', error: deployErr.message, branch };
     }
@@ -473,7 +455,7 @@ async function phaseMeta(session) {
     'Otherwise implement the change and output: { "action": "implemented", "description": "...", "files": [...] }',
   ].join('\n');
 
-  const output = await sshClaudeCode(prompt, PHASE_TIMEOUT.meta);
+  const output = await runClaudeCode(prompt, PHASE_TIMEOUT.meta);
 
   let result = null;
   const jsonMatch = output.match(/```json\n([\s\S]*?)```/) || output.match(/\{[\s\S]*"action"[\s\S]*\}/);

@@ -53,14 +53,14 @@ const config = {
   evoClassifierLabel: process.env.EVO_CLASSIFIER_LABEL || 'llama-server :8081 (EVO X2, classifier)',
   evoPlannerLabel: process.env.EVO_PLANNER_LABEL || 'llama-server :8085 (EVO X2, 4B planner/classifier)',
 
-  // EVO X2 local models via llama.cpp (OpenAI-compatible API)
-  evoLlmUrl: process.env.EVO_LLM_URL || 'http://10.0.0.2:8080',           // Main tool-calling server (direct ethernet)
-  evoClassifierUrl: process.env.EVO_CLASSIFIER_URL || 'http://10.0.0.2:8081', // Fast classifier server (0.6B engagement)
-  evoPlannerUrl: process.env.EVO_PLANNER_URL || 'http://10.0.0.2:8085',      // 4B category + needsPlan classifier
+  // Local models via llama.cpp (OpenAI-compatible API) — bot runs on EVO now
+  evoLlmUrl: process.env.EVO_LLM_URL || 'http://localhost:8080',           // Main tool-calling server
+  evoClassifierUrl: process.env.EVO_CLASSIFIER_URL || 'http://localhost:8081', // Fast classifier server (0.6B engagement)
+  evoPlannerUrl: process.env.EVO_PLANNER_URL || 'http://localhost:8085',      // 4B category + needsPlan classifier
   evoToolEnabled: process.env.EVO_TOOL_ENABLED !== 'false',
-  evoEmbedUrl: process.env.EVO_EMBED_URL || 'http://10.0.0.2:8083',         // nomic-embed-text embeddings
-  evoDoclingUrl: process.env.EVO_DOCLING_URL || 'http://10.0.0.2:8084',     // Granite-Docling document parsing
-  evoSearxngUrl: process.env.EVO_SEARXNG_URL || 'http://10.0.0.2:8888',    // SearXNG web search (Docker)
+  evoEmbedUrl: process.env.EVO_EMBED_URL || 'http://localhost:8083',         // Embedding server
+  evoDoclingUrl: process.env.EVO_DOCLING_URL || 'http://localhost:8084',     // Granite-Docling document parsing
+  evoSearxngUrl: process.env.EVO_SEARXNG_URL || 'http://localhost:8888',    // SearXNG web search (Docker)
 
   // Weather (Open-Meteo — free, no API key)
   weatherEnabled: process.env.WEATHER_ENABLED !== 'false',
@@ -75,8 +75,8 @@ const config = {
   engagementClassifierEnabled: process.env.ENGAGEMENT_CLASSIFIER_ENABLED !== 'false',
   dreamModeEnabled: process.env.DREAM_MODE_ENABLED !== 'false',
 
-  // EVO X2 Memory Service (prefer direct Ethernet from Pi when available)
-  evoMemoryUrl: process.env.EVO_MEMORY_URL || 'http://10.0.0.2:5100',
+  // Memory Service (localhost — bot runs on EVO)
+  evoMemoryUrl: process.env.EVO_MEMORY_URL || 'http://localhost:5100',
   evoMemoryEnabled: process.env.EVO_MEMORY_ENABLED !== 'false',
 
   // EVO SSH access (for evolution executor, overnight report, etc.)
