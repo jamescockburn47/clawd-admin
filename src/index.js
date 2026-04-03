@@ -21,6 +21,7 @@ import { flushAudit } from './audit.js';
 import { seedSystemKnowledge } from './system-knowledge.js';
 import { initScheduler } from './scheduler.js';
 import { handleIncomingMessage, handleReaction, simulateTyping } from './message-handler.js';
+import { loadSkills } from './skill-registry.js';
 import { startHttpServer } from './http-server.js';
 import { cacheSentMessage, getCachedMessage, msgRetryCounterCache } from './message-cache.js';
 
@@ -71,6 +72,9 @@ async function startBot() {
 
   // Load persisted message buffers before connecting
   await loadBuffers();
+
+  await loadSkills();
+  logger.info('skill registry loaded');
 
   const { state, saveCreds } = await useMultiFileAuthState(config.authStatePath);
   const { version } = await fetchLatestBaileysVersion();

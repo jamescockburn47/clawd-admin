@@ -20,6 +20,7 @@ import { filterResponse, getBlockedResponse } from './output-filter.js';
 import { detectGroupMode, detectGroupModeExit, detectTopicSelection, runTopicRetrieval, executeGroupMode, buildExecutionPrompt, buildAristotlePrompt } from './group-modes.js';
 import { clearPendingAction, getPendingAction } from './pending-action.js';
 import { getRecentGroupMessages, formatTranscript } from './topic-scan.js';
+import { runSkillPostProcessors } from './skill-registry.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -401,9 +402,23 @@ export async function handleIncomingMessage(sock, message, botJid) {
       return;
     }
 
+    // ── Skill post-processing hooks ──
+    let processedResponse = response;
+    try {
+      const skillContext = {
+        responseLength: response.length,
+        isGroup: chatJid.endsWith('@g.us'),
+        category: routingResult?.category,
+        chatJid,
+      };
+      processedResponse = await runSkillPostProcessors(response, { text: messageText, category: routingResult?.category }, skillContext);
+    } catch (err) {
+      logger.warn({ err: err.message }, 'skill post-processing failed, using original response');
+    }
+
     // Output filter — code-level security, cannot be prompt-injected
-    const filterResult = filterResponse(response, chatJid);
-    let finalResponse = response;
+    const filterResult = filterResponse(processedResponse, chatJid);
+    let finalResponse = processedResponse;
     if (!filterResult.safe) {
       logger.warn({ chatJid, reason: filterResult.reason, blocked: filterResult.blocked }, 'output filter blocked response');
       finalResponse = getBlockedResponse(filterResult.reason);
