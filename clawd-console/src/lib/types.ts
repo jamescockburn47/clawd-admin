@@ -19,6 +19,13 @@ export interface SystemHealth {
   memory?: { total: number; categories: Record<string, number> };
   uptime: number;
   memoryMB: number;
+  nodeHeapMB?: number;
+  evoSystem?: {
+    vramGB: number;
+    totalRamMB: number;
+    usedRamMB: number;
+    cores: number;
+  };
   [key: string]: unknown;
 }
 

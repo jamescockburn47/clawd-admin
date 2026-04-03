@@ -40,9 +40,12 @@ interface HealthState {
     total: number | null;
     categoryCount: number | null;
   };
-  pi: {
+  evo_system: {
     status: Status;
-    memoryMB: number | null;
+    vramGB: number | null;
+    totalRamMB: number | null;
+    usedRamMB: number | null;
+    cores: number | null;
     uptime: number | null;
   };
 }
@@ -52,7 +55,7 @@ const initialState: HealthState = {
   whatsapp: { status: 'unknown', name: null, uptime: null },
   evo: { status: 'unknown', model: null, queueDepth: null },
   memory: { status: 'unknown', total: null, categoryCount: null },
-  pi: { status: 'unknown', memoryMB: null, uptime: null },
+  evo_system: { status: 'unknown', vramGB: null, totalRamMB: null, usedRamMB: null, cores: null, uptime: null },
 };
 
 export function HealthCards() {
@@ -76,14 +79,14 @@ export function HealthCards() {
             name: pi.connected ? pi.name : null,
             uptime: pi.uptime ?? null,
           };
-          next.pi = {
+          next.evo_system = {
+            ...next.evo_system,
             status: 'online',
-            memoryMB: pi.memoryMB ?? null,
             uptime: pi.uptime ?? null,
           };
         } else {
           next.whatsapp = { status: 'offline', name: null, uptime: null };
-          next.pi = { status: 'offline', memoryMB: null, uptime: null };
+          next.evo_system = { ...next.evo_system, status: 'offline' };
         }
 
         if (healthResult.status === 'fulfilled') {
@@ -98,8 +101,17 @@ export function HealthCards() {
             total,
             categoryCount,
           };
-          if (next.pi.uptime === null) {
-            next.pi = { ...next.pi, uptime: health.uptime ?? null };
+          if (next.evo_system.uptime === null) {
+            next.evo_system = { ...next.evo_system, uptime: health.uptime ?? null };
+          }
+          if (health.evoSystem) {
+            next.evo_system = {
+              ...next.evo_system,
+              vramGB: health.evoSystem.vramGB ?? null,
+              totalRamMB: health.evoSystem.totalRamMB ?? null,
+              usedRamMB: health.evoSystem.usedRamMB ?? null,
+              cores: health.evoSystem.cores ?? null,
+            };
           }
         } else {
           next.memory = { status: 'offline', total: null, categoryCount: null };
@@ -217,26 +229,29 @@ export function HealthCards() {
         </CardContent>
       </Card>
 
-      {/* Pi System */}
+      {/* EVO System */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Server className="h-4 w-4 text-muted-foreground" />
-            Pi System
+            EVO System
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-1">
           <div className="flex items-center gap-2">
-            <StatusDot status={state.pi.status} />
+            <StatusDot status={state.evo_system.status} />
             <span className="text-sm font-medium">
-              {state.pi.memoryMB !== null
-                ? formatMB(state.pi.memoryMB) + ' RAM'
-                : 'Offline'}
+              {state.evo_system.vramGB !== null
+                ? `${state.evo_system.vramGB} GB VRAM`
+                : state.evo_system.totalRamMB !== null
+                  ? formatMB(state.evo_system.totalRamMB) + ' RAM'
+                  : 'Offline'}
             </span>
           </div>
-          {state.pi.uptime !== null && (
+          {state.evo_system.uptime !== null && (
             <p className="text-xs text-muted-foreground">
-              up {formatUptime(state.pi.uptime)}
+              up {formatUptime(state.evo_system.uptime)}
+              {state.evo_system.cores !== null && ` · ${state.evo_system.cores} cores`}
             </p>
           )}
         </CardContent>
