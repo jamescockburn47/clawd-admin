@@ -49,6 +49,14 @@ async function generatePDF(markdown, dateStr) {
   await writeFileAsync(htmlPath, htmlContent, 'utf-8');
 
   try {
+    // Skip PDF generation entirely if Chromium is not available on this host.
+    try {
+      execSync('which chromium-browser >/dev/null 2>&1', { stdio: 'pipe' });
+    } catch {
+      logger.info('overnight-report: chromium-browser not installed, skipping PDF generation');
+      return null;
+    }
+
     execSync(
       `chromium-browser --headless --disable-gpu --no-sandbox --print-to-pdf="${pdfPath}" "${htmlPath}" 2>/dev/null`,
       { timeout: 30000, stdio: 'pipe' }
@@ -106,6 +114,17 @@ async function fetchDreamReportJSON(dateStr) {
   const { execSync } = await import('child_process');
   const localPath = join('/tmp', `overnight-report-${dateStr}.json`);
   const remotePath = `/home/james/clawdbot-logs/overnight-report-${dateStr}.json`;
+
+  // 0. If already on EVO, read the local file directly (no self-SSH)
+  if (process.cwd() === config.evoRepoPath && existsSync(remotePath)) {
+    try {
+      const data = JSON.parse(await readFile(remotePath, 'utf-8'));
+      logger.info({ groups: data.groups_processed }, 'overnight-report: dream report loaded locally on EVO');
+      return data;
+    } catch (err) {
+      logger.warn({ err: err.message }, 'overnight-report: local EVO dream report read failed');
+    }
+  }
 
   // 1. Try rsync from EVO direct ethernet
   try {
