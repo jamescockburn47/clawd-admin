@@ -16,12 +16,8 @@ let lastRunDate = null;
 /**
  * Check if overnight-to-evolution should run (5 AM London time).
  */
-export async function checkOvernightEvolution(sendFn, todayStr, hours) {
-  if (lastRunDate === todayStr) return;
-  if (hours !== 5) return;
-
+async function runOvernightEvolution(sendFn, todayStr) {
   lastRunDate = todayStr;
-
   try {
     logger.info('overnight-to-evolution: starting');
     const tasks = collectOvernightFindings();
@@ -57,6 +53,16 @@ export async function checkOvernightEvolution(sendFn, todayStr, hours) {
   } catch (err) {
     logger.error({ err: err.message }, 'overnight-to-evolution: failed');
   }
+}
+
+export async function checkOvernightEvolution(sendFn, todayStr, hours) {
+  if (lastRunDate === todayStr) return;
+  if (hours !== 5) return;
+  return runOvernightEvolution(sendFn, todayStr);
+}
+
+export async function runOvernightEvolutionNow(sendFn, todayStr) {
+  return runOvernightEvolution(sendFn, todayStr);
 }
 
 export function getLastOvernightEvoDate() { return lastRunDate; }

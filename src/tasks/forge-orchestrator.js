@@ -45,13 +45,10 @@ let lastForgeDate = null;
 
 // --- Exports ---
 
-export async function checkForge(sendFn, todayStr, hours, minutes) {
-  if (lastForgeDate === todayStr) return;
+async function runForgeSession(sendFn, todayStr) {
   // Forge runs at 04:00 (was 04:30 — shifted to give 3h before 07:00 hard stop).
   // Consumes: dream diary (22:05), deep think (23:00), self-improve (01:00),
   // extraction (02:00), trace analysis (03:00), ground truth (03:30).
-  if (hours !== 4 || minutes < 0) return;
-
   lastForgeDate = todayStr;
   logger.info('forge: starting overnight session');
 
@@ -154,6 +151,16 @@ export async function checkForge(sendFn, todayStr, hours, minutes) {
   // Persist to history
   appendToHistory(session);
   logger.info({ phases: Object.keys(session.phases) }, 'forge: session complete');
+}
+
+export async function checkForge(sendFn, todayStr, hours, minutes) {
+  if (lastForgeDate === todayStr) return;
+  if (hours !== 4 || minutes < 0) return;
+  return runForgeSession(sendFn, todayStr);
+}
+
+export async function runForgeNow(sendFn, todayStr) {
+  return runForgeSession(sendFn, todayStr);
 }
 
 export function getLastForgeDate() {

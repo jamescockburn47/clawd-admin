@@ -202,6 +202,28 @@ export function startHttpServer(port, deps) {
       } catch (err) { return json(res, 500, { error: err.message }); }
     }
 
+    if (req.method === 'POST' && path === '/api/improvement/run-now') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      try {
+        const bodyText = await readBody(req);
+        const body = bodyText ? JSON.parse(bodyText) : {};
+        const notify = body.notify === true;
+        const todayStr = body.todayStr || null;
+        const reportDate = body.reportDate || null;
+        const { runImprovementPipelineNow } = await import('./tasks/manual-improvement-run.js');
+
+        const ownerSend = async (message) => {
+          if (!config.ownerJid) return null;
+          return sendProactiveMessage(config.ownerJid, message);
+        };
+
+        const result = await runImprovementPipelineNow(ownerSend, { notify, todayStr, reportDate });
+        return json(res, 200, { ok: true, result });
+      } catch (err) {
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     if (path === '/api/messages') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       // Return merged feed from ALL chat buffers (not just owner DM)
