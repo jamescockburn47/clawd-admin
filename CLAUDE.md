@@ -8,15 +8,15 @@
 
 | Key | Value |
 |-----|-------|
-| **Pi IP** | `192.168.1.211` LAN / `100.104.92.87` Tailscale (`cnc`) |
-| **Pi user** | `pi` (NOT `james`) |
+| **Primary host** | **EVO X2** — bot, memory, models, voice, forge all run here |
 | **EVO X2 IP** | `10.0.0.2` direct ethernet (prefer) / `192.168.1.230` WiFi / `100.90.66.54` Tailscale |
 | **EVO user** | `james` (NOT `pi`) |
-| **SSH key** | `C:\Users\James\.ssh\id_ed25519` |
-| **Pi project path** | `~/clawdbot` (NOT `~/clawdbot-claude-code`) |
+| **EVO project path** | `~/clawdbot` |
+| **Pi (backup/screen)** | `192.168.1.211` LAN / `100.104.92.87` Tailscale (`cnc`), user `pi` |
 | **Local project path** | `C:\Users\James\Downloads\clawdbot-claude-code` |
+| **SSH key** | `C:\Users\James\.ssh\id_ed25519` |
 | **Node** | v20+, ESM (migrating to TypeScript with `tsx`), `node --env-file=.env src/index.js` |
-| **Dashboard** | Rust native app `clawd-dashboard` (NOT Chromium), 10.1" touchscreen 1024x600 |
+| **Dashboard** | Rust native app `clawd-dashboard` on Pi (NOT Chromium), 10.1" touchscreen 1024x600 |
 
 For EVO services/ports/models, see [EVO X2 Reference](docs/evo-x2-reference.md).
 For deploy commands and SSH patterns, see [Deployment](docs/deployment.md).
@@ -24,8 +24,8 @@ For deploy commands and SSH patterns, see [Deployment](docs/deployment.md).
 ## Session Protocol — MANDATORY
 
 1. **Read `CLAUDE.md` and `architecture.md`** at start of every session.
-2. **Verify Pi IP** before deploying — ping `192.168.1.211` first.
-3. **After deploying Node.js files**, restart: `sudo systemctl restart clawdbot`.
+2. **Deploy target is EVO.** `git push` then `ssh james@100.90.66.54 'cd ~/clawdbot && git pull && sudo systemctl restart clawdbot'`. Pi is backup/screen only.
+3. **After deploying Node.js files**, restart: `sudo systemctl restart clawdbot` (on EVO).
 4. **Never use `-uall` flag** with `git status` (can OOM).
 
 ## Research Protocol — MANDATORY
@@ -36,20 +36,21 @@ For deploy commands and SSH patterns, see [Deployment](docs/deployment.md).
 
 ## Project Overview
 
-WhatsApp admin assistant bot ("Clawd") on Raspberry Pi 5 with touchscreen dashboard. Personal assistant for James Cockburn: calendar, email, travel, todos, soul/personality system.
+WhatsApp admin assistant bot ("Clawd") running on EVO X2, with Rust dashboard on Pi 5 touchscreen. Personal assistant for James Cockburn: calendar, email, travel, todos, soul/personality system.
 
 **Who uses it:** James (owner, full access) and MG (wife — calendar reading, todos, travel, web search only).
 
-**Tech:** Node.js 20+ ESM (migrating to TypeScript file-by-file, `tsx` runner), Baileys (WhatsApp), three-tier AI (local EVO free → MiniMax cheap → Claude premium), Rust dashboard, JSON file persistence. No database.
+**Tech:** Node.js 20+ ESM (migrating to TypeScript file-by-file, `tsx` runner), Baileys (WhatsApp), three-tier AI (local EVO free → MiniMax cheap → Claude premium), Rust dashboard on Pi, JSON file persistence. No database.
 
 ## Architectural Invariants — BINDING
 
 These are constraints the agent cannot infer from code. Do not revisit, reverse, or work around them.
 
 ### Hardware & Network
-- **All EVO communication via direct ethernet** (`10.0.0.2`). Never WiFi for API calls.
-- **All EVO HTTP goes through `evo-client.js`.** No direct HTTP to EVO from other modules.
-- **Dashboard is Rust/egui native app.** Not Chromium, not HTML.
+- **EVO X2 is the primary host.** Bot, memory service, models, voice, forge — all run on EVO. Pi is backup and dashboard screen only.
+- **All EVO local services use localhost** (bot runs on EVO alongside models). `evo-client.js` wraps all HTTP to local EVO services.
+- **Pi dashboard connects to EVO** via direct ethernet (`10.0.0.2`) for API and SSE.
+- **Dashboard is Rust/egui native app** on Pi. Not Chromium, not HTML.
 - **Tailscale on all machines.** Pi `cnc`, EVO `james-nucbox-evo-x2`.
 - **All EVO servers run 24/7.** No sleep/wake timers.
 

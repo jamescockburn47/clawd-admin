@@ -6,7 +6,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Raspberry Pi 5 (8GB, 10.1" touchscreen, 1024x600)                 │
+│  EVO X2 NucBox (PRIMARY HOST, user: james)                          │
+│  AMD Ryzen AI MAX+ 395 + Radeon 8060S (gfx1151, RDNA 3.5)         │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────┐           │
 │  │  systemd: clawdbot.service                           │           │
@@ -28,7 +29,7 @@
 │  │  │ Router   │  ┌─────┴──────────────────────────┐   │           │
 │  │  │ (smart   │  │ Tools:                         │   │           │
 │  │  │  classify│  │ calendar  gmail  todo  soul    │   │           │
-│  │  │  → EVO   │  │ darwin  amadeus  travel search  │   │           │
+│  │  │  → local │  │ darwin  amadeus  travel search  │   │           │
 │  │  │  or      │  └────────────────────────────────┘   │           │
 │  │  │  Claude) │                                       │           │
 │  │  └──────────┘                                       │           │
@@ -49,19 +50,7 @@
 │  └──────────────────────────────────────────────────────┘           │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────┐           │
-│  │  clawd-dashboard (Rust native, eframe/egui)          │           │
-│  │  ~/clawd-dashboard/target/release/clawd-dashboard   │           │
-│  │  Connects to localhost:3000 API + SSE               │           │
-│  └──────────────────────────────────────────────────────┘           │
-└─────────────────────────────────────────────────────────────────────┘
-         │ direct ethernet (10.0.0.1 ↔ 10.0.0.2, 0.4ms)
-         ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│  EVO X2 NucBox (WiFi 192.168.1.230 / direct 10.0.0.2, user: james)│
-│  AMD Ryzen AI MAX+ 395 + Radeon 8060S (gfx1151, RDNA 3.5)         │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────┐           │
-│  │  llama-server-main (port 8080)                       │           │
+│  │  llama-server-main (port 8080, localhost)             │           │
 │  │  Qwen3-VL-30B-A3B Q4_K_M (Vulkan, vision, 32K ctx)  │           │
 │  │  Swaps to Qwen3-Coder-30B-A3B overnight (22:00-06:00)│           │
 │  └──────────────────────────────────────────────────────┘           │
@@ -75,11 +64,27 @@
 │  │ memory:5100    │ │ SearXNG:8888   │ │ voice listener │          │
 │  │ FastAPI        │ │ Docker search  │ │ Whisper+Piper  │          │
 │  └────────────────┘ └────────────────┘ └────────────────┘          │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────┐           │
+│  │  The Forge (04:30) — autonomous self-improvement      │           │
+│  │  Skill registry, Claude Code CLI, overnight pipeline  │           │
+│  └──────────────────────────────────────────────────────┘           │
+└─────────────────────────────────────────────────────────────────────┘
+         │ direct ethernet (10.0.0.1 ↔ 10.0.0.2, 0.4ms)
+         ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Raspberry Pi 5 (8GB, BACKUP + DASHBOARD ONLY)                      │
+│                                                                     │
+│  ┌──────────────────────────────────────────────────────┐           │
+│  │  clawd-dashboard (Rust native, eframe/egui)          │           │
+│  │  10.1" touchscreen, 1024x600                         │           │
+│  │  Connects to EVO:3000 API + SSE via direct ethernet  │           │
+│  └──────────────────────────────────────────────────────┘           │
 └─────────────────────────────────────────────────────────────────────┘
 
 External APIs:
   - MiniMax M2.7 (default cloud, Anthropic-compatible) — chat + tool use
-  - Claude Opus 4.6 (premium, explicit request only) — fallback
+  - Claude Opus 4.6 (premium, explicit request only) — quality gate
   - Google Calendar v3, Gmail v1
   - Darwin (National Rail), BR Fares, Amadeus (hotels)
   - Open-Meteo (weather, free)
@@ -95,10 +100,10 @@ External APIs:
 - **Weather**: Open-Meteo (free, no API key)
 - **Travel**: Darwin (trains), BR Fares (pricing), Amadeus (hotels)
 - **Search**: SearXNG (self-hosted on EVO, Docker, port 8888)
-- **Document parsing**: pdf-parse (PDFs), mammoth (DOCX/Word) — on Pi
+- **Document parsing**: pdf-parse (PDFs), mammoth (DOCX/Word) — on EVO
 - **Logging**: Pino (structured JSON)
-- **Dashboard**: Rust native app (eframe/egui) — NOT Chromium
-- **Data**: JSON files in `data/` — no database, no build step, no TypeScript
+- **Dashboard**: Rust native app (eframe/egui) on Pi — NOT Chromium
+- **Data**: JSON files in `data/` — no database. Migrating to TypeScript file-by-file (`tsx` runner)
 
 ## File Structure
 
