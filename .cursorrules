@@ -1,4 +1,20 @@
-# Clawdbot — Cursor Deployment Guide
+# Clawdbot — Cursor Rules
+
+## Code Standards — BINDING (from CLAUDE.md)
+
+- Maximum file size: 300 lines (JS/TS) / 500 lines (Python). Split before adding.
+- TypeScript for all new and touched files. Rename .js → .ts when refactoring. Use tsx. Strict, no any.
+- No silent failures. Every catch: (a) handles with recovery, (b) logs with context, or (c) has // intentional: reason.
+- Zero process.env outside config.js/config.ts. All env access through config module.
+- Classes for stateful services. Manual DI via constructor params. No DI container.
+- Single entrypoint per feature. Dispatch over if/else chains.
+- No magic numbers or strings. Constants in constants.ts or config.ts.
+- Concurrent operations where independent (Promise.all). Never await sequentially.
+- Unit tests for all new code (node:test + esmock).
+- EVO X2 is the primary host. Bot runs on EVO. Pi is backup + dashboard screen only.
+- Deploy: git push, then ssh james@100.90.66.54 'cd ~/clawdbot && git pull && npm install && sudo systemctl restart clawdbot'.
+
+---
 
 ## READ FIRST
 Read `CLAUDE.md` and `architecture.md` for full system context.
