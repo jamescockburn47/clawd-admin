@@ -505,6 +505,7 @@ If nothing warrants changing tonight, output { "action": "none", "reason": "expl
 
 async function phaseNightlyTouch(session) {
   const brief = session.phases.analysis?.brief || 'No brief available.';
+  const { stdout: beforeHead } = await localExec(`cd ${REPO_DIR} && git rev-parse HEAD`, 10000);
 
   // Build context from last 7 nightly touches
   const reports = readdirSync(REPORTS_DIR).filter(f => f.endsWith('.json')).sort().slice(-7);
@@ -533,11 +534,14 @@ async function phaseNightlyTouch(session) {
     result = { action: 'unknown', description: output.slice(0, 300) };
   }
 
-  // Get the list of files actually changed
+  // Get the list of files actually changed only if the touch created a new commit.
   let files = [];
   try {
-    const { stdout } = await localExec(`cd ${REPO_DIR} && git diff HEAD~1 HEAD --name-only 2>/dev/null || echo ''`, 10000);
-    files = stdout.split('\n').filter(Boolean);
+    const { stdout: afterHead } = await localExec(`cd ${REPO_DIR} && git rev-parse HEAD`, 10000);
+    if (afterHead !== beforeHead) {
+      const { stdout } = await localExec(`cd ${REPO_DIR} && git diff --name-only ${beforeHead} ${afterHead}`, 10000);
+      files = stdout.split('\n').filter(Boolean);
+    }
   } catch { /* non-fatal */ }
 
   logger.info({ action: result.action, target: result.target, files }, 'forge: nightly touch complete');
