@@ -160,6 +160,21 @@ export function getLastForgeDate() {
   return lastForgeDate;
 }
 
+export function getLatestForgeReport() {
+  try {
+    ensureDir(REPORTS_DIR);
+    const latest = readdirSync(REPORTS_DIR)
+      .filter(f => f.endsWith('.json'))
+      .sort()
+      .slice(-1)[0];
+    if (!latest) return null;
+    return JSON.parse(readFileSync(join(REPORTS_DIR, latest), 'utf-8'));
+  } catch (err) {
+    logger.warn({ err: err.message }, 'forge: failed to read latest report');
+    return null;
+  }
+}
+
 // --- Time guards ---
 
 /**
@@ -261,7 +276,7 @@ async function runClaudeCode(promptContent, timeoutMs = PHASE_TIMEOUT.implement)
 // --- EVO 30B helper ---
 
 async function queryEvo30B(systemPrompt, userPrompt, maxTokens = 4000) {
-  const resp = await llamaBreaker.exec(async () => {
+  const resp = await llamaBreaker.call(async () => {
     const r = await evoFetch(`${config.evoLlmUrl}/v1/chat/completions`, {
       method: 'POST',
       timeout: PHASE_TIMEOUT.analysis,
@@ -276,7 +291,7 @@ async function queryEvo30B(systemPrompt, userPrompt, maxTokens = 4000) {
       }),
     });
     return r.json();
-  });
+  }, { choices: [] });
   return resp.choices?.[0]?.message?.content || '';
 }
 

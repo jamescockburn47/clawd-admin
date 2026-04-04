@@ -20,6 +20,7 @@ import { getEvoStatus, getMemoryStats, isEvoOnline, searchMemory } from './memor
 import { getLatestAnalysis } from './tasks/trace-analyser.js';
 import { getLatestRetrospective } from './tasks/weekly-retrospective.js';
 import { getEvolutionReport } from './evolution.js';
+import { getLatestForgeReport } from './tasks/forge-orchestrator.js';
 
 const EVO_SSH_HOST = config.evoSshHost;
 const EVO_SSH_USER = config.evoSshUser;
@@ -552,7 +553,7 @@ function formatSelfImproveSection(data) {
 
 // --- Generate structured markdown report ---
 
-function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis = null, retrospective = null, evolutionReport = null) {
+function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis = null, retrospective = null, evolutionReport = null, forgeReport = null) {
   const lines = [];
   const dayName = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -692,53 +693,75 @@ function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHe
     lines.push('');
   }
 
-  // Evolution pipeline
-  if (evolutionReport) {
-    lines.push(`## Evolution Pipeline`);
-    const evo = evolutionReport;
+  // Unified overnight improvement pipeline: Forge session + queued/executed evolution tasks
+  if (evolutionReport || forgeReport) {
+    lines.push(`## Overnight Improvement Pipeline`);
 
-    if (evo.deployed?.length > 0) {
-      lines.push('**Deployed:**');
-      for (const t of evo.deployed) {
-        lines.push(`- ${t.id} — "${t.instruction}" (${t.files.length} files, ${t.lines || '?'} lines)`);
+    if (forgeReport) {
+      lines.push(`### Forge Session`);
+      lines.push(`- Date: ${forgeReport.date}`);
+      if (forgeReport.phases) {
+        const phaseSummary = Object.entries(forgeReport.phases)
+          .map(([name, p]) => `${name}: ${p.status}${p.error ? ` (${p.error})` : ''}`)
+          .join(' | ');
+        lines.push(`- Phases: ${phaseSummary}`);
       }
-    }
-
-    if (evo.awaiting?.length > 0) {
-      lines.push('**Awaiting approval:**');
-      for (const t of evo.awaiting) {
-        lines.push(`- ${t.id} — "${t.instruction}" — waiting ${t.waitingHours}h`);
+      if (forgeReport.nightlyTouchFiles?.length) {
+        lines.push(`- Nightly touch: ${forgeReport.nightlyTouchFiles.join(', ')}`);
       }
+      if (forgeReport.spec) lines.push(`- Spec: ${forgeReport.spec}`);
+      if (forgeReport.deployAction) lines.push(`- Deploy action: ${forgeReport.deployAction}`);
+      if (forgeReport.tasks?.length) lines.push(`- Spawned evolution tasks: ${forgeReport.tasks.join(', ')}`);
+      lines.push('');
     }
 
-    if (evo.failed?.length > 0) {
-      lines.push('**Failed:**');
-      for (const t of evo.failed) {
-        lines.push(`- ${t.id} — "${t.instruction}" — ${t.result || 'unknown error'}`);
+    if (evolutionReport) {
+      lines.push(`### Evolution Tasks`);
+      const evo = evolutionReport;
+
+      if (evo.deployed?.length > 0) {
+        lines.push('**Deployed:**');
+        for (const t of evo.deployed) {
+          lines.push(`- ${t.id} — "${t.instruction}" (${t.files.length} files, ${t.lines || '?'} lines)`);
+        }
       }
-    }
 
-    if (evo.rejected?.length > 0) {
-      lines.push('**Rejected:**');
-      for (const t of evo.rejected) {
-        lines.push(`- ${t.id} — "${t.instruction}"`);
+      if (evo.awaiting?.length > 0) {
+        lines.push('**Awaiting approval:**');
+        for (const t of evo.awaiting) {
+          lines.push(`- ${t.id} — "${t.instruction}" — waiting ${t.waitingHours}h`);
+        }
       }
-    }
 
-    if (evo.pending?.length > 0) {
-      lines.push(`**Queued:** ${evo.pending.length} pending`);
-      for (const t of evo.pending) {
-        lines.push(`- ${t.id} — "${t.instruction}" (${t.source})`);
+      if (evo.failed?.length > 0) {
+        lines.push('**Failed:**');
+        for (const t of evo.failed) {
+          lines.push(`- ${t.id} — "${t.instruction}" — ${t.result || 'unknown error'}`);
+        }
       }
-    }
 
-    const rl = evo.rateLimit;
-    lines.push(`**Rate:** ${rl.todayCount}/${rl.dailyMax} today${rl.allowed ? '' : ` — blocked: ${rl.reason}`}`);
+      if (evo.rejected?.length > 0) {
+        lines.push('**Rejected:**');
+        for (const t of evo.rejected) {
+          lines.push(`- ${t.id} — "${t.instruction}"`);
+        }
+      }
 
-    if (!evo.deployed?.length && !evo.awaiting?.length && !evo.failed?.length && !evo.rejected?.length && !evo.pending?.length) {
-      lines.push('No evolution activity in the last 24h.');
+      if (evo.pending?.length > 0) {
+        lines.push(`**Queued:** ${evo.pending.length} pending`);
+        for (const t of evo.pending) {
+          lines.push(`- ${t.id} — "${t.instruction}" (${t.source})`);
+        }
+      }
+
+      const rl = evo.rateLimit;
+      lines.push(`**Rate:** ${rl.todayCount}/${rl.dailyMax} today${rl.allowed ? '' : ` — blocked: ${rl.reason}`}`);
+
+      if (!evo.deployed?.length && !evo.awaiting?.length && !evo.failed?.length && !evo.rejected?.length && !evo.pending?.length) {
+        lines.push('No evolution activity in the last 24h.');
+      }
+      lines.push('');
     }
-    lines.push('');
   }
 
   // Trace analysis (Phase 2)
@@ -872,14 +895,20 @@ export async function sendOvernightReport(sendFn, dateOverride = null) {
 
   // 7.5. Load evolution pipeline status
   let evolutionReport = null;
+  let forgeReport = null;
   try {
     evolutionReport = getEvolutionReport();
   } catch (err) {
     logger.warn({ err: err.message }, 'overnight-report: evolution report load failed');
   }
+  try {
+    forgeReport = getLatestForgeReport();
+  } catch (err) {
+    logger.warn({ err: err.message }, 'overnight-report: forge report load failed');
+  }
 
   // 8. Generate report and send as document attachments
-  const markdown = generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis, retrospective, evolutionReport);
+  const markdown = generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis, retrospective, evolutionReport, forgeReport);
   const docSender = getSendDocument();
 
   if (docSender) {

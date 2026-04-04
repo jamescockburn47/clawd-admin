@@ -9,7 +9,7 @@
 // Runs on Pi, SSHes to EVO where Claude Code CLI is installed.
 
 import { execSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import config from './config.js';
@@ -23,6 +23,7 @@ const EVO_USER = config.evoSshUser;
 const EVO_REPO = config.evoRepoPath;
 const CLAUDE_BIN = '/home/james/.local/bin/claude';
 const SSH_OPTS = '-o ConnectTimeout=10 -o StrictHostKeyChecking=no';
+const LOCAL_MODE = process.cwd() === EVO_REPO;
 
 const PLAN_TIMEOUT_MS = TIMEOUTS.PLAN_PASS;
 const EXECUTE_TIMEOUT_MS = TIMEOUTS.EXECUTE_PASS;
@@ -55,6 +56,12 @@ const BANNED_DIRS = [
 // --- SSH helpers ---
 
 function ssh(cmd, timeoutMs = 30000) {
+  if (LOCAL_MODE) {
+    return execSync(
+      `bash -lc '${cmd.replace(/'/g, "'\\''")}'`,
+      { encoding: 'utf-8', timeout: timeoutMs, stdio: 'pipe', cwd: EVO_REPO }
+    ).trim();
+  }
   return execSync(
     `ssh ${SSH_OPTS} ${EVO_USER}@${EVO_HOST} '${cmd.replace(/'/g, "'\\''")}'`,
     { encoding: 'utf-8', timeout: timeoutMs, stdio: 'pipe' }
@@ -62,6 +69,10 @@ function ssh(cmd, timeoutMs = 30000) {
 }
 
 function sshWrite(remotePath, content, timeoutMs = 15000) {
+  if (LOCAL_MODE) {
+    writeFileSync(remotePath, content, 'utf-8');
+    return;
+  }
   // Write content to a remote file via stdin to avoid shell escaping issues
   execSync(
     `ssh ${SSH_OPTS} ${EVO_USER}@${EVO_HOST} 'cat > ${remotePath}'`,
@@ -171,6 +182,10 @@ function extractJsonFromOutput(text) {
 // --- Codebase sync ---
 
 function syncToEvo() {
+  if (LOCAL_MODE) {
+    logger.info('evolution: local EVO mode — skipping Pi → EVO sync');
+    return;
+  }
   try {
     execSync(
       `rsync -az --timeout=30 --exclude node_modules --exclude .baileys --exclude 'data/conversation-logs' /home/pi/clawdbot/ ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/`,
@@ -443,19 +458,22 @@ export async function deployApprovedTask(task) {
     throw new Error(`Merge failed: ${err.message}`);
   }
 
-  // 2. Rsync changed files back to Pi
-  try {
-    for (const file of files_changed) {
-      // Only sync src/ files — never data/, node_modules, etc.
-      if (!file.startsWith('src/') && !file.startsWith('eval/')) continue;
-      execSync(
-        `rsync -az ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/${file} /home/pi/clawdbot/${file}`,
-        { encoding: 'utf-8', timeout: 15000, stdio: 'pipe' }
-      );
+  // 2. Sync changed files back to Pi only when running on Pi.
+  if (!LOCAL_MODE) {
+    try {
+      for (const file of files_changed) {
+        if (!file.startsWith('src/') && !file.startsWith('eval/')) continue;
+        execSync(
+          `rsync -az ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/${file} /home/pi/clawdbot/${file}`,
+          { encoding: 'utf-8', timeout: 15000, stdio: 'pipe' }
+        );
+      }
+      logger.info({ files: files_changed.length }, 'evolution: files synced to Pi');
+    } catch (err) {
+      throw new Error(`File sync failed: ${err.message}`);
     }
-    logger.info({ files: files_changed.length }, 'evolution: files synced to Pi');
-  } catch (err) {
-    throw new Error(`File sync failed: ${err.message}`);
+  } else {
+    logger.info('evolution: local EVO mode — no Pi sync required');
   }
 
   // 3. Restart clawdbot
@@ -479,10 +497,12 @@ export async function deployApprovedTask(task) {
     logger.error({ err: err.message }, 'evolution: HEALTH CHECK FAILED — rolling back');
     try {
       ssh(`cd ${EVO_REPO} && git revert HEAD --no-edit`);
-      execSync(
-        `rsync -az ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/src/ /home/pi/clawdbot/src/`,
-        { encoding: 'utf-8', timeout: 30000, stdio: 'pipe' }
-      );
+      if (!LOCAL_MODE) {
+        execSync(
+          `rsync -az ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/src/ /home/pi/clawdbot/src/`,
+          { encoding: 'utf-8', timeout: 30000, stdio: 'pipe' }
+        );
+      }
       execSync('sudo systemctl restart clawdbot', { timeout: 15000, stdio: 'pipe' });
     } catch (rbErr) {
       logger.error({ err: rbErr.message }, 'evolution: ROLLBACK ALSO FAILED');
