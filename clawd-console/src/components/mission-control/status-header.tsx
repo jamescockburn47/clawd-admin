@@ -39,7 +39,7 @@ export function StatusHeader({ whatsapp, evo, memory, forgeStatus }: StatusHeade
   return (
     <header className="flex h-12 shrink-0 items-center justify-between bg-zinc-950 px-4">
       <div className="flex items-center gap-4">
-        <span className="font-mono text-base font-bold tracking-wider text-foreground">CLAWD</span>
+        <span className="font-mono text-base font-bold tracking-wider text-foreground">CLINT</span>
         <div className="flex items-center gap-2">
           {statuses.map((s, i) => (
             <span key={DOT_LABELS[i]} className="flex items-center gap-1" title={DOT_LABELS[i]}>

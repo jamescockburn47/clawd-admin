@@ -203,7 +203,7 @@ export function StatsCards() {
               </p>
             )}
             <p className="text-xs text-muted-foreground">
-              {analysis.totalTraces} processed by Clawd
+              {analysis.totalTraces} processed by Clint
             </p>
             <TopCategories categories={analysis.categories} />
           </CardContent>

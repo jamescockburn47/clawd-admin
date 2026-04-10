@@ -101,7 +101,7 @@ export default function EvolutionPage() {
         <div>
           <h2 className="text-lg font-semibold">Evolution Pipeline</h2>
           <p className="text-sm text-muted-foreground">
-            Clawd&apos;s self-coding tasks — review and approve changes
+            Clint&apos;s self-coding tasks — review and approve changes
           </p>
         </div>
         {report && (

@@ -102,7 +102,7 @@ function MessageCard({ msg }: MessageCardProps) {
         )}
         {sender && (
           <span className={`text-xs font-medium ${isBot ? 'text-emerald-400' : 'text-foreground'}`}>
-            {isBot ? 'Clawd' : sender}
+            {isBot ? 'Clint' : sender}
           </span>
         )}
         {chatJid && chatJid.endsWith('@g.us') && (

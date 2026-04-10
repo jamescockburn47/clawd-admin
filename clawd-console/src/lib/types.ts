@@ -1,4 +1,4 @@
-// API response type definitions for Clawd Console
+// API response type definitions for Clint Console
 
 // PiStatus — from GET /api/status
 export interface PiStatus {

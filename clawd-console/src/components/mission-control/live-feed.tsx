@@ -47,7 +47,7 @@ function MessageRow({ msg }: MessageRowProps) {
           {formatTime(ts)}
         </span>
         <span className={`shrink-0 text-sm font-medium ${isBot ? 'text-green-500' : 'text-foreground'}`}>
-          {isBot ? 'Clawd' : (sender ?? 'Unknown')}
+          {isBot ? 'Clint' : (sender ?? 'Unknown')}
           {isBot && sender && !isBot ? '' : ''}
         </span>
         {isGroup && (

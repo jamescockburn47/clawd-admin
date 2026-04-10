@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Clawd Console',
-  description: 'Infometrics dashboard for Clawd',
+  title: 'Clint Console',
+  description: 'Infometrics dashboard for Clint',
 };
 
 export default function RootLayout({

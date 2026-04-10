@@ -54,7 +54,7 @@ export function Sidebar() {
     <aside className="flex h-screen w-56 flex-col border-r bg-background">
       <div className="flex h-14 items-center border-b px-4">
         <span className="font-mono text-sm font-semibold tracking-wider text-foreground">
-          CLAWD CONSOLE
+          CLINT CONSOLE
         </span>
       </div>
 
