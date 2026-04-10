@@ -1,4 +1,503 @@
 {
   "version": 1,
-  "labels": []
+  "labels": [
+    {
+      "msg": "Just got a new task from the client, can you add it to my list?",
+      "expected": "task",
+      "source": "lr-mns55tj0",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "I’m swamped – can you help me move a task from today to Thursday?",
+      "expected": "task",
+      "source": "lr-mns55tj0",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "I’ve ticked off the client call – can you update my task list?",
+      "expected": "task",
+      "source": "lr-mns55tj0",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Can you flag the task about the vendor meeting as high priority?",
+      "expected": "task",
+      "source": "lr-mns55tj0",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Do you have a list of all tasks due this week?",
+      "expected": "task",
+      "source": "lr-mns55tj0",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Just realised I missed a task – can you add it to today’s list?",
+      "expected": "task",
+      "source": "lr-mns55tj0",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Is the task about the client demo still on track for next week?",
+      "expected": "task",
+      "source": "lr-mns55tj0",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Need to finish that report by EOD – any tips on how to prioritise the sections?",
+      "expected": "task",
+      "source": "lr-mns55tj2",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "What’s the most urgent thing on my plate right now?",
+      "expected": "task",
+      "source": "lr-mns55tj2",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "I’m heading out for lunch – can you pause anything that’s not urgent?",
+      "expected": "task",
+      "source": "lr-mns55tj2",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Hey, got any free slots next week for the Berlin trip?",
+      "expected": "travel",
+      "source": "lr-mns55zxk",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "How long’s the journey from the airport to the city?",
+      "expected": "travel",
+      "source": "lr-mns55zxk",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "What’s the subject of the last one I sent to Sarah?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Need to check if I’ve replied to the one about the meeting.",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Did I clear the one from James about the report?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Any pending ones in my queue I should sort?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Can you pull up the one about the new client?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Can you flag the one from the manager about the deadline?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Did I send the one about the site visit?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Can you find the one I forwarded to the team?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Is the one about the meeting still open?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Any unread ones from the head office?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "That one from the supplier – did I respond?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Has the team seen the one I shared with them?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Can you find the one with the attachments?",
+      "expected": "email",
+      "source": "lr-mns566bt",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "Has the team replied to the update I sent?",
+      "expected": "email",
+      "source": "lr-mns566bv",
+      "added": "2026-04-10T00:02:23.013Z"
+    },
+    {
+      "msg": "What’s happening on Friday afternoon?",
+      "expected": "calendar",
+      "source": "lr-mns56vo9",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Can you remind me of the train times from London to Manchester? I think I’ve got a ticket but not sure on the platform.",
+      "expected": "travel",
+      "source": "lr-mns578lj",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Is the rail replacement service still running? I saw a message earlier but not sure if it’s still active.",
+      "expected": "travel",
+      "source": "lr-mns578lj",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Quick check—did I confirm the transfer for the evening? I think I left it till the last minute.",
+      "expected": "travel",
+      "source": "lr-mns578lj",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Could you flag the car rental place near the station? I need to get there by 11.",
+      "expected": "travel",
+      "source": "lr-mns578lj",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Need to confirm if the venue accepts mobile check-in. I’ve never been there before.",
+      "expected": "travel",
+      "source": "lr-mns578lj",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Just saw a message—does the return ticket need to be booked in advance?",
+      "expected": "travel",
+      "source": "lr-mns578lj",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Is there a direct route from the station to the conference? Or do I need a bus?",
+      "expected": "travel",
+      "source": "lr-mns578lj",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Can you check if the station has luggage storage? I’m carrying a big bag.",
+      "expected": "travel",
+      "source": "lr-mns578lj",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Can you check if I’ve got any unread messages in my account?",
+      "expected": "email",
+      "source": "lr-mns57f0u",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Is there a message from Sarah about the report?",
+      "expected": "email",
+      "source": "lr-mns57f0u",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Is there a message about the deadline extension?",
+      "expected": "email",
+      "source": "lr-mns57f0u",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Is there a message about the meeting next Tuesday?",
+      "expected": "email",
+      "source": "lr-mns57f0u",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "Hey, can you check if it’s true that the UK has the longest coastline in Europe?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lhq",
+      "added": "2026-04-10T00:03:37.838Z"
+    },
+    {
+      "msg": "What’s the deal with the Great Barrier Reef’s current status?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lhq",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Any idea why the sky is blue?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lhq",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "How come we have leap years every four years?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lhq",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Why do we have time zones?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lhq",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Are there more languages in Africa than anywhere else?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lhq",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Is it true that honey never spoils?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lhq",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "What’s the most spoken language in the world?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lhq",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Why do we have seasons?",
+      "expected": "general_knowledge",
+      "source": "lr-mns57lij",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Can the system handle a last-minute update?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Is the system running smoothly today?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Does the system log everything it does?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Is the system processing things in real time?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Are the system components all active?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Is the system syncing properly?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Can the system handle multiple requests at once?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "Is the system responding to commands fast enough?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "How’s the system coping with the current workload?",
+      "expected": "system",
+      "source": "lr-mns57s31",
+      "added": "2026-04-10T00:03:37.839Z"
+    },
+    {
+      "msg": "What’s the capital of Paraguay?",
+      "expected": "general_knowledge",
+      "source": "lr-mns596qu",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "How tall is the Eiffel Tower?",
+      "expected": "general_knowledge",
+      "source": "lr-mns596qu",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "What’s the largest desert in the world?",
+      "expected": "general_knowledge",
+      "source": "lr-mns596qu",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "What’s the speed of light?",
+      "expected": "general_knowledge",
+      "source": "lr-mns596qu",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "What’s the longest river in the world?",
+      "expected": "general_knowledge",
+      "source": "lr-mns596qu",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "What’s the biggest country by area?",
+      "expected": "general_knowledge",
+      "source": "lr-mns596qu",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "What’s the tallest mountain in the world?",
+      "expected": "general_knowledge",
+      "source": "lr-mns596qu",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "What’s the population of London?",
+      "expected": "general_knowledge",
+      "source": "lr-mns596qu",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "can you check what’s running on the system right now?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "any issues with the system today?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "is the system up and running smoothly?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.019Z"
+    },
+    {
+      "msg": "just wondering — is the system stable at the moment?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "system look good? any hiccups?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "system seem to be handling everything fine?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "system okay? noticed a bit of lag earlier.",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "can you confirm the system is online?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "is the system handling all tasks without delays?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "any recent changes to the system?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "system stable? no errors reported?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "is the system still active in the background?",
+      "expected": "system",
+      "source": "lr-mns59dbi",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "is the backend still live?",
+      "expected": "system",
+      "source": "lr-mns59dbl",
+      "added": "2026-04-10T00:04:52.020Z"
+    },
+    {
+      "msg": "I need to organise a team dinner next week — find a restaurant, check everyone's calendars, and send invites",
+      "expected": "planning",
+      "source": "nightly-touch-20260410",
+      "added": "2026-04-10T22:00:00.000Z"
+    },
+    {
+      "msg": "Can you plan the Berlin trip? I need flights, hotel, and a schedule for the meetings",
+      "expected": "planning",
+      "source": "nightly-touch-20260410",
+      "added": "2026-04-10T22:00:00.000Z"
+    },
+    {
+      "msg": "Help me prepare for the board presentation — pull the latest numbers, draft talking points, and check the room booking",
+      "expected": "planning",
+      "source": "nightly-touch-20260410",
+      "added": "2026-04-10T22:00:00.000Z"
+    },
+    {
+      "msg": "What time is the team dinner on Thursday?",
+      "expected": "calendar",
+      "source": "nightly-touch-20260410",
+      "added": "2026-04-10T22:00:00.000Z"
+    },
+    {
+      "msg": "Can you book a restaurant for Friday evening?",
+      "expected": "task",
+      "source": "nightly-touch-20260410",
+      "added": "2026-04-10T22:00:00.000Z"
+    }
+  ]
 }
