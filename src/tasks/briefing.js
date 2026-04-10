@@ -2,7 +2,7 @@
 
 import { getWidgetData } from '../widgets.js';
 import { getActiveTodos } from '../tools/todo.js';
-import { getEvoStatus, getMemoryStats, isEvoOnline, getOvernightInsights } from '../memory.js';
+import { getEvoStatus, getMemoryStats } from '../memory.js';
 import config from '../config.js';
 import logger from '../logger.js';
 import { readFileSync, writeFileSync } from 'fs';
@@ -131,21 +131,16 @@ export async function checkMorningBriefing(sendFn, todayStr, hours, minutes) {
       sections.push(memLine);
     }
 
-    // Overnight insights (from last night's diary)
-    if (config.evoMemoryEnabled && isEvoOnline()) {
-      try {
-        const yesterday = new Date(todayStr + 'T12:00:00');
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yStr = yesterday.toISOString().split('T')[0];
-
-        const insights = await getOvernightInsights(yStr);
-        if (insights.length > 0) {
-          const lines = insights
-            .slice(0, 4)
-            .map(m => `  - ${m.fact || m.text || m.content || '?'}`);
-          sections.push(`*Overnight insights*\n${lines.join('\n')}`);
-        }
-      } catch (err) { logger.warn({ err: err.message }, 'briefing overnight insights failed'); }
+    // Overnight digest (from the event log — replaces old Overnight insights block)
+    try {
+      const { queryEvents } = await import('../overnight/events.js');
+      const { formatOvernightDigest } = await import('../overnight/overnight-digest.js');
+      const events = await queryEvents({ date: todayStr });
+      const digest = formatOvernightDigest(events);
+      sections.push(digest);
+    } catch (err) {
+      logger.warn({ err: err.message }, 'briefing overnight digest failed');
+      sections.push('*Overnight:* digest unavailable (see Clawd Console for details).');
     }
 
     const briefing = sections.join('\n\n');
