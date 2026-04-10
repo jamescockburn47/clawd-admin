@@ -10,6 +10,10 @@ auth_state/
 # Runtime data (user-specific, regenerated)
 data/soul*.json
 data/audit.json
+
+# Runtime state — written by the live bot, seeded from data/runtime-defaults/
+data/runtime/
+!data/runtime/.gitkeep
 data/messages.json
 data/interactions.jsonl
 data/feedback.jsonl
