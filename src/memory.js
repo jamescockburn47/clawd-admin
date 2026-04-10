@@ -179,6 +179,30 @@ class MemoryClient {
     return { extracted: [], queued: true };
   }
 
+  /**
+   * Call /extract with store_results: false so EVO returns candidates without
+   * persisting them. Used by the compound-dream shadow consolidate stage — the
+   * Node side validates and writes to a shadow file. On offline or error,
+   * returns an empty result with a flag; does NOT queue (queued extracts would
+   * be replayed by the live bot and double-store).
+   * @param {string} conversation
+   * @param {string} source
+   * @returns {Promise<{extracted: Array<object>, offline?: boolean, error?: string}>}
+   */
+  async extractWithoutStoring(conversation, source = 'conversation') {
+    if (!this._online) return { extracted: [], offline: true };
+    try {
+      return await this._fetch('/extract', {
+        method: 'POST',
+        body: JSON.stringify({ conversation, store_results: false, source }),
+        timeout: TIMEOUTS.MEMORY_EXTRACT,
+      });
+    } catch (err) {
+      logger.warn({ err: err.message }, 'EVO X2 extractWithoutStoring failed');
+      return { extracted: [], error: err.message };
+    }
+  }
+
   // --- Media ---
 
   async analyseImage(imageBuffer, prompt, extract = true, storeResults = true) {
@@ -574,6 +598,7 @@ export const storeMemory = async (f, c, t, conf, s) => {
 };
 export const storeNote = (t, s) => client.storeNote(t, s);
 export const extractFromConversation = (c, s) => client.extractFromConversation(c, s);
+export const extractWithoutStoring = (c, s) => client.extractWithoutStoring(c, s);
 export const analyseImage = (b, p, e, s) => client.analyseImage(b, p, e, s);
 export const transcribeAudio = (b, l, e, s) => client.transcribeAudio(b, l, e, s);
 export const updateMemory = async (id, u) => {
