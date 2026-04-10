@@ -9,6 +9,7 @@
 
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'fs';
 import { join } from 'path';
+import { appendEvent } from '../overnight/events.js';
 import logger from '../logger.js';
 
 const TRACE_FILE = join('data', 'reasoning-traces.jsonl');
@@ -26,16 +27,40 @@ export async function checkTraceAnalysis(sendFn, todayStr, hours) {
 
   lastAnalysisDate = todayStr;
 
+  let result = null;
+  let errorSummary = null;
+
   try {
     logger.info('trace-analyser: starting overnight analysis');
-    const result = analyseTraces(7); // last 7 days
+    result = analyseTraces(7); // last 7 days
     saveAnalysis(result);
 
     if (sendFn && result.totalTraces > 0) {
       await sendFn(formatAnalysisSummary(result));
     }
   } catch (err) {
+    errorSummary = err.message;
     logger.error({ err: err.message }, 'trace-analyser: overnight analysis failed');
+  }
+
+  // Event log: one summary event per night.
+  try {
+    const anomalyCount = Array.isArray(result?.anomalies) ? result.anomalies.length : 0;
+    const reason = errorSummary
+      ?? `${result?.totalTraces ?? 0} traces analysed over the last 7 days, ${anomalyCount} anomalies detected`;
+    await appendEvent({
+      stage: 'operations',
+      phase: 'trace-analyser',
+      inputs: [TRACE_FILE],
+      outputs: errorSummary ? [] : [ANALYSIS_FILE],
+      verdict: errorSummary ? 'failed' : 'ok',
+      reason,
+      evidence_refs: [],
+      rollback_ref: null,
+      budget: { opus_sessions: 0, tokens: 0 },
+    }, { date: todayStr });
+  } catch (err) {
+    logger.warn({ err: err.message }, 'trace-analyser: failed to write event');
   }
 }
 

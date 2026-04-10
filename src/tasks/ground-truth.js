@@ -17,6 +17,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { webSearch, webFetch } from '../tools/search.js';
 import { searchMemory } from '../memory.js';
+import { appendEvent } from '../overnight/events.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
@@ -34,8 +35,11 @@ export async function checkGroundTruth(sendFn, todayStr, hours, minutes) {
   lastHarvestDate = todayStr;
   logger.info('ground-truth: starting harvest');
 
+  let result = null;
+  let errorSummary = null;
+
   try {
-    const result = await harvestGroundTruth(todayStr);
+    result = await harvestGroundTruth(todayStr);
     if (result.harvested > 0 && sendFn) {
       await sendFn(config.ownerJid, {
         text: `*Ground Truth Harvest*\nClaims found: ${result.claimsFound}\nVerified: ${result.verified}\nFailed: ${result.failed}\nSkipped: ${result.skipped}`,
@@ -43,7 +47,33 @@ export async function checkGroundTruth(sendFn, todayStr, hours, minutes) {
     }
     logger.info(result, 'ground-truth: harvest complete');
   } catch (err) {
+    errorSummary = err.message;
     logger.error({ err: err.message }, 'ground-truth: harvest failed');
+  }
+
+  // Event log: one summary event per night.
+  try {
+    let reason;
+    if (errorSummary) {
+      reason = errorSummary;
+    } else if (!result || (result.claimsFound ?? 0) === 0) {
+      reason = 'no verifiable claims found in yesterday\'s traces';
+    } else {
+      reason = `${result.claimsFound} claims found, ${result.verified ?? 0} verified, ${result.failed ?? 0} failed, ${result.skipped ?? 0} skipped`;
+    }
+    await appendEvent({
+      stage: 'operations',
+      phase: 'ground-truth',
+      inputs: [TRACE_FILE],
+      outputs: errorSummary ? [] : [GROUND_TRUTH_FILE],
+      verdict: errorSummary ? 'failed' : 'ok',
+      reason,
+      evidence_refs: [],
+      rollback_ref: null,
+      budget: { opus_sessions: 0, tokens: 0 },
+    }, { date: todayStr });
+  } catch (err) {
+    logger.warn({ err: err.message }, 'ground-truth: failed to write event');
   }
 }
 

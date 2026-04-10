@@ -5,6 +5,7 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { cleanDocumentCache } from '../memory.js';
+import { appendEvent } from '../overnight/events.js';
 import logger from '../logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,42 +26,65 @@ export async function checkDailyBackup(todayStr, hours) {
   lastBackupDate = todayStr;
 
   const backupDir = join(DATA_DIR, 'backups', todayStr);
-  await mkdir(backupDir, { recursive: true });
-
   const filesToBackup = ['todos.json', 'soul.json', 'soul_history.json'];
   let count = 0;
+  let errorSummary = null;
 
-  for (const file of filesToBackup) {
-    const src = join(DATA_DIR, file);
-    if (existsSync(src)) {
-      try {
-        const data = await readFile(src);
-        await writeFile(join(backupDir, file), data);
-        count++;
-      } catch (err) {
-        logger.error({ file, err: err.message }, 'backup file failed');
+  try {
+    await mkdir(backupDir, { recursive: true });
+
+    for (const file of filesToBackup) {
+      const src = join(DATA_DIR, file);
+      if (existsSync(src)) {
+        try {
+          const data = await readFile(src);
+          await writeFile(join(backupDir, file), data);
+          count++;
+        } catch (err) {
+          logger.error({ file, err: err.message }, 'backup file failed');
+        }
       }
     }
-  }
 
-  // Clean old backups (keep last 7)
-  try {
-    const backupsRoot = join(DATA_DIR, 'backups');
-    const dirs = (await readdir(backupsRoot)).sort();
-    while (dirs.length > 7) {
-      const old = dirs.shift();
-      await rm(join(backupsRoot, old), { recursive: true, force: true });
+    // Clean old backups (keep last 7)
+    try {
+      const backupsRoot = join(DATA_DIR, 'backups');
+      const dirs = (await readdir(backupsRoot)).sort();
+      while (dirs.length > 7) {
+        const old = dirs.shift();
+        await rm(join(backupsRoot, old), { recursive: true, force: true });
+      }
+    } catch (err) { logger.warn({ err: err.message }, 'backup rotation failed'); }
+
+    if (count > 0) {
+      logger.info({ date: todayStr, files: count }, 'daily backup complete');
     }
-  } catch (err) { logger.warn({ err: err.message }, 'backup rotation failed'); }
 
-  if (count > 0) {
-    logger.info({ date: todayStr, files: count }, 'daily backup complete');
+    // Clean old document cache files (7-day TTL)
+    try {
+      cleanDocumentCache(7);
+    } catch (err) { logger.warn({ err: err.message }, 'document cache cleanup failed'); }
+  } catch (err) {
+    errorSummary = err.message;
+    logger.error({ err: err.message }, 'daily-backup failed');
   }
 
-  // Clean old document cache files (7-day TTL)
+  // Event log: single summary event per night (success or failure).
   try {
-    cleanDocumentCache(7);
-  } catch (err) { logger.warn({ err: err.message }, 'document cache cleanup failed'); }
+    await appendEvent({
+      stage: 'operations',
+      phase: 'daily-backup',
+      inputs: filesToBackup,
+      outputs: errorSummary ? [] : [`backups/${todayStr}`],
+      verdict: errorSummary ? 'failed' : 'ok',
+      reason: errorSummary ?? `${count} files backed up to backups/${todayStr}`,
+      evidence_refs: [],
+      rollback_ref: null,
+      budget: { opus_sessions: 0, tokens: 0 },
+    }, { date: todayStr });
+  } catch (err) {
+    logger.warn({ err: err.message }, 'daily-backup: failed to write event');
+  }
 }
 
 export function getLastBackupDate() { return lastBackupDate; }
