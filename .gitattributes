@@ -1,0 +1,27 @@
+# Force LF line endings on all tracked text files.
+# Mandated by docs/superpowers/specs/2026-04-10-compound-dream-overnight-design.md §6.1 P2.
+* text=auto eol=lf
+
+*.js text eol=lf
+*.ts text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+
+# Binary files — never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.wav binary
+*.mp3 binary
+*.mp4 binary
+*.ogg binary
+*.webm binary
