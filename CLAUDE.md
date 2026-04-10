@@ -16,7 +16,9 @@
 | **Local project path** | `C:\Users\James\Downloads\clawdbot-claude-code` |
 | **SSH key** | `C:\Users\James\.ssh\id_ed25519` |
 | **Node** | v20+, ESM (migrating to TypeScript with `tsx`), `node --env-file=.env src/index.js` |
-| **Dashboard** | Rust native app `clawd-dashboard` on Pi (NOT Chromium), 10.1" touchscreen 1024x600 |
+| **Pi dashboard** | Rust native app `clawd-dashboard` on Pi (NOT Chromium), 10.1" touchscreen 1024x600 |
+| **Clawd Console** | Next.js 16.2.2 app `clawd-console/` — runs on James's **Legion 9 Pro laptop**, not EVO, not Pi. `npm run dev` on port 3100. Talks to the bot on EVO via `PI_URL=http://100.90.66.54:3000` and `EVO_URL=http://100.90.66.54:5100` with `DASHBOARD_TOKEN` auth. Has an `(console)/overnight` page already rendering overnight data via `fetchPi`. **Next.js 16 has breaking changes vs 15** — see `clawd-console/AGENTS.md`; read `node_modules/next/dist/docs/` before writing console code. Key changes: async Request APIs (params are Promises), middleware renamed to proxy, Turbopack default, next/image defaults changed. |
+| **Bot HTTP API** | `src/http-server.js` (~427 lines) on EVO port 3000. Plain `http.createServer` with manual `if (path === '/api/x')` routing — NOT Express. `checkAuth(req)` at top guards every route with `DASHBOARD_TOKEN`. Add new routes by matching the existing pattern. |
 
 For EVO services/ports/models, see [EVO X2 Reference](docs/evo-x2-reference.md).
 For deploy commands and SSH patterns, see [Deployment](docs/deployment.md).
