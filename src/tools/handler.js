@@ -12,6 +12,7 @@ import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
 import { projectList, projectRead, projectPitch, projectUpdate } from './projects.js';
 import { liveBriefing } from './briefing.js';
 import { groupDecisions } from './group-decisions.js';
+import { overnightStatus } from './overnight-status.js';
 import { sendOvernightReport } from '../overnight-report.js';
 import { createTask } from '../evolution.js';
 import { setGroupConfig, findGroupByLabel, addBlockedTopics, getRegisteredGroups, getGroupMode } from '../group-registry.js';
@@ -153,6 +154,7 @@ const TOOL_MAP = new Map([
   ['memory_delete', memoryDeleteHandler],
   ['live_briefing', liveBriefing],
   ['group_decisions', groupDecisions],
+  ['overnight_status', overnightStatus],
   ['system_status', systemStatusHandler],
   ['project_list', projectList],
   ['project_read', projectRead],

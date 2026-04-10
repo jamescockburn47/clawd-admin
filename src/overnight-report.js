@@ -570,6 +570,49 @@ function formatSelfImproveSection(data) {
   return lines.length > 0 ? lines.join('\n') : 'Cycle ran but produced no changes.';
 }
 
+/**
+ * Produce a one-line human-readable headline for the forge session.
+ * Leads the morning report — James reads this first, then the detail.
+ */
+function summariseForgeOutcome(forgeReport) {
+  if (!forgeReport) return 'Forge did not run.';
+
+  const { phases = {}, deployAction, tasks = [], spec, errors = [] } = forgeReport;
+  const failed = Object.entries(phases).filter(([, p]) => p.status === 'error').map(([n]) => n);
+
+  // Catastrophic: analysis or architect failed
+  if (failed.includes('analysis') || failed.includes('architect')) {
+    return `Forge failed early (${failed.join(', ')}) — nothing was implemented.`;
+  }
+
+  // Happy paths
+  if (deployAction === 'auto-deployed') {
+    return `The forge built and auto-deployed a fix: "${spec || 'overnight improvement'}".`;
+  }
+  if (deployAction === 'queued' && tasks.length > 0) {
+    return `The forge built a change and is waiting for your approval: "${spec || 'overnight improvement'}".`;
+  }
+  if (deployAction === 'deploy-failed') {
+    return `The forge built a change but the deploy failed — reverted automatically.`;
+  }
+
+  // Implement/review ran but no deploy action — unusual
+  if (phases.implement?.status === 'ok' && !deployAction) {
+    return `The forge built a change but didn't reach the deploy phase — check phase logs.`;
+  }
+
+  // Nightly touch only (no full cycle)
+  if (phases.nightlyTouch?.status === 'ok' && !phases.implement) {
+    return `Forge ran nightly touch only — no major spec this session.`;
+  }
+
+  // Everything failed or unclear
+  if (errors.length > 0) {
+    return `Forge ran with errors: ${errors.slice(0, 2).join('; ')}`;
+  }
+  return `Forge session complete — no notable output.`;
+}
+
 // --- Generate structured markdown report ---
 
 function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHealth, logStats, dateStr, traceAnalysis = null, retrospective = null, evolutionReport = null, forgeReport = null) {
@@ -717,20 +760,38 @@ function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHe
     lines.push(`## Overnight Improvement Pipeline`);
 
     if (forgeReport) {
-      lines.push(`### Forge Session`);
-      lines.push(`- Date: ${forgeReport.date}`);
+      lines.push(`### The Forge (self-coding cycle)`);
+
+      // Lead with the headline: what actually happened
+      const headline = summariseForgeOutcome(forgeReport);
+      lines.push(headline);
+      lines.push('');
+
+      // What was built / attempted
+      if (forgeReport.spec) {
+        lines.push(`*What I worked on:* ${forgeReport.spec}`);
+      }
+      if (forgeReport.nightlyTouchAction && forgeReport.nightlyTouchFiles?.length) {
+        lines.push(`*Nightly touch:* ${forgeReport.nightlyTouchAction} → ${forgeReport.nightlyTouchFiles.join(', ')}`);
+      }
+      if (forgeReport.deployAction === 'auto-deployed') {
+        lines.push(`*Outcome:* Auto-deployed to main. Service is now running the new code.`);
+      } else if (forgeReport.deployAction === 'queued') {
+        const taskIds = forgeReport.tasks?.length ? forgeReport.tasks.join(', ') : '(no task id)';
+        lines.push(`*Outcome:* Ready to merge but needs your approval. Task: ${taskIds}. Reply "approve" to merge the forge branch.`);
+      } else if (forgeReport.deployAction === 'deploy-failed') {
+        lines.push(`*Outcome:* Deploy failed — reverted automatically. Check logs.`);
+      }
+
+      // Phase-level failures (only show if something actually broke)
       if (forgeReport.phases) {
-        const phaseSummary = Object.entries(forgeReport.phases)
-          .map(([name, p]) => `${name}: ${p.status}${p.error ? ` (${p.error})` : ''}`)
-          .join(' | ');
-        lines.push(`- Phases: ${phaseSummary}`);
+        const failures = Object.entries(forgeReport.phases)
+          .filter(([, p]) => p.status === 'error' || p.error)
+          .map(([name, p]) => `${name}: ${p.error || 'error'}`);
+        if (failures.length > 0) {
+          lines.push(`*Phase failures:* ${failures.join('; ')}`);
+        }
       }
-      if (forgeReport.nightlyTouchFiles?.length) {
-        lines.push(`- Nightly touch: ${forgeReport.nightlyTouchFiles.join(', ')}`);
-      }
-      if (forgeReport.spec) lines.push(`- Spec: ${forgeReport.spec}`);
-      if (forgeReport.deployAction) lines.push(`- Deploy action: ${forgeReport.deployAction}`);
-      if (forgeReport.tasks?.length) lines.push(`- Spawned evolution tasks: ${forgeReport.tasks.join(', ')}`);
       lines.push('');
     }
 

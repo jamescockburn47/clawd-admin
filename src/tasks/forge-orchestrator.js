@@ -753,10 +753,20 @@ async function phaseDeploy(session, sendFn) {
 }
 
 function queueForApproval(session, sendFn, branch, review, spec, forcedReason = null) {
+  const files = session.phases.implement?.files || [];
+  // Pre-implemented task: forge has already done architect/implement/review.
+  // The task goes straight to 'awaiting_approval' so the dispatcher does NOT
+  // re-run Claude Code. On approval, evolution-gate merges the existing branch.
   const task = createTask(
     `Forge: ${spec?.title || 'overnight improvement'} — ${review.summary || 'see spec'}`,
     'forge',
     'normal',
+    {
+      pre_implemented: true,
+      forge_branch: branch,
+      diff_summary: review.summary || null,
+      files_changed: files,
+    },
   );
   session.tasks.push(task?.id);
 
@@ -765,12 +775,12 @@ function queueForApproval(session, sendFn, branch, review, spec, forcedReason = 
     const msg = [
       '*FORGE — Needs Approval*',
       `Branch: ${branch}`,
-      `Files: ${(session.phases.implement?.files || []).join(', ')}`,
+      `Files: ${files.join(', ')}`,
       `Reason: ${reason}`,
       review.summary || '',
       review.issues?.length ? `Issues: ${review.issues.join('; ')}` : '',
       '',
-      `Task ${task?.id} queued. Reply "approve forge" to deploy.`,
+      `Task ${task?.id} is ready to merge. Reply "approve" to deploy or "reject" to discard.`,
     ].filter(Boolean).join('\n');
     sendFn(msg).catch(() => {});
   }
@@ -789,32 +799,9 @@ async function phaseMeta(session) {
     '## Session Summary',
     JSON.stringify({
       phases: Object.fromEntries(
-        Object.entries(session.phases).map(([k, v]) => [k, {
-          status: v?.status,
-          elapsed: v?.elapsed,
-          ...(v?.error && { error: v.error }),
-        }])
+        Object.entries(session.phases).map(([k, v]) => [k, { status: v?.status, elapsed: v?.elapsed }])
       ),
       errors: session.errors,
-      spec: session.phases.architect?.spec ? {
-        title: session.phases.architect.spec.title,
-        goal: session.phases.architect.spec.goal,
-        files: session.phases.architect.spec.files_to_modify,
-        auto_deployable: session.phases.architect.spec.auto_deployable,
-      } : null,
-      review: session.phases.review?.verdict ? {
-        verdict: session.phases.review.verdict.verdict,
-        confidence: session.phases.review.verdict.confidence,
-        issues: session.phases.review.verdict.issues,
-      } : null,
-      nightlyTouch: session.phases.nightlyTouch ? {
-        action: session.phases.nightlyTouch.action,
-        files: session.phases.nightlyTouch.files,
-      } : null,
-      implementation: session.phases.implement ? {
-        branch: session.phases.implement.branch,
-        files: session.phases.implement.files,
-      } : null,
     }, null, 2),
     '',
     '## Instructions',

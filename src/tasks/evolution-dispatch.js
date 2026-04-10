@@ -7,11 +7,26 @@ import logger from '../logger.js';
 
 /**
  * Check for and execute pending evolution tasks.
+ *
+ * Note: forge-sourced tasks are created with pre_implemented=true and go
+ * directly to 'awaiting_approval'. They bypass this dispatcher entirely —
+ * the forge has already run architect/implement/review and the branch exists.
+ * Only non-forge tasks (WhatsApp evolution_task, overnight-to-evolution) hit
+ * the executor path below.
+ *
  * @param {Function} sendFn - WhatsApp send function
  */
 export async function checkEvolutionTasks(sendFn) {
   const task = getNextPending();
   if (!task) return;
+
+  // Defence in depth: if a pre-implemented task somehow appears as 'pending',
+  // promote it without running the executor (its branch already exists).
+  if (task.pre_implemented) {
+    updateTask(task.id, { status: 'awaiting_approval' });
+    logger.info({ taskId: task.id }, 'evolution: pre-implemented task promoted without execution');
+    return;
+  }
 
   const { allowed, reason } = canRunTask();
   if (!allowed) {

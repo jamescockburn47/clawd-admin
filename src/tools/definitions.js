@@ -641,10 +641,26 @@ export const TOOL_DEFINITIONS = [
     },
   },
 
+  // === OVERNIGHT STATUS ===
+  {
+    name: 'overnight_status',
+    description: "Get a concise plain-text summary of what the overnight jobs did last night: forge outcome, evolution tasks queued, self-improve cycle results. Use when asked \"what happened overnight\", \"what did the forge do\", \"what's awaiting my approval\", or similar questions about specific overnight job outcomes. Fast — reads persisted artifacts, does not regenerate anything.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: {
+          type: 'string',
+          description: 'Optional YYYY-MM-DD date. Defaults to most recent overnight session.',
+        },
+      },
+      required: [],
+    },
+  },
+
   // === OVERNIGHT REPORT ===
   {
     name: 'overnight_report',
-    description: 'Regenerate and send the overnight intelligence report (diary summaries, facts, insights, soul observations, project deep think, self-improvement, system health). Sends via email and WhatsApp. Use when James asks to regenerate, resend, or review the overnight report.',
+    description: 'Regenerate and RESEND the full overnight intelligence report (diary summaries, facts, insights, soul observations, project deep think, self-improvement, system health). Sends via email and WhatsApp. Use ONLY when James asks to regenerate, resend, or review the full overnight report. For "what happened overnight" use overnight_status instead.',
     input_schema: {
       type: 'object',
       properties: {

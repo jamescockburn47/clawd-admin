@@ -32,7 +32,17 @@ function saveTasks(tasks) {
   writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2), 'utf-8');
 }
 
-export function createTask(instruction, source = 'whatsapp', priority = 'normal') {
+/**
+ * Create a new evolution task.
+ * @param {string} instruction - What should happen
+ * @param {string} source - 'whatsapp' | 'forge' | 'overnight-analysis' etc.
+ * @param {string} priority - 'normal' | 'high'
+ * @param {object} extras - Optional extras:
+ *   - forge_branch: existing branch to merge on approval (skips re-implementation)
+ *   - diff_summary, diff_detail, files_changed: pre-populated review data
+ *   - pre_implemented: true → dispatcher skips executor, goes straight to awaiting_approval
+ */
+export function createTask(instruction, source = 'whatsapp', priority = 'normal', extras = {}) {
   const tasks = loadTasks();
   const id = `evo_${randomBytes(4).toString('hex')}`;
   const slug = instruction
@@ -46,19 +56,26 @@ export function createTask(instruction, source = 'whatsapp', priority = 'normal'
     source,
     instruction,
     priority,
-    status: 'pending',
+    // Pre-implemented tasks (e.g. from forge) skip the dispatcher's PLAN/EXECUTE passes
+    // and go straight to awaiting_approval. The branch already exists, diff is known.
+    status: extras.pre_implemented ? 'awaiting_approval' : 'pending',
     created: new Date().toISOString(),
-    branch: `evo/${slug}`,
-    diff_summary: null,
-    diff_detail: null,
+    branch: extras.forge_branch || `evo/${slug}`,
+    forge_branch: extras.forge_branch || null,
+    pre_implemented: !!extras.pre_implemented,
+    diff_summary: extras.diff_summary || null,
+    diff_detail: extras.diff_detail || null,
     approval_message_id: null,
     result: null,
-    files_changed: [],
+    files_changed: extras.files_changed || [],
   };
 
   tasks.push(task);
   saveTasks(tasks);
-  logger.info({ taskId: id, source, instruction: instruction.slice(0, 100) }, 'evolution task created');
+  logger.info(
+    { taskId: id, source, status: task.status, forge_branch: task.forge_branch, instruction: instruction.slice(0, 100) },
+    'evolution task created',
+  );
   return task;
 }
 
