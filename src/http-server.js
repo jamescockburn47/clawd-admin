@@ -265,6 +265,34 @@ export function startHttpServer(port, deps) {
       }
     }
 
+    // --- Overnight events + shadow candidates (new event log, for clawd-console drill-down) ---
+    if (path.startsWith('/api/overnight-events/')) {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      const dateStr = path.split('/api/overnight-events/')[1];
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return json(res, 400, { error: 'Invalid date format. Use YYYY-MM-DD.' });
+      }
+      try {
+        const { queryEvents } = await import('./overnight/events.js');
+        const events = await queryEvents({ date: dateStr });
+        const shadowFile = join(__dirname, '..', 'data', 'overnight', `shadow-candidates-${dateStr}.jsonl`);
+        let shadowCandidates = [];
+        if (existsSync(shadowFile)) {
+          const raw = readFileSync(shadowFile, 'utf-8').trim().split('\n').filter(Boolean);
+          for (const line of raw) {
+            try {
+              shadowCandidates.push(JSON.parse(line));
+            } catch {
+              // intentional: skip malformed lines, don't fail the whole request
+            }
+          }
+        }
+        return json(res, 200, { date: dateStr, events, shadowCandidates });
+      } catch (err) {
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     // --- Trace analysis diagnostics ---
     if (path === '/api/traces') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
