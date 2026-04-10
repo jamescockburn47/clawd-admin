@@ -1,9 +1,10 @@
 // src/tools/projects.js — Project management tools for persistent project definitions
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
 import logger from '../logger.js';
+import { runtimePath } from '../overnight/paths.js';
 
-const PROJECTS_FILE = join('data', 'projects.json');
+// Post Phase 0 spec §6.1 P1: runtime state lives in data/runtime/
+const PROJECTS_FILE = runtimePath('projects.json');
 
 function loadProjects() {
   try {

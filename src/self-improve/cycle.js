@@ -18,9 +18,11 @@ import logger from '../logger.js';
 import { reloadLearnedRules, KEYWORD_RULES, CATEGORY, classifyByKeywords } from '../router.js';
 import { classifyVia4B } from '../evo-llm.js';
 import { plannerBreaker } from '../evo-client.js';
+import { runtimePath } from '../overnight/paths.js';
 
 const TELEMETRY_FILE = join('data', 'router-stats.jsonl');
-const LEARNED_RULES_FILE = join('data', 'learned-rules.json');
+// Post Phase 0 spec §6.1 P1: learned-rules.json is live-bot-written state.
+const LEARNED_RULES_FILE = runtimePath('learned-rules.json');
 const LEARNED_EVAL_FILE = join('data', 'learned-eval-labels.json');
 const CYCLE_LOG_FILE = join('data', 'self-improve-log.jsonl');
 

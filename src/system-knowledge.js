@@ -7,6 +7,7 @@ import { storeMemory, searchMemory, isEvoOnline, deleteMemory, listMemories, syn
 import { describeCapabilities, getForgeHistory } from './skill-registry.js';
 import config from './config.js';
 import logger from './logger.js';
+import { runtimePath } from './overnight/paths.js';
 
 const KNOWLEDGE_SOURCE = 'system_knowledge';
 const KNOWLEDGE_CATEGORY = 'system';
@@ -366,8 +367,9 @@ export async function refreshSystemKnowledge() {
     }
 
     // 2. Update the knowledge doc timestamp in meta.json (or legacy monolith)
+    // Post Phase 0 spec §6.1 P1: meta.json is live-bot-written state.
     try {
-      const metaPath = join(KNOWLEDGE_DIR, 'meta.json');
+      const metaPath = runtimePath('system-knowledge/meta.json');
       if (existsSync(metaPath)) {
         const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
         meta.lastUpdated = new Date().toISOString();

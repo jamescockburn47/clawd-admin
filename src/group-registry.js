@@ -2,10 +2,13 @@
 // Maps WhatsApp group JIDs to modes (open/project/colleague) and optional blocked topics.
 // Data lives in data/group-registry.json, hot-reloaded every 5 minutes.
 import { readFileSync, writeFileSync, existsSync } from 'fs';
-import { join } from 'path';
 import logger from './logger.js';
+import { runtimePath } from './overnight/paths.js';
 
-const REGISTRY_FILE = join('data', 'group-registry.json');
+// Resolves to data/runtime/group-registry.json, seeded from
+// data/runtime-defaults/group-registry.json on fresh clones.
+// Spec §6.1 P1.
+const REGISTRY_FILE = runtimePath('group-registry.json');
 const RELOAD_INTERVAL_MS = 300_000; // 5 minutes
 
 let registry = { groups: {} };

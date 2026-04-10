@@ -7,7 +7,7 @@
   "scripts": {
     "start": "tsx src/index.js",
     "dev": "tsx --watch src/index.js",
-    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test": "tsx --test --test-concurrency=1 test/*.test.js",
     "typecheck": "tsc --noEmit",
     "eval": "node eval/router-eval.js",
     "lint:standards": "node hooks/lint-all.mjs"

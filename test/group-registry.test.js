@@ -5,7 +5,8 @@ import { join } from 'path';
 import { pathToFileURL } from 'url';
 
 describe('group-registry', () => {
-  const REGISTRY_PATH = join('data', 'group-registry.json');
+  // Post Phase 0 spec §6.1 P1: runtime state lives in data/runtime/
+  const REGISTRY_PATH = join('data', 'runtime', 'group-registry.json');
   let originalContent;
   let registry;
 
