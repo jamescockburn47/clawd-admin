@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react"
 import { fetchPi } from "@/lib/api"
-import type { OvernightReport, DreamFact, DreamInsight, TraceAnalysis, Retrospective } from "@/lib/types"
+import type {
+  OvernightReport,
+  DreamFact,
+  DreamInsight,
+  TraceAnalysis,
+  Retrospective,
+  OvernightEvent,
+  ShadowCandidate,
+  OvernightEventsResponse,
+} from "@/lib/types"
 import { DiaryCard } from "@/components/overnight/diary-card"
 import { DateSelector } from "@/components/overnight/date-selector"
 import { TraceSummary } from "@/components/overnight/trace-summary"
@@ -157,6 +166,12 @@ export default function OvernightPage() {
   const [retrospective, setRetrospective] = useState<Retrospective | null>(null)
   const [soul, setSoul] = useState<Record<string, unknown> | null>(null)
 
+  // New event log + shadow candidates (date-dependent, independent of old report)
+  const [eventLog, setEventLog] = useState<OvernightEvent[] | null>(null)
+  const [shadowCandidates, setShadowCandidates] = useState<ShadowCandidate[] | null>(null)
+  const [eventsLoading, setEventsLoading] = useState(false)
+  const [eventsError, setEventsError] = useState<string | null>(null)
+
   // Fetch date-dependent overnight report
   useEffect(() => {
     let cancelled = false
@@ -174,6 +189,34 @@ export default function OvernightPage() {
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [date])
+
+  // Fetch new event log + shadow candidates (independent of old overnight-report)
+  useEffect(() => {
+    let cancelled = false
+    setEventsLoading(true)
+    setEventsError(null)
+    setEventLog(null)
+    setShadowCandidates(null)
+
+    fetchPi<OvernightEventsResponse>(`overnight-events/${date}`)
+      .then((data) => {
+        if (!cancelled) {
+          setEventLog(data.events ?? [])
+          setShadowCandidates(data.shadowCandidates ?? [])
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setEventsError(err instanceof Error ? err.message : "Failed to load events")
+      })
+      .finally(() => {
+        if (!cancelled) setEventsLoading(false)
       })
 
     return () => {
@@ -304,6 +347,145 @@ export default function OvernightPage() {
           </Tabs>
         </>
       )}
+
+      {/* --- New event log + shadow candidates (independent of old report) --- */}
+      <div className="flex flex-col gap-3 mt-2">
+        <h2 className="text-base font-semibold">Event log</h2>
+
+        {eventsLoading && (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-24 w-full" />
+          </div>
+        )}
+
+        {!eventsLoading && eventsError && (
+          <Card>
+            <CardContent className="py-4 text-sm text-destructive">
+              {eventsError}
+            </CardContent>
+          </Card>
+        )}
+
+        {!eventsLoading && !eventsError && eventLog && (
+          <Tabs defaultValue="events">
+            <TabsList>
+              <TabsTrigger value="events">Events ({eventLog.length})</TabsTrigger>
+              <TabsTrigger value="shadow">
+                Shadow candidates ({shadowCandidates?.length ?? 0})
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="events" className="flex flex-col gap-2 mt-4">
+              {eventLog.length === 0 && (
+                <Card>
+                  <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                    No events recorded for {date}.
+                  </CardContent>
+                </Card>
+              )}
+
+              {eventLog.map((e) => (
+                <Card key={e.id} size="sm">
+                  <CardContent className="flex flex-col gap-1.5">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <Badge
+                        className={
+                          e.verdict === "failed"
+                            ? "bg-red-600 text-white hover:bg-red-600 shrink-0"
+                            : e.verdict === "ok"
+                              ? "bg-emerald-600 text-white hover:bg-emerald-600 shrink-0"
+                              : "shrink-0"
+                        }
+                      >
+                        {e.verdict}
+                      </Badge>
+                      <Badge variant="outline" className="shrink-0">
+                        {e.stage}
+                      </Badge>
+                      <span className="text-sm font-medium">{e.phase}</span>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {new Date(e.timestamp).toLocaleTimeString("en-GB", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-snug">
+                      {e.reason}
+                    </p>
+                    {(e.inputs.length > 0 || e.outputs.length > 0) && (
+                      <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-border mt-0.5">
+                        {e.inputs.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-medium">in:</span>{" "}
+                            {e.inputs.join(", ")}
+                          </p>
+                        )}
+                        {e.outputs.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-medium">out:</span>{" "}
+                            {e.outputs.join(", ")}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {e.evidence_refs.length > 0 && (
+                      <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-destructive mt-0.5">
+                        {e.evidence_refs.map((ref, i) => (
+                          <p key={i} className="text-xs text-destructive italic">
+                            {ref}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </TabsContent>
+
+            <TabsContent value="shadow" className="flex flex-col gap-2 mt-4">
+              {(!shadowCandidates || shadowCandidates.length === 0) && (
+                <Card>
+                  <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                    No shadow candidates for {date}.
+                  </CardContent>
+                </Card>
+              )}
+
+              {shadowCandidates?.map((sc, i) => (
+                <Card key={i} size="sm">
+                  <CardContent className="flex flex-col gap-1.5">
+                    <div className="flex items-start gap-2 flex-wrap">
+                      <Badge variant="outline" className="shrink-0">
+                        {sc.candidate.category}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {Math.round(sc.candidate.confidence * 100)}% confidence
+                      </span>
+                    </div>
+                    <p className="text-sm leading-snug">{sc.candidate.text}</p>
+                    {sc.candidate.sources.length > 0 && (
+                      <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-border mt-0.5">
+                        {sc.candidate.sources.map((src, j) => (
+                          <p
+                            key={j}
+                            className="text-xs text-muted-foreground italic"
+                          >
+                            {src.hash.slice(0, 20)}…: {src.excerpt.slice(0, 80)}
+                            {src.excerpt.length > 80 && "…"}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </TabsContent>
+          </Tabs>
+        )}
+      </div>
     </div>
   )
 }

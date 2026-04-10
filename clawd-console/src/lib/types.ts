@@ -214,3 +214,54 @@ export interface Retrospective {
   priorities: RetrospectivePriority[];
   evolutionTasksCreated?: Array<{ title: string; taskId: string }>;
 }
+
+// --- Overnight event log (from GET /api/overnight-events/:date) ---
+// Mirrors src/overnight/events.ts on the bot side. Spec:
+// docs/superpowers/specs/2026-04-10-overnight-digest-and-console-design.md §4.6
+export type OvernightStage =
+  | 'consolidate'
+  | 'probe'
+  | 'report'
+  | 'improve'
+  | 'operations';
+
+export type OvernightVerdict =
+  | 'ok'
+  | 'rejected'
+  | 'failed'
+  | 'skipped'
+  | 'null';
+
+export interface OvernightEvent {
+  id: string;
+  timestamp: string; // ISO 8601
+  stage: OvernightStage;
+  phase: string;
+  inputs: string[];
+  outputs: string[];
+  verdict: OvernightVerdict;
+  reason: string;
+  evidence_refs: string[];
+  rollback_ref: string | null;
+  budget: {
+    opus_sessions: number;
+    tokens: number;
+  };
+}
+
+export interface ShadowCandidate {
+  timestamp: string;
+  candidate: {
+    text: string;
+    category: string;
+    confidence: number;
+    sources: Array<{ hash: string; excerpt: string }>;
+    [key: string]: unknown;
+  };
+}
+
+export interface OvernightEventsResponse {
+  date: string;
+  events: OvernightEvent[];
+  shadowCandidates: ShadowCandidate[];
+}
