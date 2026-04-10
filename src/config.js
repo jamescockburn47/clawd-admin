@@ -25,7 +25,7 @@ const ConfigSchema = z.object({
   RANDOM_REPLY_CHANCE: floatFromEnv(0.05).default('0.05'),
   KEYWORD_BOOST_CHANCE: floatFromEnv(0.25).default('0.25'),
   RANDOM_COOLDOWN_SECONDS: intFromEnv(300).default('300'),
-  CONTEXT_MESSAGE_COUNT: intFromEnv(10).default('10'),
+  CONTEXT_MESSAGE_COUNT: intFromEnv(30).default('30'),
   MAX_RESPONSE_TOKENS: intFromEnv(1000).default('1000'),
   DAILY_CALL_LIMIT: intFromEnv(100).default('100'),
   AUTH_STATE_PATH: z.string().optional().default('./auth_state'),
@@ -47,6 +47,10 @@ const ConfigSchema = z.object({
 
   // Web search
   BRAVE_API_KEY: z.string().optional().default(''),
+
+  // Perplexity Sonar (grounded research — Search API + Agent API)
+  PERPLEXITY_API_KEY: z.string().optional().default(''),
+  PERPLEXITY_ENABLED: boolFromEnv.default('true'),
 
   // Dashboard — Pi connects to EVO's HTTP server
   HTTP_PORT: intFromEnv(3000).default('3000'),
@@ -146,6 +150,9 @@ const config = {
   googleRefreshToken: env.GOOGLE_REFRESH_TOKEN,
 
   braveApiKey: env.BRAVE_API_KEY,
+
+  perplexityApiKey: env.PERPLEXITY_API_KEY,
+  perplexityEnabled: env.PERPLEXITY_ENABLED,
 
   httpPort: env.HTTP_PORT,
   dashboardToken: env.DASHBOARD_TOKEN,

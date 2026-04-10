@@ -83,7 +83,7 @@ export async function checkOvernightExtraction(todayStr, hours) {
         }).filter(Boolean);
 
         const convText = messages.map(m =>
-          `${m.sender || (m.isBot ? 'Clawd' : 'User')}: ${m.text}`
+          `${m.sender || (m.isBot ? 'Clint' : 'User')}: ${m.text}`
         ).join('\n');
 
         if (convText.length < 50) continue;

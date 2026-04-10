@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 
 import config from './config.js';
 import logger from './logger.js';
-import { loadBuffers, saveBuffers, pushMessage, flushBufferTimer } from './buffer.js';
+import { loadBuffers, saveBuffers, pushMessage, flushBufferTimer, rehydrateGroupBuffers } from './buffer.js';
 import { flushUsage } from './claude.js';
 import { stopWidgetRefresh } from './widgets.js';
 import { setSendOwnerDM, setSendWhatsApp, setSendDocument } from './tools/handler.js';
@@ -38,7 +38,7 @@ let activeSock = null;
 
 function printBanner() {
   const banner = `
-  CLAWD — Admin Assistant
+  CLINT — Admin Assistant
   Model:    ${config.claudeModel}
   Prefix:   ${config.triggerPrefix}
   Limit:    ${config.dailyCallLimit} calls/day
@@ -53,7 +53,7 @@ async function sendProactiveMessage(jid, text) {
   await simulateTyping(activeSock, jid, text.length);
   const sent = await activeSock.sendMessage(jid, { text });
   if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
-  pushMessage(jid, { senderName: 'Clawd', text, hasImage: false, isBot: true });
+  pushMessage(jid, { senderName: 'Clint', text, hasImage: false, isBot: true });
   logger.info({ jid, chars: text.length }, 'proactive message sent');
 }
 
@@ -72,6 +72,7 @@ async function startBot() {
 
   // Load persisted message buffers before connecting
   await loadBuffers();
+  rehydrateGroupBuffers();
 
   await loadSkills();
   logger.info('skill registry loaded');
@@ -86,7 +87,7 @@ async function startBot() {
       keys: makeCacheableSignalKeyStore(state.keys, baileysLogger),
     },
     logger: baileysLogger,
-    browser: ['Clawd', 'Chrome', '122.0.0'],
+    browser: ['Clint', 'Chrome', '122.0.0'],
     markOnlineOnConnect: false,
     syncFullHistory: false,
     printQRInTerminal: false,

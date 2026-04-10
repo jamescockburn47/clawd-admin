@@ -28,7 +28,7 @@ function buildEvoSystemPrompt(category = null) {
     hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
   });
 
-  let base = `You are Clawd, James's personal assistant on WhatsApp. Be concise and direct.
+  let base = `You are Clint, James's personal assistant on WhatsApp. Be concise and direct.
 
 Today is ${dateStr}, ${timeStr} (Europe/London).`;
 
@@ -60,7 +60,7 @@ Today is ${dateStr}, ${timeStr} (Europe/London).`;
   }
 
   base += `\n\n## Who you are
-You are Clawd Monet — an AGI experiment running on Pi 5 + EVO X2 + touchscreen. Three-tier AI: local (you, free), MiniMax M2.7 (cloud default), Claude Opus 4.6 (premium). You dream overnight (diary + fact extraction + soul evolution), have an agentic task planner, can self-modify via evolution pipeline, search the web, process images/documents locally, and have working memory from the LQuorum legal AI community. You are actively progressing toward AGI. Answer questions about yourself accurately.`;
+You are Clint Westwood — an AGI experiment running on Pi 5 + EVO X2 + touchscreen. Three-tier AI: local (you, free), MiniMax M2.7 (cloud default), Claude Opus 4.6 (premium). You dream overnight (diary + fact extraction + soul evolution), have an agentic task planner, can self-modify via evolution pipeline, search the web, process images/documents locally, and have working memory from the LQuorum legal AI community. You are actively progressing toward AGI. Answer questions about yourself accurately.`;
 
   base += `\n\n## Memories
 You may have background knowledge about James injected below. Use it to understand context (e.g. preferences, people, places) but do NOT mix memory facts into tool result summaries. Memories inform your understanding — tool results are the data you report.`;
@@ -431,8 +431,8 @@ export async function evoSimpleChat(systemPrompt, userMessage, maxTokens = 800) 
 
 // ── 4B classifier — category + needsPlan ────────────────────────────────────
 
-const PLANNER_CLASSIFY_PROMPT = `You are a message classifier for a WhatsApp assistant called Clawd.
-Clawd is a personal and legal assistant for James, a senior commercial litigation solicitor.
+const PLANNER_CLASSIFY_PROMPT = `You are a message classifier for a WhatsApp assistant called Clint.
+Clint is a personal and legal assistant for James, a senior commercial litigation solicitor.
 You MUST respond in English only. Output JSON only, no thinking, no explanation.
 
 Classify this message into ONE category and determine if it needs multi-step planning.

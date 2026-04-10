@@ -283,7 +283,7 @@ function generateKnowledgeEntries() {
 function generateFallbackEntries() {
   return [
     {
-      fact: 'Clawd is a distributed WhatsApp admin assistant: Raspberry Pi 5 runs Node.js (Baileys, HTTP API, scheduler). EVO X2 runs llama-server (OpenAI-compatible, tools + classifier + embeddings via nomic-embed-text on port 8083), memory service (port 5100), and Whisper + voice listener. Cloud: MiniMax M2.7 (default chat), Claude Opus 4.6 (quality gate + explicit request). The Pi touchscreen runs a Rust (egui) dashboard against localhost:3000.',
+      fact: 'Clint is a distributed WhatsApp admin assistant: Raspberry Pi 5 runs Node.js (Baileys, HTTP API, scheduler). EVO X2 runs llama-server (OpenAI-compatible, tools + classifier + embeddings via nomic-embed-text on port 8083), memory service (port 5100), and Whisper + voice listener. Cloud: MiniMax M2.7 (default chat), Claude Opus 4.6 (quality gate + explicit request). The Pi touchscreen runs a Rust (egui) dashboard against localhost:3000.',
       tags: ['architecture', 'overview'],
     },
   ];

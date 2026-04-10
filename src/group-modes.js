@@ -4,6 +4,7 @@
 // Today's topics are clustered live via EVO 30B on demand.
 import { getGroupTopics, formatTopicsForSelection, getTranscriptForSelection } from './topic-index.js';
 import { setPendingAction, getPendingAction, clearPendingAction, parseTopicSelection } from './pending-action.js';
+import { buildStressTestPrompt } from './stress-test.js';
 import logger from './logger.js';
 
 // ── TRIGGER DETECTION ────────────────────────────────────────────────────────
@@ -11,8 +12,9 @@ import logger from './logger.js';
 const DEVILS_ADVOCATE_PATTERN = /\bdevil[\u2018\u2019'']?s?\s*advocate\b/i;
 const SUMMARY_PATTERN = /\b(summari[sz]e|summary|recap|catch me up|what did i miss|what have i missed)\b/i;
 const ARISTOTLE_PATTERN = /\b(aristotle|first\s*principles?\s*(deconstruct|analy[sz]e?|mode)?)\b/i;
-const EXIT_PATTERN = /\b(exit|stop|cancel|quit|leave|drop|never\s*mind|forget\s*it)\b.*\b(mode|advocate|summary|summari[sz]e|critique|analysis|aristotle|first\s*principles?)\b/i;
-const EXIT_PATTERN_REVERSE = /\b(mode|advocate|summary|summari[sz]e|critique|analysis|aristotle|first\s*principles?)\b.*\b(exit|stop|cancel|quit|off)\b/i;
+const STRESS_TEST_PATTERN = /\b(stress[\s-]?test|challenge\s+this|test\s+this\s+(idea|plan|argument|position))\b/i;
+const EXIT_PATTERN = /\b(exit|stop|cancel|quit|leave|drop|never\s*mind|forget\s*it)\b.*\b(mode|advocate|summary|summari[sz]e|critique|analysis|aristotle|first\s*principles?|stress[\s-]?test)\b/i;
+const EXIT_PATTERN_REVERSE = /\b(mode|advocate|summary|summari[sz]e|critique|analysis|aristotle|first\s*principles?|stress[\s-]?test)\b.*\b(exit|stop|cancel|quit|off)\b/i;
 
 /**
  * Check if a message is an exit/cancel command for group analysis mode.
@@ -41,6 +43,7 @@ export function detectGroupMode(text) {
   if (DEVILS_ADVOCATE_PATTERN.test(text)) return { mode: 'critique' };
   if (SUMMARY_PATTERN.test(text)) return { mode: 'summary' };
   if (ARISTOTLE_PATTERN.test(text)) return { mode: 'aristotle' };
+  if (STRESS_TEST_PATTERN.test(text)) return { mode: 'stress_test' };
   return null;
 }
 
@@ -132,6 +135,11 @@ export function buildExecutionPrompt(action, selection) {
   if (action.mode === 'critique') {
     return buildCritiquePrompt(transcript, topicLabels, selectedTopics);
   }
+  if (action.mode === 'stress_test') {
+    // Stress-test is async (needs Sonar research) — return a marker
+    // so the caller knows to call buildStressTestPrompt() instead
+    return { stressTest: true, transcript, topicLabels };
+  }
   return buildSummaryPrompt(transcript, topicLabels, selectedTopics);
 }
 
@@ -204,7 +212,7 @@ export function buildAristotlePrompt(transcript, quotedText) {
     ? `## FOCAL POINT\nThe user has highlighted this specific message for deconstruction:\n"${quotedText}"\n\n## SURROUNDING CONTEXT\n${transcript}`
     : `## DISCUSSION TO DECONSTRUCT\nIdentify the main thrust of this group discussion and deconstruct it.\n\n${transcript}`;
 
-  return `You are Clawd in Aristotle mode — a first principles deconstructor. You analyse discussion to find what is actually true versus what is assumed.
+  return `You are Clint in Aristotle mode — a first principles deconstructor. You analyse discussion to find what is actually true versus what is assumed.
 
 ## ADAPTIVE DEPTH
 
@@ -267,9 +275,19 @@ export async function executeGroupMode(chatJid, selection, generateWithTools) {
   const action = getPendingAction(chatJid);
   if (!action) return "That selection has expired. Trigger the mode again.";
 
-  const executionPrompt = buildExecutionPrompt(action, selection);
-
   try {
+    const executionPrompt = buildExecutionPrompt(action, selection);
+
+    // Stress-test returns a marker — needs async research before LLM call
+    if (executionPrompt?.stressTest) {
+      const { prompt, useOpus } = await buildStressTestPrompt(
+        executionPrompt.transcript, executionPrompt.topicLabels
+      );
+      const response = await generateWithTools(prompt, useOpus);
+      clearPendingAction(chatJid);
+      return response;
+    }
+
     const response = await generateWithTools(executionPrompt);
     clearPendingAction(chatJid);
     return response;

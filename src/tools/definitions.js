@@ -566,7 +566,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'system_status',
-    description: 'Get the current status of the Clawd system — uptime, memory, WhatsApp connection, EVO X2 health.',
+    description: 'Get the current status of the Clint system — uptime, memory, WhatsApp connection, EVO X2 health.',
     input_schema: {
       type: 'object',
       properties: {},
@@ -584,7 +584,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'project_read',
-    description: 'Read a project\'s full details or a specific section. Use to recall project architecture, pitch points, next steps, etc. Available projects: atlas (ATLAS — litigation AI), clawd-agi (Clawd AGI — recursive self-improving intelligence).',
+    description: 'Read a project\'s full details or a specific section. Use to recall project architecture, pitch points, next steps, etc. Available projects: atlas (ATLAS — litigation AI), clint-agi (Clint AGI — recursive self-improving intelligence).',
     input_schema: {
       type: 'object',
       properties: {
@@ -660,7 +660,7 @@ export const TOOL_DEFINITIONS = [
   // === EVOLUTION ===
   {
     name: 'evolution_task',
-    description: 'Create a coding task for autonomous execution. Clawd will run Claude Code CLI on EVO to make the change in a git branch, then send the diff to James for approval before deploying. Use when James asks to fix, change, add, or improve Clawd\'s own code.',
+    description: 'Create a coding task for autonomous execution. Clint will run Claude Code CLI on EVO to make the change in a git branch, then send the diff to James for approval before deploying. Use when James asks to fix, change, add, or improve Clint\'s own code.',
     input_schema: {
       type: 'object',
       properties: {
@@ -695,6 +695,52 @@ export const TOOL_DEFINITIONS = [
         },
       },
       required: ['filename'],
+    },
+  },
+
+  // === LIVE BRIEFING ===
+  {
+    name: 'live_briefing',
+    description: 'Research a topic using live web sources and produce a grounded briefing with citations. Use when someone asks for a briefing, research summary, "what do we know about X", or "brief us on X". Returns synthesised prose with source URLs, not raw search results.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          description: 'The topic to research.',
+        },
+        depth: {
+          type: 'string',
+          enum: ['quick', 'deep'],
+          description: 'Quick (~5s) or deep (~15s) research. Default quick.',
+        },
+      },
+      required: ['topic'],
+    },
+  },
+
+  // === GROUP DECISIONS ===
+  {
+    name: 'group_decisions',
+    description: 'Search group decisions, action items, and commitments extracted from conversations. Use when asked "what did we decide", "what is outstanding", "who committed to X", or "what are the action items".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query. Optional — omit to list recent decisions.',
+        },
+        days_back: {
+          type: 'number',
+          description: 'How many days back to search. Default 7.',
+        },
+        type: {
+          type: 'string',
+          enum: ['decision', 'action_item', 'commitment', 'all'],
+          description: 'Filter by type. Default all.',
+        },
+      },
+      required: [],
     },
   },
 

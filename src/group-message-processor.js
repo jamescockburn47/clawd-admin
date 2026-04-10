@@ -66,22 +66,33 @@ async function processBatch() {
           messages: [
             {
               role: 'system',
-              content: `You are a fact extraction engine. Read group chat messages and extract ONLY notable, durable facts worth remembering long-term. Ignore: greetings, small talk, jokes, reactions, scheduling chatter, "ok"/"thanks" messages.
+              content: `You are a fact and decision extraction engine. Read group chat messages and extract two categories:
 
-Extract facts like: decisions made, opinions stated, plans confirmed, new information shared, important dates mentioned, relationships revealed, expertise demonstrated.
+1. FACTS — notable, durable facts worth remembering long-term.
+2. DECISIONS — explicit decisions, action items, and commitments.
+
+Ignore: greetings, small talk, jokes, reactions, scheduling chatter, "ok"/"thanks" messages.
+
+FACTS: opinions stated, new information shared, dates mentioned, relationships revealed, expertise demonstrated.
+DECISIONS — STRICT threshold. Only extract if there is an EXPLICIT agreement, assignment, or commitment. Do NOT extract:
+- Casual suggestions ("we could do X", "maybe we should")
+- Hypotheticals ("if we went with X")
+- Social plans unless clearly confirmed ("yeah let's grab lunch" is NOT a decision)
+Only extract: explicit agreements ("we're going with X"), assigned tasks ("I'll handle Y by Friday"), confirmed commitments with specifics.
 
 TEMPORAL AWARENESS — critical:
-- State facts with temporal context: "Tom is reviewing the merger docs (as of ${new Date().toISOString().split('T')[0]})" not just "Tom is reviewing the merger docs"
-- For ongoing states, use present tense with date: "Ray is sceptical about the AI proposal (as of DATE)"
-- For completed events, use past tense: "The team agreed to postpone the filing (3 April 2026)"
-- For timeless facts (relationships, expertise), no date needed: "Artur specialises in employment law"
+- State facts with temporal context: "Tom is reviewing the merger docs (as of ${new Date().toISOString().split('T')[0]})"
+- For ongoing states, use present tense with date
+- For completed events, use past tense with date
+- For timeless facts, no date needed
 
-For each fact, output one JSON object per line:
-{"fact": "temporally-framed factual statement", "tags": ["relevant", "tags"], "category": "general", "confidence": 0.8, "sender": "who said it", "temporal": "current|completed|timeless"}
+For each extraction, output one JSON object per line:
+{"fact": "statement", "type": "fact|decision|action_item|commitment", "tags": ["relevant", "tags"], "category": "general", "confidence": 0.8, "sender": "who said it", "temporal": "current|completed|timeless"}
 
-If NO messages contain notable facts, output exactly: NONE
+Use type "decision" for group agreements, "action_item" for assigned tasks, "commitment" for personal promises.
+If NO messages contain notable content, output exactly: NONE
 
-Output facts only, no explanation. /no_think`
+Output JSON only, no explanation. /no_think`
             },
             { role: 'user', content: formatted },
           ],
@@ -104,27 +115,36 @@ Output facts only, no explanation. /no_think`
     const lines = result.split('\n').filter(l => l.trim().startsWith('{'));
     let stored = 0;
 
+    const DECISION_TYPES = new Set(['decision', 'action_item', 'commitment']);
+
     for (const line of lines) {
       try {
         const fact = JSON.parse(line);
         if (!fact.fact || fact.fact.length < 10) continue;
 
+        const isDecision = DECISION_TYPES.has(fact.type);
+        // Decisions need higher confidence to avoid false positives from casual chat
+        if (isDecision && (fact.confidence || 0) < 0.8) continue;
+        const category = isDecision ? 'group_decision' : (fact.category || 'general');
+        const groupTag = batch[0]?.chatJid?.slice(0, 20) || 'unknown';
+
         const tags = [
           ...(fact.tags || []),
           fact.sender || 'unknown',
           new Date().toISOString().split('T')[0],
+          ...(isDecision ? [fact.type, groupTag] : []),
         ];
 
         await storeMemory(
           fact.fact,
-          fact.category || 'general',
+          category,
           tags,
           fact.confidence || 0.75,
-          `group_realtime_${batch[0]?.chatJid?.slice(0, 15) || 'unknown'}`
+          `group_realtime_${groupTag}`
         );
         stored++;
       } catch {
-        // Skip malformed lines
+        // intentional: skip malformed JSON lines from LLM output
       }
     }
 

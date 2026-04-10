@@ -159,8 +159,8 @@ export async function handleVoiceLocal(rawBody, { sendProactiveMessage, getActiv
       const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
 
       if (response) {
-        pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
-        broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
+        pushMessage(jid, { senderName: 'Clint', text: response, hasImage: false, isBot: true });
+        broadcastSSE('message', { sender: 'Clint', text: response, timestamp: Date.now() });
         const panels = detectPanels(cmdText + ' ' + response);
         broadcastSSE('voice', { event: 'response', text: response, panels, panel: panels[0], command: cmdText });
 
@@ -202,8 +202,8 @@ export async function handleVoiceCommand(rawBody, { sendProactiveMessage, getAct
   const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
 
   if (response) {
-    pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
-    broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
+    pushMessage(jid, { senderName: 'Clint', text: response, hasImage: false, isBot: true });
+    broadcastSSE('message', { sender: 'Clint', text: response, timestamp: Date.now() });
     const panels = detectPanels(text + ' ' + response);
     broadcastSSE('voice', { event: 'response', text: response, panels, panel: panels[0], command: text });
 
@@ -250,8 +250,8 @@ export async function handleDashboardChat(rawBody, { sendProactiveMessage, getAc
   const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
 
   if (response) {
-    pushMessage(jid, { senderName: 'Clawd', text: response, hasImage: false, isBot: true });
-    broadcastSSE('message', { sender: 'Clawd', text: response, timestamp: Date.now() });
+    pushMessage(jid, { senderName: 'Clint', text: response, hasImage: false, isBot: true });
+    broadcastSSE('message', { sender: 'Clint', text: response, timestamp: Date.now() });
 
     const sock = getActiveSock();
     if (config.ownerJid && sock) {

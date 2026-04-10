@@ -31,6 +31,8 @@ export const TIMEOUTS = Object.freeze({
   DOC_SUMMARISE: 30000,        // Document summarisation
   WEB_FETCH: 15000,            // Web page fetch
   WEB_SEARCH: 10000,           // SearXNG search
+  SONAR_SEARCH: 15000,         // Perplexity Sonar fast search
+  SONAR_DEEP: 30000,           // Perplexity Sonar pro / agent deep research
   SSH_DEFAULT: 30000,          // Default SSH command
   PLAN_PASS: 2 * 60 * 1000,   // Evolution plan pass
   EXECUTE_PASS: 5 * 60 * 1000, // Evolution execute pass

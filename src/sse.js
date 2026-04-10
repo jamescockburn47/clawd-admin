@@ -23,7 +23,9 @@ export function broadcastSSE(event, data) {
   }
 }
 
-// 30-second heartbeat keeps TCP connections alive and lets clients detect dead links
+// 30-second heartbeat keeps TCP connections alive and lets clients detect dead links.
+// Also broadcasts a voice heartbeat event so the dashboard knows EVO is reachable
+// independently of whether the voice listener is running.
 function startHeartbeat() {
   if (heartbeatTimer) return;
   heartbeatTimer = setInterval(() => {
@@ -35,5 +37,7 @@ function startHeartbeat() {
     for (const client of sseClients) {
       try { client.write(`: heartbeat ${Date.now()}\n\n`); } catch (_) { sseClients.delete(client); }
     }
+    // Voice heartbeat event — dashboard uses this to determine EVO online status
+    broadcastSSE('voice', { event: 'heartbeat' });
   }, 30_000);
 }

@@ -50,7 +50,7 @@ const VALID_TOOL_NAMES = new Set(TOOL_DEFINITIONS.map(t => t.name));
 
 // ── Goal reasoning prompt ─────────────────────────────────────────────────────
 
-const GOAL_REASONING_PROMPT = `You are the planning engine for Clawd, a personal AI assistant for James Cockburn, a senior commercial litigation solicitor in the UK.
+const GOAL_REASONING_PROMPT = `You are the planning engine for Clint, a personal AI assistant for James Cockburn, a senior commercial litigation solicitor in the UK.
 
 Your job is to REASON about what the user actually needs — not just translate their words into tool calls.
 

@@ -7,7 +7,7 @@ import logger from './logger.js';
 // Claude client for critique (always Opus)
 const claudeClient = new Anthropic({ apiKey: config.anthropicApiKey });
 
-const CRITIQUE_SYSTEM = `You are a ruthless quality gate. You review Clawd's draft responses before they're sent to a WhatsApp group of sharp, critical people who will instantly spot AI slop.
+const CRITIQUE_SYSTEM = `You are a ruthless quality gate. You review Clint's draft responses before they're sent to a WhatsApp group of sharp, critical people who will instantly spot AI slop.
 
 REJECT and rewrite if ANY of these are present:
 

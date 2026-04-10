@@ -8,10 +8,10 @@ import logger from './logger.js';
 // ── Mute system ──────────────────────────────────────────────────────────────
 
 const mutes = new Map(); // groupJid → muteExpiresAt (epoch ms)
-const lastResponseTime = new Map(); // groupJid → epoch ms of last Clawd response
+const lastResponseTime = new Map(); // groupJid → epoch ms of last Clint response
 const RESPONSE_COOLDOWN_MS = 120_000; // 2 min cooldown after responding in a group
 
-const BOT_NAMES = /\b(clawd|clawdbot|clawdsec)\b/i;
+const BOT_NAMES = /\b(clint|clintbot|clintsec|clawd|clawdbot|clawdsec)\b/i;
 const MUTE_KEYWORDS = /\b(shut\s*up|be\s*quiet|go\s*quiet|stay\s*out|stop\s*talking|silence|mute|hush)\b/i;
 
 /**
@@ -47,7 +47,7 @@ export function clearMute(groupJid) {
 // ── Response cooldown ───────────────────────────────────────────────────────
 
 /**
- * Record that Clawd just responded in a group.
+ * Record that Clint just responded in a group.
  * Called from index.js after sending a group message.
  */
 export function recordGroupResponse(groupJid) {
@@ -55,7 +55,7 @@ export function recordGroupResponse(groupJid) {
 }
 
 /**
- * Returns true if Clawd responded recently in this group (within cooldown).
+ * Returns true if Clint responded recently in this group (within cooldown).
  * During cooldown, only direct @mentions should break through.
  */
 export function isInCooldown(groupJid) {
@@ -72,8 +72,8 @@ export function isInCooldown(groupJid) {
 
 const NEGATIVE_PATTERNS = {
   told_off: /\b(shut\s*up|be\s*quiet|nobody\s*asked\s*you|stay\s*out|go\s*away|not\s*now)\b/i,
-  mocked:   /\b(lol|lmao|haha|rofl)\b.*\b(clawd|clawdbot|claude)\b|\b(clawd|clawdbot|claude)\b.*\b(lol|lmao|haha|rofl)\b/i,
-  corrected: /\b(no\s+(clawd|clawdbot|claude)|wrong\s+(clawd|clawdbot|claude)|that'?s\s+not\s+right|you'?re\s+wrong|incorrect)\b/i,
+  mocked:   /\b(lol|lmao|haha|rofl)\b.*\b(clint|clintbot|clawd|clawdbot|claude)\b|\b(clint|clintbot|clawd|clawdbot|claude)\b.*\b(lol|lmao|haha|rofl)\b/i,
+  corrected: /\b(no\s+(clint|clintbot|clawd|clawdbot|claude)|wrong\s+(clint|clintbot|clawd|clawdbot|claude)|that'?s\s+not\s+right|you'?re\s+wrong|incorrect)\b/i,
 };
 
 /**
@@ -93,29 +93,29 @@ export function detectNegativeSignal(text) {
 
 // ── Engagement classifier ────────────────────────────────────────────────────
 
-const CLASSIFIER_SYSTEM_PROMPT = `You decide whether a WhatsApp bot called Clawd should respond. Answer YES or NO only.
+const CLASSIFIER_SYSTEM_PROMPT = `You decide whether a WhatsApp bot called Clint should respond. Answer YES or NO only.
 
 DEFAULT IS NO. You need a strong, clear reason to say YES. Silence is almost always correct.
 
 YES requires ALL of these:
-1. Clawd is addressed by name ("clawd" / "clawdbot") in the latest message
-2. The sender is asking Clawd a direct question or giving Clawd a specific instruction
-3. The sender clearly expects a reply FROM Clawd (not just mentioning Clawd in passing)
+1. Clint is addressed by name ("clint" / "clintbot" or legacy "clawd" / "clawdbot") in the latest message
+2. The sender is asking Clint a direct question or giving Clint a specific instruction
+3. The sender clearly expects a reply FROM Clint (not just mentioning Clint in passing)
 
 ALWAYS NO when:
-- Humans talking to each other, even about Clawd or AI
-- General questions to the group, even if Clawd could answer
-- Someone reacting to something Clawd already said (laughing, agreeing, commenting)
-- Meta-discussion about Clawd's behaviour, features, or capabilities
-- Testing whether Clawd will respond (e.g. "Clawd Clawd Clawd")
+- Humans talking to each other, even about Clint or AI
+- General questions to the group, even if Clint could answer
+- Someone reacting to something Clint already said (laughing, agreeing, commenting)
+- Meta-discussion about Clint's behaviour, features, or capabilities
+- Testing whether Clint will respond (e.g. "Clint Clint Clint")
 - Short messages: ok, lol, haha, yeah, fair, true, nice, etc.
-- Clawd already responded recently in this conversation — do not pile on
+- Clint already responded recently in this conversation — do not pile on
 - Someone talking about "claude" or "AI" generally
-- The message is a statement, not a question or instruction directed at Clawd
+- The message is a statement, not a question or instruction directed at Clint
 - You are even slightly unsure — say NO`;
 
 /**
- * Ask the EVO 0.6B classifier whether Clawd should engage in this group message.
+ * Ask the EVO 0.6B classifier whether Clint should engage in this group message.
  * Returns true (should respond) or false (stay silent).
  * On any failure, defaults to silent.
  */
@@ -128,12 +128,12 @@ export async function shouldEngage(groupJid, senderName, messageText) {
   try {
     const recent = getRecentMessages(groupJid);
     const contextLines = recent.slice(-6).map((m) => {
-      const name = m.isBot ? 'Clawd' : m.senderName;
+      const name = m.isBot ? 'Clint' : m.senderName;
       return `${name}: ${m.text || '[media]'}`;
     });
 
     // LQuorum warm topics deliberately NOT injected into classifier.
-    // A 0.6B model is influenced by "Clawd has knowledge on X" regardless of disclaimers.
+    // A 0.6B model is influenced by "Clint has knowledge on X" regardless of disclaimers.
     // The classifier gates on invitation, not capability. Topic knowledge only affects
     // response quality once the classifier has already said YES.
     const systemPrompt = CLASSIFIER_SYSTEM_PROMPT;
@@ -171,6 +171,6 @@ function keywordFallback(text) {
   const isQuestion = /\?/.test(text);
   const isHelpRequest = /\b(help|can you|could you|please)\b/i.test(text);
 
-  // Only respond if it looks like someone is talking to Clawd
+  // Only respond if it looks like someone is talking to Clint
   return mentionsBot && (isQuestion || isHelpRequest);
 }

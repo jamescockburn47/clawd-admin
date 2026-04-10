@@ -57,7 +57,7 @@ export function getRecentGroupMessages(chatJid, count = DEFAULT_MESSAGE_COUNT) {
 export function formatTranscript(messages) {
   return messages.map((m, i) => {
     const time = m.timestamp ? new Date(m.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '';
-    const prefix = m.isBot ? 'Clawd' : m.sender;
+    const prefix = m.isBot ? 'Clint' : m.sender;
     return `[${time}] ${prefix}: ${m.text}`;
   }).join('\n');
 }
@@ -75,7 +75,7 @@ Rules:
 - Give each topic a short, descriptive label (5-10 words max)
 - Order by most recent first
 - If there's only one topic, return just that one
-- Ignore greetings, bot commands, and meta-chat (e.g. "shut up clawd")
+- Ignore greetings, bot commands, and meta-chat (e.g. "shut up clint")
 
 Return ONLY a numbered list in this exact format:
 1. [Topic label] — [1-sentence summary of what was discussed]

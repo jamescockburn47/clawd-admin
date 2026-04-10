@@ -388,7 +388,7 @@ export function startHttpServer(port, deps) {
       try {
         logger.info('desktop mode requested — killing kiosk Chromium');
         exec('touch /tmp/clawd-desktop-mode && pkill chromium', (err) => { if (err) logger.warn({ err: err.message }, 'chromium kill non-zero'); });
-        json(res, 200, { ok: true, message: 'Kiosk hidden. Use Clawd Desktop shortcut to return.' });
+        json(res, 200, { ok: true, message: 'Kiosk hidden. Use Clint Desktop shortcut to return.' });
       } catch (err) { json(res, 500, { error: err.message }); }
       return;
     }
@@ -412,7 +412,7 @@ export function startHttpServer(port, deps) {
     const sock = getActiveSock();
     if (sock?.user?.id) {
       res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(`<html><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Connected as ${sock.user.name || 'Clawd'}</h2><p>Dashboard: <a href="/dashboard?token=${config.dashboardToken}">/dashboard</a></p></body></html>`);
+      res.end(`<html><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Connected as ${sock.user.name || 'Clint'}</h2><p>Dashboard: <a href="/dashboard?token=${config.dashboardToken}">/dashboard</a></p></body></html>`);
     } else if (existsSync('/tmp/qr.png')) {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       const img = readFileSync('/tmp/qr.png').toString('base64');

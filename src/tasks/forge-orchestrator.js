@@ -350,7 +350,7 @@ async function phaseIntelligence(session) {
           try {
             const msg = JSON.parse(line);
             if (msg.text && msg.text.length > 3) {
-              messages.push(`[${(msg.timestamp || '').split('T')[1]?.slice(0, 5) || '?'}] ${msg.isBot ? 'Clawd' : (msg.sender || 'User')}: ${msg.text.slice(0, 200)}`);
+              messages.push(`[${(msg.timestamp || '').split('T')[1]?.slice(0, 5) || '?'}] ${msg.isBot ? 'Clint' : (msg.sender || 'User')}: ${msg.text.slice(0, 200)}`);
             }
           } catch { /* skip malformed */ }
         }
@@ -481,7 +481,7 @@ You have access to the full brief from tonight's intelligence gathering. Your jo
 1. \`data/forge/prompts/analyst.md\` — improve if tonight's brief was thin or missed obvious patterns
 2. \`data/forge/prompts/architect.md\` — refine auto-deploy classification or spec structure
 3. \`data/forge/prompts/reviewer.md\` — adjust verdict guidance if review decisions seem off
-4. \`data/system-knowledge/*.json\` — update any stale facts about Clawd's own capabilities
+4. \`data/system-knowledge/*.json\` — update any stale facts about Clint's own capabilities
 5. \`evo-memory/dream_mode.py\` — DREAM_PROMPT only — if diary entries were too long/short/missing sections
 
 ### Skill improvements (safe if tests still pass, commit to main)
@@ -789,9 +789,32 @@ async function phaseMeta(session) {
     '## Session Summary',
     JSON.stringify({
       phases: Object.fromEntries(
-        Object.entries(session.phases).map(([k, v]) => [k, { status: v?.status, elapsed: v?.elapsed }])
+        Object.entries(session.phases).map(([k, v]) => [k, {
+          status: v?.status,
+          elapsed: v?.elapsed,
+          ...(v?.error && { error: v.error }),
+        }])
       ),
       errors: session.errors,
+      spec: session.phases.architect?.spec ? {
+        title: session.phases.architect.spec.title,
+        goal: session.phases.architect.spec.goal,
+        files: session.phases.architect.spec.files_to_modify,
+        auto_deployable: session.phases.architect.spec.auto_deployable,
+      } : null,
+      review: session.phases.review?.verdict ? {
+        verdict: session.phases.review.verdict.verdict,
+        confidence: session.phases.review.verdict.confidence,
+        issues: session.phases.review.verdict.issues,
+      } : null,
+      nightlyTouch: session.phases.nightlyTouch ? {
+        action: session.phases.nightlyTouch.action,
+        files: session.phases.nightlyTouch.files,
+      } : null,
+      implementation: session.phases.implement ? {
+        branch: session.phases.implement.branch,
+        files: session.phases.implement.files,
+      } : null,
     }, null, 2),
     '',
     '## Instructions',

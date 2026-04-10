@@ -22,7 +22,7 @@ export async function handleEvolutionConfirmation(sock, chatJid, text) {
       text: `Evolution task queued (${task.id}): ${task.instruction}\n\nQueue: ${summary.pending} pending, ${summary.today}/3 today. I'll work on it and send the diff for approval.`,
     });
   } else {
-    await sock.sendMessage(chatJid, { text: 'Confirmation expired or invalid. Ask Clawd to create the task again.' });
+    await sock.sendMessage(chatJid, { text: 'Confirmation expired or invalid. Ask Clint to create the task again.' });
   }
   return true;
 }

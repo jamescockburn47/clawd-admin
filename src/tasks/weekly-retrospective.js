@@ -81,7 +81,7 @@ function loadImprovementHistory() {
  * Ask the 30B model to reason about improvement priorities.
  */
 async function reasonAboutImprovements(analysisData) {
-  const prompt = `You are the self-improvement engine for Clawd, an AI assistant progressing toward AGI.
+  const prompt = `You are the self-improvement engine for Clint, an AI assistant progressing toward AGI.
 
 Analyse these performance metrics from the past week and identify the TOP 3 improvement priorities.
 

@@ -2,10 +2,11 @@ import config from './config.js';
 
 // Bot names for direct addressing. @mention always works regardless of name.
 // 'claude' and 'assistant' deliberately excluded — too broad, matches general AI discussion.
-const BOT_NAMES = ['clawd', 'clawdbot', 'clawdsec'];
+// 'clawd' kept temporarily for backward compatibility during transition.
+const BOT_NAMES = ['clint', 'clintbot', 'clintsec', 'clawd', 'clawdbot', 'clawdsec'];
 
 // Secretary mode trigger — admin/single-tool mode, skips planner
-const SECRETARY_NAMES = ['clawdsec'];
+const SECRETARY_NAMES = ['clintsec', 'clawdsec'];
 
 export function shouldRespond({ text, hasImage, isFromMe, isGroup, senderJid, botJid, groupJid, mentionedJids }) {
   // Never respond to own messages

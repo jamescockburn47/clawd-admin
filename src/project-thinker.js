@@ -188,7 +188,7 @@ function generateSearchQueries(project) {
     'litigation': ['AI automated legal analysis overnight processing', 'AI document contradiction detection litigation'],
     'dream-mode': ['AI overnight reflection synthesis systems', 'AI sleep cycle processing autonomous learning'],
     'ai': ['frontier AI capabilities 2026', 'AI agent orchestration multi-model'],
-    'clawd-architecture': ['distributed AI assistant architecture edge computing', 'local AI models vs cloud hybrid systems'],
+    'clint-architecture': ['distributed AI assistant architecture edge computing', 'local AI models vs cloud hybrid systems'],
     'recursive': ['recursive self-improvement AI safety 2026', 'AI systems that modify own behaviour autonomously'],
     'erotetic': ['erotetic theory of reason AI reasoning', 'question-driven reasoning AI systems stopping criterion'],
   };

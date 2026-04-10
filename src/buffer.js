@@ -1,6 +1,6 @@
 // Message buffer — rolling conversation context per chat with optional persistence
 import { readFile, writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
+import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import config from './config.js';
@@ -36,7 +36,7 @@ export function buildContext(chatJid, triggerText) {
   if (buf.length === 0) return triggerText;
 
   const lines = buf.map((msg) => {
-    const name = msg.isBot ? 'Clawd (you)' : msg.senderName;
+    const name = msg.isBot ? 'Clint (you)' : msg.senderName;
     const content = msg.hasImage && !msg.text ? '[sent a photo]'
       : msg.hasImage ? `${msg.text} [sent a photo]`
       : msg.text;
@@ -71,6 +71,69 @@ export function getAllRecentMessages(limit = 100) {
   // Sort by timestamp descending (newest first)
   all.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   return all.slice(0, limit);
+}
+
+// --- Group buffer rehydration from conversation logs ---
+
+const CONV_LOG_DIR = join(DATA_DIR, 'conversation-logs');
+
+/**
+ * Rehydrate group buffers from today's conversation logs on startup.
+ * Without this, every restart wipes group context and Clint loses
+ * track of the current conversation.
+ */
+export function rehydrateGroupBuffers() {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    if (!existsSync(CONV_LOG_DIR)) return;
+
+    const files = readdirSync(CONV_LOG_DIR).filter(f =>
+      f.startsWith(today) && f.endsWith('.jsonl') && f.includes('_g_us')
+    );
+
+    let totalRestored = 0;
+    for (const file of files) {
+      // Extract JID from filename: 2026-04-09_120363407496928531_g_us.jsonl
+      const jidPart = file.replace(`${today}_`, '').replace('.jsonl', '').replace(/_/g, '.');
+      // Reconstruct proper JID format
+      const chatJid = jidPart.replace(/\.g\.us$/, '@g.us');
+
+      const content = readFileSync(join(CONV_LOG_DIR, file), 'utf-8');
+      const lines = content.trim().split('\n').filter(Boolean);
+      // Load more than the runtime buffer size — gives proper conversation context
+      // after restarts. Runtime pushMessage() will naturally trim to contextMessageCount.
+      const REHYDRATION_DEPTH = 50;
+      const recent = lines.slice(-REHYDRATION_DEPTH);
+
+      // Build buffer directly — bypass pushMessage's trim so we can load full depth
+      const entries = [];
+      for (const line of recent) {
+        try {
+          const entry = JSON.parse(line);
+          entries.push({
+            senderName: entry.sender || 'Unknown',
+            text: entry.text || '',
+            hasImage: false,
+            isBot: entry.isBot || false,
+            timestamp: new Date(entry.timestamp).getTime(),
+          });
+        } catch {
+          // intentional: skip malformed log lines
+        }
+      }
+      if (entries.length > 0) {
+        buffers.set(chatJid, entries);
+        totalRestored += entries.length;
+        logger.info({ chatJid: chatJid.slice(0, 25), count: entries.length }, 'rehydrated group buffer from logs');
+      }
+    }
+
+    if (totalRestored > 0) {
+      logger.info({ totalRestored, files: files.length }, 'group buffers rehydrated from conversation logs');
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'group buffer rehydration failed');
+  }
 }
 
 // --- Persistence (owner's DM buffer only) ---

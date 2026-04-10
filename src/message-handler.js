@@ -115,7 +115,7 @@ async function checkEngagementGate(sock, chatJid, senderName, text) {
     activateMute(chatJid);
     try {
       await sock.sendMessage(chatJid, { text: 'Going quiet.' });
-      pushMessage(chatJid, { senderName: 'Clawd', text: 'Going quiet.', hasImage: false, isBot: true });
+      pushMessage(chatJid, { senderName: 'Clint', text: 'Going quiet.', hasImage: false, isBot: true });
     } catch { /* intentional: mute UI notification is best-effort */ }
     return 'muted';
   }
@@ -227,7 +227,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
       activateMute(chatJid);
       try {
         await sock.sendMessage(chatJid, { text: 'Going quiet.' });
-        pushMessage(chatJid, { senderName: 'Clawd', text: 'Going quiet.', hasImage: false, isBot: true });
+        pushMessage(chatJid, { senderName: 'Clint', text: 'Going quiet.', hasImage: false, isBot: true });
       } catch { /* intentional: mute UI notification is best-effort */ }
       return;
     }
@@ -236,7 +236,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     let messageText = text;
     // Strip @ prefix and bot name prefixes (clawd, clawdbot, clawdsec)
-    const BOT_PREFIXES = ['clawdsec', 'clawdbot', 'clawd']; // longest first to avoid partial match
+    const BOT_PREFIXES = ['clintsec', 'clintbot', 'clint', 'clawdsec', 'clawdbot', 'clawd']; // longest first to avoid partial match
     let lowerMsg = messageText.toLowerCase().replace(/^@/, ''); // strip leading @
     if (lowerMsg !== messageText.toLowerCase()) messageText = messageText.slice(1); // sync actual text
     for (const prefix of BOT_PREFIXES) {
@@ -295,6 +295,10 @@ export async function handleIncomingMessage(sock, message, botJid) {
         const filterResult = filterResponse(finalText, chatJid);
         const safeText = filterResult.safe ? finalText : getBlockedResponse(filterResult.reason);
 
+        // Log before send — see main response path comment
+        if (config.evoMemoryEnabled) {
+          try { logConversation(chatJid, [{ senderName: 'Clint', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
+        }
         await simulateTyping(sock, chatJid, safeText.length);
         const chunks = splitMessage(safeText);
         for (const chunk of chunks) {
@@ -302,10 +306,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
           if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
           if (chunks.length > 1) await new Promise(r => setTimeout(r, 300));
         }
-        pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
-        if (config.evoMemoryEnabled) {
-          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
-        }
+        pushMessage(chatJid, { senderName: 'Clint', text: safeText, hasImage: false, isBot: true });
         return;
       }
 
@@ -316,11 +317,22 @@ export async function handleIncomingMessage(sock, message, botJid) {
         await simulateTyping(sock, chatJid, 500);
 
         const execPrompt = buildExecutionPrompt(topicSel.action, topicSel.selectedTopics);
-        const execResponse = await getGroupModeResponse(
-          execPrompt, 'Execute the analysis on the selected topics.',
-          true, // useOpus — accuracy matters
-          senderJid, chatJid
-        );
+
+        // Stress-test mode returns an async marker — needs Sonar research before LLM call
+        let execResponse;
+        if (execPrompt?.stressTest) {
+          // Acknowledge before slow operation (research + analysis = 30-60s)
+          await sock.sendMessage(chatJid, { text: 'Researching and building adversarial analysis — this takes 30-60 seconds.' });
+          const { buildStressTestPrompt } = await import('./stress-test.js');
+          const { prompt, useOpus } = await buildStressTestPrompt(execPrompt.transcript, execPrompt.topicLabels);
+          execResponse = await getGroupModeResponse(prompt, 'Execute the stress-test analysis.', useOpus, senderJid, chatJid);
+        } else {
+          execResponse = await getGroupModeResponse(
+            execPrompt, 'Execute the analysis on the selected topics.',
+            true, // useOpus — accuracy matters
+            senderJid, chatJid
+          );
+        }
 
         clearPendingAction(chatJid);
         const finalText = execResponse || 'Failed to complete the analysis. Try again.';
@@ -336,9 +348,9 @@ export async function handleIncomingMessage(sock, message, botJid) {
           if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
           if (chunks.length > 1) await new Promise(r => setTimeout(r, 300));
         }
-        pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
+        pushMessage(chatJid, { senderName: 'Clint', text: safeText, hasImage: false, isBot: true });
         if (config.evoMemoryEnabled) {
-          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
+          try { logConversation(chatJid, [{ senderName: 'Clint', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
         }
         return;
       }
@@ -358,9 +370,9 @@ export async function handleIncomingMessage(sock, message, botJid) {
         await simulateTyping(sock, chatJid, safeText.length);
         const sent = await sock.sendMessage(chatJid, { text: safeText });
         if (sent?.key?.id) cacheSentMessage(sent.key.id, sent.message);
-        pushMessage(chatJid, { senderName: 'Clawd', text: safeText, hasImage: false, isBot: true });
+        pushMessage(chatJid, { senderName: 'Clint', text: safeText, hasImage: false, isBot: true });
         if (config.evoMemoryEnabled) {
-          try { logConversation(chatJid, [{ senderName: 'Clawd', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
+          try { logConversation(chatJid, [{ senderName: 'Clint', text: safeText, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
         }
         return;
       }
@@ -403,6 +415,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
     // Generate response
     const context = buildContext(chatJid, messageText);
     const responseStart = Date.now();
+    const routingResult = null; // Populated inside getClawdResponse; not exposed here. Safe for optional chaining.
     const response = await getClawdResponse(context, trigger.mode, senderJid, imageData, chatJid, { secretaryMode: !!trigger.secretaryMode });
     const responseLatency = Date.now() - responseStart;
     if (!response || !response.trim() || response.trim() === '[SILENT]') {
@@ -432,6 +445,14 @@ export async function handleIncomingMessage(sock, message, botJid) {
       finalResponse = getBlockedResponse(filterResult.reason);
     }
 
+    // Log response BEFORE sending — if process dies between send and log, the response
+    // is lost from conversation history (dream mode, topic index, decision extraction all
+    // read these logs). Logging first means we may occasionally log a response that failed
+    // to send, but that's far less harmful than losing responses that DID send.
+    if (config.evoMemoryEnabled) {
+      try { logConversation(chatJid, [{ senderName: 'Clint', text: finalResponse, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
+    }
+
     // Send response
     await simulateTyping(sock, chatJid, finalResponse.length);
     const chunks = splitMessage(finalResponse);
@@ -445,12 +466,11 @@ export async function handleIncomingMessage(sock, message, botJid) {
       if (chunks.length > 1) await new Promise((r) => setTimeout(r, 300));
     }
 
-    pushMessage(chatJid, { senderName: 'Clawd', text: finalResponse, hasImage: false, isBot: true });
+    pushMessage(chatJid, { senderName: 'Clint', text: finalResponse, hasImage: false, isBot: true });
     if (isGroup) recordGroupResponse(chatJid);
 
-    // Broadcast bot response for mission control feed
     broadcastSSE('message', {
-      sender: 'Clawd',
+      sender: 'Clint',
       text: finalResponse,
       timestamp: Date.now(),
       chatJid,
@@ -466,10 +486,6 @@ export async function handleIncomingMessage(sock, message, botJid) {
       toolsCalled: getLastToolsCalled(), response: { text: finalResponse, chars: finalResponse.length, filtered: !filterResult.safe },
       latencyMs: responseLatency, messageIds: sentMsgIds,
     });
-
-    if (config.evoMemoryEnabled) {
-      try { logConversation(chatJid, [{ senderName: 'Clawd', text: finalResponse, isBot: true }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
-    }
 
     logger.info({ mode: trigger.mode, chars: finalResponse.length, filtered: !filterResult.safe, latencyMs: responseLatency }, 'response sent');
   } catch (err) {

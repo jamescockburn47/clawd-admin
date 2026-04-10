@@ -92,7 +92,7 @@ function markdownToHTML(md, dateStr) {
   });
 
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Clawd Report ${dateStr}</title>
+<html><head><meta charset="utf-8"><title>Clint Report ${dateStr}</title>
 <style>
   body { font-family: -apple-system, system-ui, 'Segoe UI', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; font-size: 14px; line-height: 1.6; }
   h1 { font-size: 22px; border-bottom: 2px solid #333; padding-bottom: 8px; margin-top: 0; }
@@ -310,7 +310,7 @@ async function synthesizeReport(dreamReport, projectThink, selfImprove, systemHe
 
 DATE: ${dateStr}
 
-## Dream/Diary Data (from Clawd's overnight diary)
+## Dream/Diary Data (from Clint's overnight diary)
 ${dreamReport ? JSON.stringify(dreamReport, null, 2) : 'Dream mode did not run or produced no output.'}
 
 ## Project Deep Think Results
@@ -325,7 +325,7 @@ ${JSON.stringify(systemHealth, null, 2)}
 PRODUCE an HTML email body (just the <body> content, no <html> or <head> tags). Style it inline for email compatibility.
 
 STRUCTURE:
-1. **Header**: "Clawd Overnight Report — ${dateStr}" with a clean dark header bar
+1. **Header**: "Clint Overnight Report — ${dateStr}" with a clean dark header bar
 2. **Diary Summaries**: For each group chat processed, show the FULL diary narrative. Include message counts.
 3. **Extracted Facts**: ALL facts from all groups in a clean table — do NOT omit any
 4. **Insights**: ALL insights in a highlight box — do NOT omit any
@@ -336,7 +336,7 @@ STRUCTURE:
 
 STYLE: Professional, dark theme (#1a1a2e background, #e0e0e0 text). Use inline CSS only. Compact but readable.
 
-IMPORTANT: Include ALL data. Do not summarise or omit facts/insights. The diary narratives should read as Clawd's first-person reflections.`;
+IMPORTANT: Include ALL data. Do not summarise or omit facts/insights. The diary narratives should read as Clint's first-person reflections.`;
 
   try {
     const response = await anthropic.messages.create({
@@ -363,7 +363,7 @@ async function sendReportEmail(htmlBody, dateStr) {
   oauth2.setCredentials({ refresh_token: config.googleRefreshToken });
   const gmail = google.gmail({ version: 'v1', auth: oauth2 });
 
-  const subject = `Clawd Overnight Report — ${dateStr}`;
+  const subject = `Clint Overnight Report — ${dateStr}`;
   const to = 'james.a.cockburn@gmail.com';
   const headers = [
     `To: ${to}`,
@@ -576,7 +576,7 @@ function generateMarkdownReport(dreamReport, projectThink, selfImprove, systemHe
   const lines = [];
   const dayName = new Date(dateStr + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-  lines.push(`# Clawd Overnight Report`);
+  lines.push(`# Clint Overnight Report`);
   lines.push(`**${dayName}**\n`);
 
   // Summary line
@@ -967,7 +967,7 @@ export async function sendOvernightReport(sendFn, dateOverride = null) {
       try {
         const { writeFile: writeFileAsync } = await import('fs/promises');
         await writeFileAsync(`/tmp/clawd-report-${dateStr}.html`,
-          `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Clawd Report ${dateStr}</title></head><body>${htmlBody}</body></html>`);
+          `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Clint Report ${dateStr}</title></head><body>${htmlBody}</body></html>`);
       } catch { /* intentional: HTML backup to /tmp is best-effort */ }
       emailSent = await sendReportEmail(htmlBody, dateStr);
     }
