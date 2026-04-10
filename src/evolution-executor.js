@@ -9,8 +9,8 @@
 // Runs on Pi, SSHes to EVO where Claude Code CLI is installed.
 
 import { execSync } from 'child_process';
-import { readFileSync, writeFileSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import config from './config.js';
 import logger from './logger.js';
@@ -23,7 +23,22 @@ const EVO_USER = config.evoSshUser;
 const EVO_REPO = config.evoRepoPath;
 const CLAUDE_BIN = '/home/james/.local/bin/claude';
 const SSH_OPTS = '-o ConnectTimeout=10 -o StrictHostKeyChecking=no';
-const LOCAL_MODE = process.cwd() === EVO_REPO;
+
+// LOCAL_MODE: the bot is running from the same repo that evolution targets.
+// When true, skip SSH wrapping and operate directly on the local working tree.
+// Detection: the running repo (where this file lives) matches EVO_REPO_PATH
+// when both are fully resolved. This is the post-migration topology where
+// bot runs on EVO and the running repo IS the evolution target.
+const _runningRepo = resolve(__dirname, '..');
+const LOCAL_MODE = (() => {
+  try {
+    const running = resolve(_runningRepo);
+    const target = resolve(EVO_REPO);
+    return running === target && existsSync(join(running, '.git'));
+  } catch {
+    return false;
+  }
+})();
 
 const PLAN_TIMEOUT_MS = TIMEOUTS.PLAN_PASS;
 const EXECUTE_TIMEOUT_MS = TIMEOUTS.EXECUTE_PASS;
@@ -183,15 +198,18 @@ function extractJsonFromOutput(text) {
 
 function syncToEvo() {
   if (LOCAL_MODE) {
-    logger.info('evolution: local EVO mode — skipping Pi → EVO sync');
+    logger.info('evolution: local mode — bot runs from evolution target, no sync needed');
     return;
   }
+  // Legacy Pi → EVO sync path. Only relevant when the bot runs on a different host
+  // than the evolution target. Source path is the running repo, not hardcoded.
+  const sourcePath = _runningRepo.endsWith('/') ? _runningRepo : _runningRepo + '/';
   try {
     execSync(
-      `rsync -az --timeout=30 --exclude node_modules --exclude .baileys --exclude 'data/conversation-logs' /home/pi/clawdbot/ ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/`,
+      `rsync -az --timeout=30 --exclude node_modules --exclude .baileys --exclude 'data/conversation-logs' ${sourcePath} ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/`,
       { encoding: 'utf-8', timeout: 60000, stdio: 'pipe' }
     );
-    logger.info('evolution: synced Pi → EVO');
+    logger.info({ source: sourcePath }, 'evolution: synced running repo → EVO');
   } catch (err) {
     logger.warn({ err: err.message }, 'evolution: rsync to EVO failed, using existing EVO code');
   }
@@ -458,22 +476,22 @@ export async function deployApprovedTask(task) {
     throw new Error(`Merge failed: ${err.message}`);
   }
 
-  // 2. Sync changed files back to Pi only when running on Pi.
+  // 2. Sync changed files back to running repo when bot runs on a different host.
   if (!LOCAL_MODE) {
     try {
       for (const file of files_changed) {
         if (!file.startsWith('src/') && !file.startsWith('eval/')) continue;
         execSync(
-          `rsync -az ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/${file} /home/pi/clawdbot/${file}`,
+          `rsync -az ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/${file} ${_runningRepo}/${file}`,
           { encoding: 'utf-8', timeout: 15000, stdio: 'pipe' }
         );
       }
-      logger.info({ files: files_changed.length }, 'evolution: files synced to Pi');
+      logger.info({ files: files_changed.length, target: _runningRepo }, 'evolution: files synced to running repo');
     } catch (err) {
       throw new Error(`File sync failed: ${err.message}`);
     }
   } else {
-    logger.info('evolution: local EVO mode — no Pi sync required');
+    logger.info('evolution: local mode — no remote sync required');
   }
 
   // 3. Restart clawdbot
@@ -499,7 +517,7 @@ export async function deployApprovedTask(task) {
       ssh(`cd ${EVO_REPO} && git revert HEAD --no-edit`);
       if (!LOCAL_MODE) {
         execSync(
-          `rsync -az ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/src/ /home/pi/clawdbot/src/`,
+          `rsync -az ${EVO_USER}@${EVO_HOST}:${EVO_REPO}/src/ ${_runningRepo}/src/`,
           { encoding: 'utf-8', timeout: 30000, stdio: 'pipe' }
         );
       }

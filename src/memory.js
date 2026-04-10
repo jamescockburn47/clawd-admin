@@ -555,13 +555,38 @@ export const getLastHealthData = () => client.getLastHealthData();
 export const isEvoOnline = () => client.isOnline();
 export const getEvoStatus = () => client.getStatus();
 export const searchMemory = (q, c, l) => client.search(q, c, l);
-export const storeMemory = (f, c, t, conf, s) => client.store(f, c, t, conf, s);
+
+// Invalidate the cortex identity cache on any write-path mutation.
+// Dynamic import avoids a circular dependency between memory.js and cortex-cache.js.
+async function _invalidateCortexIdentityCache() {
+  try {
+    const mod = await import('./cortex-cache.js');
+    mod.clearIdentityCache?.();
+  } catch {
+    // intentional: cortex-cache is an optional consumer — no-op if unavailable
+  }
+}
+
+export const storeMemory = async (f, c, t, conf, s) => {
+  const result = await client.store(f, c, t, conf, s);
+  if (c === 'identity') _invalidateCortexIdentityCache();
+  return result;
+};
 export const storeNote = (t, s) => client.storeNote(t, s);
 export const extractFromConversation = (c, s) => client.extractFromConversation(c, s);
 export const analyseImage = (b, p, e, s) => client.analyseImage(b, p, e, s);
 export const transcribeAudio = (b, l, e, s) => client.transcribeAudio(b, l, e, s);
-export const updateMemory = (id, u) => client.update(id, u);
-export const deleteMemory = (id) => client.delete(id);
+export const updateMemory = async (id, u) => {
+  const result = await client.update(id, u);
+  // Identity memories are rare; blanket-invalidate on any update to be safe
+  _invalidateCortexIdentityCache();
+  return result;
+};
+export const deleteMemory = async (id) => {
+  const result = await client.delete(id);
+  _invalidateCortexIdentityCache();
+  return result;
+};
 export const archiveMemory = (id) => client.archive(id);
 export const getMemoryStats = () => client.getStats();
 export const listMemories = () => client.list();

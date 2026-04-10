@@ -17,8 +17,9 @@ import config from './config.js';
 import { classifyMessage, needsMemories, CATEGORY } from './router.js';
 import {
   getRelevantMemories, formatMemoriesForPrompt, searchMemory,
-  getIdentityMemories, getInsightMemories,
+  getInsightMemories,
 } from './memory.js';
+import { getCachedIdentityMemories, runPhase2Streams } from './cortex-cache.js';
 import { warmFromQuery, getWorkingKnowledge } from './lquorum-rag.js';
 import { getLiveSystemSnapshot } from './system-knowledge.js';
 import { webSearch } from './tools/search.js';
@@ -73,14 +74,11 @@ export async function gatherIntelligence(context, hasImage, isGroup, options = {
   const t0 = Date.now();
 
   // ── Phase 1: Classification + identity (always needed, both fast) ──
+  // Identity uses a cached lookup (5-min TTL) — eliminates a repeat HTTP call
+  // per message when identity memories haven't changed.
   const [route, identityMems] = await Promise.all([
     classifyMessage(context, hasImage, isGroup),
-    config.evoMemoryEnabled
-      ? getIdentityMemories().catch(err => {
-          logger.warn({ err: err.message }, 'cortex: identity fetch failed');
-          return [];
-        })
-      : [],
+    config.evoMemoryEnabled ? getCachedIdentityMemories() : [],
   ]);
 
   if (options.secretaryMode) {
@@ -141,11 +139,9 @@ export async function gatherIntelligence(context, hasImage, isGroup, options = {
     streams.webPrefetch = speculativeWebSearch(context).catch(() => null);
   }
 
-  // ── Await phase 2 streams ──
-  const keys = Object.keys(streams);
-  const values = await Promise.all(Object.values(streams));
-  const results = {};
-  keys.forEach((k, i) => { results[k] = values[i]; });
+  // ── Await phase 2 streams with per-stream timeout + global deadline ──
+  // Per-stream 5s cap, global 8s deadline — both enforced by runPhase2Streams.
+  const { results, timings: streamTimings } = await runPhase2Streams(streams);
 
   const phase2Ms = Date.now() - t0 - phase1Ms;
 
@@ -233,11 +229,17 @@ export async function gatherIntelligence(context, hasImage, isGroup, options = {
     category, source: route.source,
     phase1Ms, phase2Ms, elapsed,
     streams: streamsLog,
+    streamTimings,
     skipped,
     budgetUsed: usedBudget,
   }, 'cortex: intelligence gathered');
 
-  return { route, memoryFragment, webPrefetch: results.webPrefetch || null, timing: { phase1Ms, phase2Ms, totalMs: elapsed } };
+  return {
+    route,
+    memoryFragment,
+    webPrefetch: results.webPrefetch || null,
+    timing: { phase1Ms, phase2Ms, totalMs: elapsed, streamTimings },
+  };
 }
 
 /**

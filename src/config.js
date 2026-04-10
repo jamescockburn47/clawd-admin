@@ -90,7 +90,7 @@ const ConfigSchema = z.object({
   // EVO SSH access (for evolution executor — Pi reaches EVO via direct ethernet)
   EVO_SSH_HOST: z.string().optional().default('10.0.0.2'),
   EVO_SSH_USER: z.string().optional().default('james'),
-  EVO_REPO_PATH: z.string().optional().default('/home/james/clawdbot-claude-code'),
+  EVO_REPO_PATH: z.string().optional().default('/home/james/clawdbot'),
 
   // Professional groups (comma-separated JIDs)
   PROFESSIONAL_GROUPS: z.string().optional().default(''),
