@@ -257,235 +257,251 @@ export default function OvernightPage() {
         <DateSelector date={date} onDateChange={setDate} />
       </div>
 
-      {/* Loading */}
-      {loading && (
+      {/* Loading (old overnight-report only — new event log shows its own skeleton inside the Events tab) */}
+      {loading && !report && (
         <div className="flex flex-col gap-3">
           <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-32 w-full" />
           <Skeleton className="h-32 w-full" />
         </div>
       )}
 
-      {/* Error */}
-      {!loading && error && (
+      {/* Old-report error (non-fatal: tabs still render, events/shadow tabs work independently) */}
+      {!loading && error && !report && (
         <Card>
-          <CardContent className="py-6 text-sm text-destructive">
-            {error}
+          <CardContent className="py-4 text-xs text-muted-foreground">
+            Old overnight-report unavailable for {date}: {error}. Event log and
+            shadow candidates below are independent and may still load.
           </CardContent>
         </Card>
       )}
 
-      {/* Report */}
-      {!loading && report && (
-        <>
-          <SummaryBar report={report} />
+      {/* Summary bar (only when old report loaded) */}
+      {report && <SummaryBar report={report} />}
 
-          <Tabs defaultValue="diaries">
-            <TabsList>
-              <TabsTrigger value="diaries">Diaries</TabsTrigger>
-              <TabsTrigger value="facts">Facts &amp; Insights</TabsTrigger>
-              <TabsTrigger value="traces">Trace Analysis</TabsTrigger>
-              <TabsTrigger value="retrospective">Retrospective</TabsTrigger>
-              <TabsTrigger value="soul">Soul</TabsTrigger>
-            </TabsList>
+      {/* Unified tab group: 5 old tabs + 2 new event-log tabs */}
+      <Tabs defaultValue="events">
+        <TabsList>
+          <TabsTrigger value="events">
+            Events{eventLog ? ` (${eventLog.length})` : ''}
+          </TabsTrigger>
+          <TabsTrigger value="shadow">
+            Shadow{shadowCandidates ? ` (${shadowCandidates.length})` : ''}
+          </TabsTrigger>
+          <TabsTrigger value="diaries">Diaries</TabsTrigger>
+          <TabsTrigger value="facts">Facts &amp; Insights</TabsTrigger>
+          <TabsTrigger value="traces">Trace Analysis</TabsTrigger>
+          <TabsTrigger value="retrospective">Retrospective</TabsTrigger>
+          <TabsTrigger value="soul">Soul</TabsTrigger>
+        </TabsList>
 
-            <TabsContent value="diaries" className="flex flex-col gap-3 mt-4">
-              {activeGroups.length === 0 && skippedGroups.length === 0 && (
-                <Card>
-                  <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                    No diary entries for this date.
-                  </CardContent>
-                </Card>
-              )}
+        {/* --- Events tab (new event log) --- */}
+        <TabsContent value="events" className="flex flex-col gap-2 mt-4">
+          {eventsLoading && (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          )}
 
-              {activeGroups.map((g) => (
+          {!eventsLoading && eventsError && (
+            <Card>
+              <CardContent className="py-4 text-sm text-destructive">
+                {eventsError}
+              </CardContent>
+            </Card>
+          )}
+
+          {!eventsLoading && !eventsError && eventLog && eventLog.length === 0 && (
+            <Card>
+              <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                No events recorded for {date}.
+              </CardContent>
+            </Card>
+          )}
+
+          {!eventsLoading && !eventsError && eventLog && eventLog.map((e) => (
+            <Card key={e.id} size="sm">
+              <CardContent className="flex flex-col gap-1.5">
+                <div className="flex items-start gap-2 flex-wrap">
+                  <Badge
+                    className={
+                      e.verdict === 'failed'
+                        ? 'bg-red-600 text-white hover:bg-red-600 shrink-0'
+                        : e.verdict === 'ok'
+                          ? 'bg-emerald-600 text-white hover:bg-emerald-600 shrink-0'
+                          : 'shrink-0'
+                    }
+                  >
+                    {e.verdict}
+                  </Badge>
+                  <Badge variant="outline" className="shrink-0">
+                    {e.stage}
+                  </Badge>
+                  <span className="text-sm font-medium">{e.phase}</span>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {new Date(e.timestamp).toLocaleTimeString('en-GB', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}
+                  </span>
+                </div>
+                <p className="text-sm text-muted-foreground leading-snug">
+                  {e.reason}
+                </p>
+                {(e.inputs.length > 0 || e.outputs.length > 0) && (
+                  <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-border mt-0.5">
+                    {e.inputs.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium">in:</span>{' '}
+                        {e.inputs.join(', ')}
+                      </p>
+                    )}
+                    {e.outputs.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-medium">out:</span>{' '}
+                        {e.outputs.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {e.evidence_refs.length > 0 && (
+                  <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-destructive mt-0.5">
+                    {e.evidence_refs.map((ref, i) => (
+                      <p key={i} className="text-xs text-destructive italic">
+                        {ref}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        {/* --- Shadow candidates tab (new) --- */}
+        <TabsContent value="shadow" className="flex flex-col gap-2 mt-4">
+          {eventsLoading && (
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-24 w-full" />
+            </div>
+          )}
+
+          {!eventsLoading && (!shadowCandidates || shadowCandidates.length === 0) && (
+            <Card>
+              <CardContent className="py-6 text-center text-sm text-muted-foreground">
+                No shadow candidates for {date}.
+              </CardContent>
+            </Card>
+          )}
+
+          {!eventsLoading && shadowCandidates?.map((sc, i) => (
+            <Card key={i} size="sm">
+              <CardContent className="flex flex-col gap-1.5">
+                <div className="flex items-start gap-2 flex-wrap">
+                  <Badge variant="outline" className="shrink-0">
+                    {sc.candidate.category}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {Math.round(sc.candidate.confidence * 100)}% confidence
+                  </span>
+                </div>
+                <p className="text-sm leading-snug">{sc.candidate.text}</p>
+                {sc.candidate.sources.length > 0 && (
+                  <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-border mt-0.5">
+                    {sc.candidate.sources.map((src, j) => (
+                      <p
+                        key={j}
+                        className="text-xs text-muted-foreground italic"
+                      >
+                        {src.hash.slice(0, 20)}…: {src.excerpt.slice(0, 80)}
+                        {src.excerpt.length > 80 && '…'}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </TabsContent>
+
+        {/* --- Diaries tab (old report) --- */}
+        <TabsContent value="diaries" className="flex flex-col gap-3 mt-4">
+          {!report && (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                Old overnight-report data not available for {date}.
+              </CardContent>
+            </Card>
+          )}
+
+          {report && activeGroups.length === 0 && skippedGroups.length === 0 && (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                No diary entries for this date.
+              </CardContent>
+            </Card>
+          )}
+
+          {activeGroups.map((g) => (
+            <DiaryCard key={g.group_id} group={g} />
+          ))}
+
+          {skippedGroups.length > 0 && (
+            <div className="flex flex-col gap-2 mt-2">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
+                Quiet Groups
+              </p>
+              {skippedGroups.map((g) => (
                 <DiaryCard key={g.group_id} group={g} />
               ))}
+            </div>
+          )}
+        </TabsContent>
 
-              {skippedGroups.length > 0 && (
-                <div className="flex flex-col gap-2 mt-2">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">
-                    Quiet Groups
-                  </p>
-                  {skippedGroups.map((g) => (
-                    <DiaryCard key={g.group_id} group={g} />
-                  ))}
-                </div>
-              )}
-            </TabsContent>
+        {/* --- Facts & Insights tab (old report) --- */}
+        <TabsContent value="facts" className="mt-4">
+          {report ? (
+            <FactsInsightsList groups={report.groups} />
+          ) : (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                Old overnight-report data not available for {date}.
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
-            <TabsContent value="facts" className="mt-4">
-              <FactsInsightsList groups={report.groups} />
-            </TabsContent>
+        {/* --- Trace Analysis tab --- */}
+        <TabsContent value="traces" className="mt-4">
+          {traces ? (
+            <TraceSummary analysis={traces} />
+          ) : (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                No trace analysis available. Runs nightly at 3 AM.
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
-            <TabsContent value="traces" className="mt-4">
-              {traces ? (
-                <TraceSummary analysis={traces} />
-              ) : (
-                <Card>
-                  <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                    No trace analysis available. Runs nightly at 3 AM.
-                  </CardContent>
-                </Card>
-              )}
-            </TabsContent>
+        {/* --- Retrospective tab --- */}
+        <TabsContent value="retrospective" className="mt-4">
+          {retrospective ? (
+            <RetrospectiveView retrospective={retrospective} />
+          ) : (
+            <RetrospectiveEmpty />
+          )}
+        </TabsContent>
 
-            <TabsContent value="retrospective" className="mt-4">
-              {retrospective ? (
-                <RetrospectiveView retrospective={retrospective} />
-              ) : (
-                <RetrospectiveEmpty />
-              )}
-            </TabsContent>
-
-            <TabsContent value="soul" className="mt-4">
-              <SoulView
-                soul={soul ?? {}}
-                observations={soulObservations}
-              />
-            </TabsContent>
-          </Tabs>
-        </>
-      )}
-
-      {/* --- New event log + shadow candidates (independent of old report) --- */}
-      <div className="flex flex-col gap-3 mt-2">
-        <h2 className="text-base font-semibold">Event log</h2>
-
-        {eventsLoading && (
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-8 w-64" />
-            <Skeleton className="h-24 w-full" />
-          </div>
-        )}
-
-        {!eventsLoading && eventsError && (
-          <Card>
-            <CardContent className="py-4 text-sm text-destructive">
-              {eventsError}
-            </CardContent>
-          </Card>
-        )}
-
-        {!eventsLoading && !eventsError && eventLog && (
-          <Tabs defaultValue="events">
-            <TabsList>
-              <TabsTrigger value="events">Events ({eventLog.length})</TabsTrigger>
-              <TabsTrigger value="shadow">
-                Shadow candidates ({shadowCandidates?.length ?? 0})
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="events" className="flex flex-col gap-2 mt-4">
-              {eventLog.length === 0 && (
-                <Card>
-                  <CardContent className="py-6 text-center text-sm text-muted-foreground">
-                    No events recorded for {date}.
-                  </CardContent>
-                </Card>
-              )}
-
-              {eventLog.map((e) => (
-                <Card key={e.id} size="sm">
-                  <CardContent className="flex flex-col gap-1.5">
-                    <div className="flex items-start gap-2 flex-wrap">
-                      <Badge
-                        className={
-                          e.verdict === "failed"
-                            ? "bg-red-600 text-white hover:bg-red-600 shrink-0"
-                            : e.verdict === "ok"
-                              ? "bg-emerald-600 text-white hover:bg-emerald-600 shrink-0"
-                              : "shrink-0"
-                        }
-                      >
-                        {e.verdict}
-                      </Badge>
-                      <Badge variant="outline" className="shrink-0">
-                        {e.stage}
-                      </Badge>
-                      <span className="text-sm font-medium">{e.phase}</span>
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {new Date(e.timestamp).toLocaleTimeString("en-GB", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })}
-                      </span>
-                    </div>
-                    <p className="text-sm text-muted-foreground leading-snug">
-                      {e.reason}
-                    </p>
-                    {(e.inputs.length > 0 || e.outputs.length > 0) && (
-                      <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-border mt-0.5">
-                        {e.inputs.length > 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            <span className="font-medium">in:</span>{" "}
-                            {e.inputs.join(", ")}
-                          </p>
-                        )}
-                        {e.outputs.length > 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            <span className="font-medium">out:</span>{" "}
-                            {e.outputs.join(", ")}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {e.evidence_refs.length > 0 && (
-                      <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-destructive mt-0.5">
-                        {e.evidence_refs.map((ref, i) => (
-                          <p key={i} className="text-xs text-destructive italic">
-                            {ref}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </TabsContent>
-
-            <TabsContent value="shadow" className="flex flex-col gap-2 mt-4">
-              {(!shadowCandidates || shadowCandidates.length === 0) && (
-                <Card>
-                  <CardContent className="py-6 text-center text-sm text-muted-foreground">
-                    No shadow candidates for {date}.
-                  </CardContent>
-                </Card>
-              )}
-
-              {shadowCandidates?.map((sc, i) => (
-                <Card key={i} size="sm">
-                  <CardContent className="flex flex-col gap-1.5">
-                    <div className="flex items-start gap-2 flex-wrap">
-                      <Badge variant="outline" className="shrink-0">
-                        {sc.candidate.category}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground ml-auto">
-                        {Math.round(sc.candidate.confidence * 100)}% confidence
-                      </span>
-                    </div>
-                    <p className="text-sm leading-snug">{sc.candidate.text}</p>
-                    {sc.candidate.sources.length > 0 && (
-                      <div className="flex flex-col gap-0.5 pl-1 border-l-2 border-border mt-0.5">
-                        {sc.candidate.sources.map((src, j) => (
-                          <p
-                            key={j}
-                            className="text-xs text-muted-foreground italic"
-                          >
-                            {src.hash.slice(0, 20)}…: {src.excerpt.slice(0, 80)}
-                            {src.excerpt.length > 80 && "…"}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))}
-            </TabsContent>
-          </Tabs>
-        )}
-      </div>
+        {/* --- Soul tab --- */}
+        <TabsContent value="soul" className="mt-4">
+          <SoulView
+            soul={soul ?? {}}
+            observations={soulObservations}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
