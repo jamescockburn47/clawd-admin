@@ -85,6 +85,13 @@ describe('overnight/events', () => {
         /stage/i,
       );
     });
+
+    it('accepts the operations stage for retrofitted non-spec tasks', async () => {
+      const opsEvent = { ...validEvent, stage: 'operations' as const, phase: 'daily-backup' };
+      const written = await appendEvent(opsEvent, { date: '2026-04-10', overnightDir: tmpRoot });
+      assert.equal(written.stage, 'operations');
+      assert.equal(written.phase, 'daily-backup');
+    });
   });
 
   describe('queryEvents', () => {

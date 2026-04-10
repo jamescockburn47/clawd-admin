@@ -14,7 +14,7 @@ const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(MODULE_DIR, '..', '..');
 const DEFAULT_OVERNIGHT_DIR = join(REPO_ROOT, 'data', 'overnight');
 
-export const OVERNIGHT_STAGES = ['consolidate', 'probe', 'report', 'improve'] as const;
+export const OVERNIGHT_STAGES = ['consolidate', 'probe', 'report', 'improve', 'operations'] as const;
 export type OvernightStage = (typeof OVERNIGHT_STAGES)[number];
 
 export const OVERNIGHT_VERDICTS = ['ok', 'rejected', 'failed', 'skipped', 'null'] as const;
