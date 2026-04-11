@@ -243,10 +243,12 @@ function generateKnowledgeEntries() {
   } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
 
   // Data persistence
-  entries.push({
-    fact: doc.dataPersistence.summary,
-    tags: ['data', 'persistence', 'json', 'storage'],
-  });
+  if (doc.dataPersistence?.summary) {
+    entries.push({
+      fact: doc.dataPersistence.summary,
+      tags: ['data', 'persistence', 'json', 'storage'],
+    });
+  }
 
   // Subsystem entries — any field with a .summary that isn't already handled above
   const handledKeys = new Set([
