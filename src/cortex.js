@@ -135,7 +135,7 @@ export async function gatherIntelligence(context, hasImage, isGroup, options = {
 
   // Speculative web prefetch — if heuristic or category suggests it
   const webHint = WEB_HINT_PATTERN.test(context);
-  if (webHint || WEB_LIKELY.has(category)) {
+  if (!options.disableWebPrefetch && (webHint || WEB_LIKELY.has(category))) {
     streams.webPrefetch = speculativeWebSearch(context).catch(() => null);
   }
 

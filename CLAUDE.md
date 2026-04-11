@@ -70,6 +70,8 @@ These are constraints the agent cannot infer from code. Do not revisit, reverse,
 
 ### Group Behaviour
 - **Groups are @mention/prefix only.** No passive engagement. `clawd ...` or `@clawd` for advisory mode, `clawdsec` for secretary/admin mode (skips planner).
+- **Ambient agency is opt-in by group.** `LQCore` may receive unsolicited participation when Clint judges a contribution genuinely useful; default posture elsewhere remains silent unless addressed.
+- **Ambient agency is speak-only.** No unsolicited tool actions, writes, or private-owner/admin actions. Ambient group contributions may use only non-private context.
 - **Three security modes: open, project, colleague.** Unregistered groups default to colleague (most restrictive). James sets modes in-group.
 - **Three-layer defense: prompt + output filter + canary.** Cannot be prompt-injected. Output filter is deterministic regex.
 - **Anti-prompt-injection hardening.** Identity lock, instruction hierarchy, anti-extraction, anti-role-play.

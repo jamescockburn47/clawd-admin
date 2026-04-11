@@ -24,6 +24,7 @@ import { clearPendingAction, getPendingAction } from './pending-action.js';
 import { getRecentGroupMessages, formatTranscript } from './topic-scan.js';
 import { queueGroupMessage } from './group-message-processor.js';
 import { runSkillPostProcessors } from './skill-registry.js';
+import { maybeRunAmbientAgency } from './agency/service.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -180,7 +181,23 @@ export async function handleIncomingMessage(sock, message, botJid) {
       queueGroupMessage(chatJid, senderName, text);
     }
 
-    if (!trigger.respond) return;
+    if (!trigger.respond) {
+      if (isGroup && text) {
+        try {
+          await maybeRunAmbientAgency({
+            sock,
+            chatJid,
+            senderJid,
+            senderName,
+            text,
+            triggerRespond: false,
+          });
+        } catch (err) {
+          logger.warn({ err: err.message, chatJid }, 'ambient agency failed');
+        }
+      }
+      return;
+    }
 
     // Engagement gate — disabled. Groups are @mention-only (CLAUDE.md #109-110).
     // 0.6B classifier service stopped. Future: Forge may re-introduce selective engagement.

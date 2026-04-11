@@ -1,5 +1,5 @@
 // test/trace-analyser.test.js — Trace analyser: routing, categories, models, plans, needsPlan F1, quality gate, timing, anomalies
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync, unlinkSync, existsSync, readFileSync, copyFileSync } from 'fs';
 import { join } from 'path';
@@ -7,8 +7,17 @@ import { join } from 'path';
 process.env.ANTHROPIC_API_KEY = 'test-key-not-real';
 
 const TRACE_FILE = join('data', 'reasoning-traces.jsonl');
+const INTERACTIONS_FILE = join('data', 'interactions.jsonl');
+const FEEDBACK_FILE = join('data', 'feedback.jsonl');
+const AGENCY_FILE = join('data', 'agency-decisions.jsonl');
 let backupExists = false;
 const BACKUP_FILE = TRACE_FILE + '.test-backup';
+let interactionsBackupExists = false;
+let feedbackBackupExists = false;
+let agencyBackupExists = false;
+const INTERACTIONS_BACKUP = INTERACTIONS_FILE + '.test-backup';
+const FEEDBACK_BACKUP = FEEDBACK_FILE + '.test-backup';
+const AGENCY_BACKUP = AGENCY_FILE + '.test-backup';
 
 // --- Helpers: synthetic trace builders ---
 
@@ -39,10 +48,27 @@ function writeTraces(traces) {
   writeFileSync(TRACE_FILE, lines + '\n');
 }
 
+function writeJsonl(path, entries) {
+  const lines = entries.map((entry) => JSON.stringify(entry)).join('\n');
+  writeFileSync(path, lines ? lines + '\n' : '');
+}
+
 function backupTraceFile() {
   if (existsSync(TRACE_FILE)) {
     copyFileSync(TRACE_FILE, BACKUP_FILE);
     backupExists = true;
+  }
+  if (existsSync(INTERACTIONS_FILE)) {
+    copyFileSync(INTERACTIONS_FILE, INTERACTIONS_BACKUP);
+    interactionsBackupExists = true;
+  }
+  if (existsSync(FEEDBACK_FILE)) {
+    copyFileSync(FEEDBACK_FILE, FEEDBACK_BACKUP);
+    feedbackBackupExists = true;
+  }
+  if (existsSync(AGENCY_FILE)) {
+    copyFileSync(AGENCY_FILE, AGENCY_BACKUP);
+    agencyBackupExists = true;
   }
 }
 
@@ -53,6 +79,27 @@ function restoreTraceFile() {
     backupExists = false;
   } else if (!backupExists && existsSync(TRACE_FILE)) {
     unlinkSync(TRACE_FILE);
+  }
+  if (interactionsBackupExists && existsSync(INTERACTIONS_BACKUP)) {
+    copyFileSync(INTERACTIONS_BACKUP, INTERACTIONS_FILE);
+    unlinkSync(INTERACTIONS_BACKUP);
+    interactionsBackupExists = false;
+  } else if (!interactionsBackupExists && existsSync(INTERACTIONS_FILE)) {
+    unlinkSync(INTERACTIONS_FILE);
+  }
+  if (feedbackBackupExists && existsSync(FEEDBACK_BACKUP)) {
+    copyFileSync(FEEDBACK_BACKUP, FEEDBACK_FILE);
+    unlinkSync(FEEDBACK_BACKUP);
+    feedbackBackupExists = false;
+  } else if (!feedbackBackupExists && existsSync(FEEDBACK_FILE)) {
+    unlinkSync(FEEDBACK_FILE);
+  }
+  if (agencyBackupExists && existsSync(AGENCY_BACKUP)) {
+    copyFileSync(AGENCY_BACKUP, AGENCY_FILE);
+    unlinkSync(AGENCY_BACKUP);
+    agencyBackupExists = false;
+  } else if (!agencyBackupExists && existsSync(AGENCY_FILE)) {
+    unlinkSync(AGENCY_FILE);
   }
 }
 
@@ -69,6 +116,12 @@ describe('trace-analyser', () => {
   before(async () => {
     backupTraceFile();
     await loadModule();
+  });
+
+  beforeEach(() => {
+    writeJsonl(INTERACTIONS_FILE, []);
+    writeJsonl(FEEDBACK_FILE, []);
+    writeJsonl(AGENCY_FILE, []);
   });
 
   after(() => {
@@ -382,6 +435,42 @@ describe('trace-analyser', () => {
     });
   });
 
+  // ==================== analyseAgency ====================
+
+  describe('analyseAgency', () => {
+    it('summarises ambient interventions and linked feedback', () => {
+      writeTraces([makeTrace()]);
+      writeJsonl(INTERACTIONS_FILE, [
+        {
+          id: 'ambient-1',
+          input: { ambient: true },
+          routing: { mode: 'ambient' },
+        },
+      ]);
+      writeJsonl(FEEDBACK_FILE, [
+        { interactionId: 'ambient-1', signal: 'positive', type: 'reaction' },
+      ]);
+      writeJsonl(AGENCY_FILE, [
+        {
+          groupLabel: 'LQCore',
+          finalDecision: {
+            shouldIntervene: true,
+            reason: 'approved',
+            interventionType: 'synthesis',
+            confidence: 0.88,
+          },
+        },
+      ]);
+
+      const result = analyseTraces(365);
+      assert.equal(result.agency.totalDecisions, 1);
+      assert.equal(result.agency.sent, 1);
+      assert.equal(result.agency.feedback.positive, 1);
+      assert.equal(result.agency.approvalRate, 100);
+      assert.equal(result.agency.interventionTypes.synthesis, 1);
+    });
+  });
+
   // ==================== analyseTiming ====================
 
   describe('analyseTiming', () => {
@@ -519,6 +608,36 @@ describe('trace-analyser', () => {
       writeTraces(traces);
       const result = analyseTraces(365);
       assert.equal(result.anomalies.length, 0, `unexpected anomalies: ${JSON.stringify(result.anomalies)}`);
+    });
+
+    it('low ambient approval rate generates a warning', () => {
+      writeTraces([makeTrace()]);
+      writeJsonl(INTERACTIONS_FILE, Array.from({ length: 5 }, (_, idx) => ({
+        id: `ambient-${idx}`,
+        input: { ambient: true },
+        routing: { mode: 'ambient' },
+      })));
+      writeJsonl(FEEDBACK_FILE, [
+        { interactionId: 'ambient-0', signal: 'negative', type: 'reaction' },
+        { interactionId: 'ambient-1', signal: 'negative', type: 'reaction' },
+        { interactionId: 'ambient-2', signal: 'negative', type: 'reaction' },
+        { interactionId: 'ambient-3', signal: 'positive', type: 'reaction' },
+        { interactionId: 'ambient-4', signal: 'positive', type: 'reaction' },
+      ]);
+      writeJsonl(AGENCY_FILE, Array.from({ length: 10 }, () => ({
+        groupLabel: 'LQCore',
+        finalDecision: {
+          shouldIntervene: true,
+          reason: 'approved',
+          interventionType: 'issue_spotting',
+          confidence: 0.81,
+        },
+      })));
+
+      const result = analyseTraces(365);
+      const anomaly = result.anomalies.find((entry) => entry.type === 'low_ambient_approval_rate');
+      assert.ok(anomaly, 'should detect low ambient approval');
+      assert.equal(anomaly.severity, 'warning');
     });
   });
 

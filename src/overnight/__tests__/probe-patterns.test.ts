@@ -96,6 +96,38 @@ describe('overnight/probe-patterns.extractPatterns', () => {
     assert.equal(patterns[0]!.kind, 'pattern');
   });
 
+  it('includes ambient agency summary when present in trace analysis', async () => {
+    let capturedUser = '';
+    const client: EvoChatClient = {
+      chat: async (_sys, user) => {
+        capturedUser = user;
+        return SAMPLE_RESPONSE;
+      },
+    };
+    const patterns = await extractPatterns({
+      client,
+      sources: makeSources({
+        traceAnalysis: {
+          totalTraces: 30,
+          anomalies: [],
+          categories: { planning: 5 },
+          agency: {
+            totalDecisions: 12,
+            sent: 3,
+            silent: 9,
+            sentRate: 25,
+            approvalRate: 50,
+            feedback: { positive: 1, negative: 1, neutral: 0, corrections: 1 },
+          },
+        },
+      }),
+      date: '2026-04-11',
+    });
+    assert.equal(patterns.length, 2);
+    assert.match(capturedUser, /AMBIENT AGENCY/);
+    assert.match(capturedUser, /approval rate/i);
+  });
+
   it('returns an empty array when the EVO client returns null', async () => {
     const patterns = await extractPatterns({
       client: makeClient(null),

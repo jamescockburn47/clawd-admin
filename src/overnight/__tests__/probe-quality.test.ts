@@ -133,4 +133,27 @@ describe('overnight/probe-quality.enrichQualityFailures', () => {
     });
     assert.deepEqual(b, []);
   });
+
+  it('adds an ambient_agency quality observation from agency summary', async () => {
+    const analysis = {
+      anomalies: [],
+      agency: {
+        totalDecisions: 10,
+        sent: 4,
+        silent: 6,
+        sentRate: 40,
+        approvalRate: 50,
+        feedback: { positive: 1, negative: 1, neutral: 0, corrections: 1 },
+      },
+      qualityGate: { totalGated: 0, byCategory: {} },
+    };
+    const result = await enrichQualityFailures({
+      client: makeClient(analysis),
+      date: '2026-04-11',
+    });
+    assert.equal(result.length, 1);
+    assert.equal(result[0]!.category, 'ambient_agency');
+    assert.match(result[0]!.rejection_reason, /approvalRate=50/);
+    assert.equal(result[0]!.weight, 4);
+  });
 });

@@ -22,6 +22,19 @@ interface TraceAnalysisShape {
     detail?: string;
     suggestion?: string;
   }>;
+  agency?: {
+    totalDecisions?: number;
+    sent?: number;
+    silent?: number;
+    sentRate?: number;
+    approvalRate?: number | null;
+    feedback?: {
+      positive?: number;
+      negative?: number;
+      neutral?: number;
+      corrections?: number;
+    };
+  };
   qualityGate?: {
     totalGated?: number;
     byCategory?: Record<string, number>;
@@ -60,14 +73,17 @@ export async function enrichQualityFailures(
   if (!analysis) return [];
 
   const anomalies = analysis.anomalies;
-  if (!Array.isArray(anomalies) || anomalies.length === 0) return [];
+  const agency = analysis.agency;
+  if ((!Array.isArray(anomalies) || anomalies.length === 0) && !(agency && typeof agency === 'object' && (agency.totalDecisions ?? 0) > 0)) {
+    return [];
+  }
 
   const gatedCategories = analysis.qualityGate?.byCategory ?? {};
   const gatedCategoryKeys = Object.keys(gatedCategories);
 
   const observations: QualityFailureObservation[] = [];
 
-  for (const anomaly of anomalies) {
+  for (const anomaly of Array.isArray(anomalies) ? anomalies : []) {
     const type = anomaly.type ?? 'unknown';
     const severity = (anomaly.severity ?? 'info').toLowerCase();
     const detail = anomaly.detail ?? '';
@@ -90,6 +106,33 @@ export async function enrichQualityFailures(
       cortex_summary: suggestion || undefined,
       evidence_refs: [`trace-analysis:${type}`],
       weight,
+    });
+  }
+
+  if (agency && typeof agency === 'object' && (agency.totalDecisions ?? 0) > 0) {
+    const positive = agency.feedback?.positive ?? 0;
+    const negative = agency.feedback?.negative ?? 0;
+    const corrections = agency.feedback?.corrections ?? 0;
+    const approvalRate = agency.approvalRate;
+
+    observations.push({
+      kind: 'quality_failure',
+      date: opts.date,
+      category: 'ambient_agency',
+      rejection_reason:
+        `ambient agency summary: sent=${agency.sent ?? 0}, silent=${agency.silent ?? 0}, ` +
+        `approvalRate=${approvalRate ?? 'n/a'}, positive=${positive}, negative=${negative}, corrections=${corrections}`,
+      cortex_summary:
+        negative > positive || corrections > 0
+          ? 'Ambient participation is drawing mixed or negative feedback — tighten intervention thresholds and prefer only high-confidence contributions.'
+          : 'Monitor ambient participation quality and keep intervention thresholds calibrated against real reactions.',
+      evidence_refs: ['trace-analysis:ambient_agency'],
+      weight:
+        approvalRate !== null && approvalRate !== undefined && approvalRate < 60
+          ? 4
+          : negative > 0 || corrections > 0
+            ? 3
+            : 2,
     });
   }
 

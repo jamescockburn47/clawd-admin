@@ -62,6 +62,20 @@ function buildUserMessage(sources: TraceSource): string {
         .join(' ');
       parts.push(`Category distribution: ${cats}`);
     }
+    if (ta.agency && typeof ta.agency === 'object') {
+      const agency = ta.agency as Record<string, unknown>;
+      parts.push('=== AMBIENT AGENCY ===');
+      parts.push(
+        `Decisions=${agency.totalDecisions ?? 0} sent=${agency.sent ?? 0} silent=${agency.silent ?? 0} sentRate=${agency.sentRate ?? 0}%`,
+      );
+      if (agency.feedback && typeof agency.feedback === 'object') {
+        const feedback = agency.feedback as Record<string, number>;
+        parts.push(
+          `Feedback: positive=${feedback.positive ?? 0} negative=${feedback.negative ?? 0} neutral=${feedback.neutral ?? 0} corrections=${feedback.corrections ?? 0}`,
+        );
+      }
+      parts.push(`Approval rate: ${agency.approvalRate ?? 'n/a'}`);
+    }
   }
 
   if (sources.recentTraceSamples.length > 0) {
