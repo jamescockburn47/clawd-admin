@@ -1,29 +1,29 @@
 {
   "architecture": {
-    "summary": "Distributed system running across 3 devices on James's local network, built on professional-grade service classes with dependency injection and validated configuration. Two-tier cloud AI with local support: MiniMax M2.7 (default cloud) for ALL chat responses. Claude Opus 4.6 (premium) as quality gate and on explicit request. Local compute (llama.cpp on EVO X2) for classification, vision, and document summarisation only — never generates chat responses. Core services (EvoClient, MemoryClient, RouterService, LLMService) are class-based with constructor-injected dependencies, making every component independently testable.",
+    "summary": "Distributed system with the EVO X2 as the primary host. EVO runs the Node.js bot runtime, WhatsApp, HTTP API, scheduler, memory integration, and local AI services. The Pi is a native Rust dashboard and backup screen, while the laptop-hosted Clawd Console provides the richer web control surface. Two-tier cloud AI with local support: MiniMax M2.7 (default cloud) for most chat responses, Claude Opus 4.6 for premium or explicit-request paths. Local compute on EVO handles classification, planning support, vision, document summarisation, and embeddings — not the main chat response.",
     "devices": [
       {
         "name": "Raspberry Pi 5",
         "ip": "192.168.1.211",
-        "role": "The Brain — central coordinator",
+        "role": "Dashboard screen and backup node",
         "user": "pi",
-        "runs": "Node.js 20+ clawdbot service (systemd), HTTP server on port 3000, WhatsApp via Baileys, Claude API calls, all tool execution, widget caching, SSE dashboard updates, scheduler",
+        "runs": "Rust native dashboard on the 10.1 inch touchscreen. Connects to the EVO-hosted bot API and SSE feed over the direct ethernet link.",
         "display": "10.1 inch touchscreen, 1024x600, runs Rust native dashboard"
       },
       {
         "name": "EVO X2 NucBox",
         "ip": "192.168.1.230",
-        "role": "Voice & Local AI",
+        "role": "Primary bot runtime, local AI, memory, and voice host",
         "user": "james",
         "hardware": "AMD Ryzen AI Max+ 395 (16C/32T), Radeon 8060S (RDNA 3.5, 40 CUs, gfx1151), 128GB unified LPDDR5X (96GB GPU VRAM heap via UMA, ~32GB CPU-visible — do NOT use free/meminfo to judge model capacity, check /sys/class/drm/card1/device/mem_info_vram_total)",
-        "runs": "Python voice listener (clawdbot-voice.service), llama.cpp with Qwen3-VL-30B-A3B (tool-calling + vision, 65K ctx, port 8080), Qwen3-4B (primary classifier, port 8085), Qwen3-0.6B (last-resort fallback classifier, port 8081), Granite-Docling-258M F16 (structured document parsing, port 8084), Qwen3-Embedding-8B Q8_0 (4096-dim embeddings, port 8083), memory service on port 5100 (vector search, fact storage, document chunks), SearXNG (Docker, port 8888, web search), Whisper STT (distil-small.en), Piper TTS (en_GB-alan-medium)"
+        "runs": "Node.js clawdbot runtime via systemd (WhatsApp, HTTP API on port 3000, scheduler, tools, ambient agency), Python voice listener (clawdbot-voice.service), llama.cpp with Qwen3-VL-30B-A3B (vision and document support, port 8080), Qwen3-4B (primary classifier/planner signal, port 8085), Qwen3-0.6B (last-resort fallback classifier, port 8081), Granite-Docling-258M F16 (structured document parsing, port 8084), Qwen3-Embedding-8B Q8_0 (4096-dim embeddings, port 8083), memory service on port 5100, and SearXNG on port 8888."
       },
       {
-        "name": "Rust Dashboard",
-        "location": "Runs on Pi display",
-        "framework": "eframe/egui native GUI (NOT Chromium/HTML)",
-        "layout": "3-column: Left (Calendar with Henry weekends + AI/LQ meetings inline, AI Chat showing recent messages + API cost), Centre (Todos & Reminders), Right (Admin with full system health — Pi/WhatsApp/EVO/Voice/Diary/Self-Improve/Knowledge/Backup/Memories statuses + stat cards, Soul with people/patterns/lessons/boundaries, Email, Side Gig, Help). Header: weather + usage. Bottom: panel navigation dots.",
-        "connectivity": "HTTP calls to Pi port 3000 + SSE event stream for real-time updates. Fetches system health from /api/system-health endpoint."
+        "name": "Clawd Console",
+        "location": "James's Legion 9 Pro laptop",
+        "framework": "Next.js 16 web app (separate from the Pi dashboard)",
+        "layout": "Overview, overnight intelligence, routing, memory browser, logs, and mission-control style diagnostics.",
+        "connectivity": "Runs locally on port 3100 and proxies requests to the EVO bot API and memory service using DASHBOARD_TOKEN auth."
       }
     ]
   }
