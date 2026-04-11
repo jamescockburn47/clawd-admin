@@ -14,6 +14,8 @@ export interface FollowUpWindow {
   open: boolean;
   sourceMessageId: string;
   replyTarget: ReplyTarget | null;
+  /** JID of the human Clint was replying to. Used so same-sender continuations count as follow-ups even without @mention or native WhatsApp reply. */
+  lastRepliedSenderJid: string | null;
   expiresAt: number;
   /** Count of follow-up exchanges recorded while the window stays open (starts at 0). */
   turnIndex: number;
@@ -68,6 +70,7 @@ class ConversationStateService {
     chatJid: string;
     sourceMessageId: string;
     replyTarget: ReplyTarget | null;
+    lastRepliedSenderJid?: string | null;
     expiresAt: number;
   }): void {
     const state = this.getOrCreate(input.chatJid);
@@ -75,6 +78,7 @@ class ConversationStateService {
       open: true,
       sourceMessageId: input.sourceMessageId,
       replyTarget: input.replyTarget,
+      lastRepliedSenderJid: input.lastRepliedSenderJid ?? null,
       expiresAt: input.expiresAt,
       turnIndex: 0,
     };
@@ -118,6 +122,7 @@ export function openFollowUpWindow(input: {
   chatJid: string;
   sourceMessageId: string;
   replyTarget: ReplyTarget | null;
+  lastRepliedSenderJid?: string | null;
   expiresAt: number;
 }): void {
   activeConversationStateService.openFollowUpWindow(input);

@@ -333,6 +333,7 @@ export async function maybeRunAmbientAgency(opts) {
       chatJid: opts.chatJid,
       sourceMessageId: sent.key.id,
       replyTarget: opts.replyTarget ?? null,
+      lastRepliedSenderJid: opts.senderJid || null,
       expiresAt: Date.now() + profile.followUpWindowMs,
     });
   }

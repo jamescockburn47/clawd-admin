@@ -9,6 +9,7 @@ export interface FollowUpRuntimeInput {
   now: number;
   directlyRepliesToClint: boolean;
   mentionsClint: boolean;
+  senderJid?: string | null;
 }
 
 export interface FollowUpRuntimeResult {
@@ -42,6 +43,7 @@ export function applyProductionFollowUpTurn(
     now: input.now,
     directlyRepliesToClint: input.directlyRepliesToClint,
     mentionsClint: input.mentionsClint,
+    senderJid: input.senderJid ?? null,
   });
 
   if (inFollowUpExchange) {

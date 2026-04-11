@@ -15,6 +15,7 @@ export function shouldContinueFollowUp(input: {
   now: number;
   directlyRepliesToClint: boolean;
   mentionsClint: boolean;
+  senderJid?: string | null;
 }): boolean {
   const current = getConversationState(input.chatJid);
   const window = current.followUpWindow;
@@ -27,7 +28,19 @@ export function shouldContinueFollowUp(input: {
     closeFollowUpWindow(input.chatJid);
     return false;
   }
-  return input.directlyRepliesToClint || input.mentionsClint;
+  if (input.directlyRepliesToClint || input.mentionsClint) return true;
+  // Spec §7.6: within an open follow-up window, the same human that Clint just
+  // replied to may continue conversationally without tagging or native-reply.
+  // This is the bounded "not one-shot" path. Other participants still need an
+  // explicit signal to pull Clint in.
+  if (
+    input.senderJid &&
+    window.lastRepliedSenderJid &&
+    input.senderJid === window.lastRepliedSenderJid
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Public façade for follow-up turn registration; callers should use this, not conversation-state. */

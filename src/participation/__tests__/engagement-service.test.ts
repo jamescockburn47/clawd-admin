@@ -128,5 +128,40 @@ test('shouldContinueFollowUp closes the window after the follow-up turn cap', ()
 });
 
 test('getDefaultFollowUpWindowMs matches participation defaults', () => {
-  assert.equal(getDefaultFollowUpWindowMs(), 120_000);
+  assert.equal(getDefaultFollowUpWindowMs(), 300_000);
+});
+
+test('shouldContinueFollowUp accepts same-sender continuation without @mention or native reply', () => {
+  clearConversationStateForTest();
+  openFollowUpWindow({
+    chatJid: 'g@g.us',
+    sourceMessageId: 'bot-1',
+    replyTarget: null,
+    lastRepliedSenderJid: 'peter@lid',
+    expiresAt: 10_000,
+  });
+
+  // Same sender as the one Clint just replied to — continuation allowed.
+  assert.equal(
+    shouldContinueFollowUp({
+      chatJid: 'g@g.us',
+      now: 100,
+      directlyRepliesToClint: false,
+      mentionsClint: false,
+      senderJid: 'peter@lid',
+    }),
+    true,
+  );
+
+  // Different sender with no explicit signal — not allowed.
+  assert.equal(
+    shouldContinueFollowUp({
+      chatJid: 'g@g.us',
+      now: 200,
+      directlyRepliesToClint: false,
+      mentionsClint: false,
+      senderJid: 'charlotte@lid',
+    }),
+    false,
+  );
 });

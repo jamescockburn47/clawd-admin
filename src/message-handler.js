@@ -198,6 +198,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
       now: Date.now(),
       directlyRepliesToClint: repliedToBot,
       mentionsClint,
+      senderJid,
     });
     if (isGroup && mentionedJids.length > 0) {
       logger.info({ mentionedJids, botJid, text: (text || '').slice(0, 80) }, 'mention debug');
@@ -205,6 +206,16 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     const trigger = shouldRespond({ text, hasImage: msgHasImage || !!docInfo, isFromMe: message.key.fromMe, isGroup, senderJid, botJid, groupJid: chatJid, mentionedJids });
     if (!trigger.respond && repliedToBot && !message.key.fromMe) { trigger.respond = true; trigger.mode = 'direct'; trigger.secretaryMode = false; }
+    // Spec §7.6 + §8.2: if we're inside an open follow-up window, let the same
+    // participant Clint just replied to continue without @mention or native reply.
+    // Group security / blocked topics / output filter still apply downstream —
+    // this only flips the @mention gate on the hot path.
+    if (!trigger.respond && followUpParticipation.inFollowUpExchange && !message.key.fromMe) {
+      trigger.respond = true;
+      trigger.mode = 'direct';
+      trigger.secretaryMode = false;
+      logger.info({ chatJid, senderJid, turnIndex: followUpParticipation.followUpTurnIndex }, 'follow-up window continuation — bypassing mention gate');
+    }
 
     // Log ALL group messages before respond gate (dream mode needs everything)
     if (isGroup && config.evoMemoryEnabled) {
@@ -486,6 +497,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
         chatJid,
         sourceMessageId: sentMsgIds[0],
         replyTarget,
+        lastRepliedSenderJid: senderJid || null,
         expiresAt: Date.now() + getDefaultFollowUpWindowMs(),
       });
     }

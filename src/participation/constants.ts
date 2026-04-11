@@ -9,8 +9,11 @@ export const DEFAULT_MEMORY_RECALL_ENABLED = true;
 /** Cap on ambient / unsolicited contributions per wall-clock hour. */
 export const DEFAULT_MAX_UNSOLICITED_PER_HOUR = 2;
 
-/** Window after a direct interaction where follow-up context applies. */
-export const DEFAULT_FOLLOW_UP_WINDOW_MS = 120_000;
+/** Window after a direct interaction where follow-up context applies.
+ * 5 minutes — empirically, human multi-part compositions (cover email +
+ * attachment + template) can take ~90s between parts, and 2 minutes was
+ * too tight for that pattern (cf. SOVREN group, 2026-04-11). */
+export const DEFAULT_FOLLOW_UP_WINDOW_MS = 300_000;
 
 /** Minimum spacing between unsolicited contributions for the same group. */
 export const DEFAULT_COOLDOWN_MS = 60_000;
