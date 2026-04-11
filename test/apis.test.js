@@ -39,6 +39,7 @@ describe('API tool definitions', () => {
     assert.ok(names.includes('search_accommodation'), 'search_accommodation should still exist');
     assert.ok(names.includes('gmail_draft'), 'gmail_draft should still exist');
     assert.ok(names.includes('calendar_list_events'), 'calendar_list_events should still exist');
+    assert.ok(names.includes('sovren_site_access'), 'sovren_site_access should exist');
   });
 });
 

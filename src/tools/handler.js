@@ -5,6 +5,7 @@ import { searchTrains, searchAccommodation } from './travel.js';
 import { trainDepartures, trainFares } from './darwin.js';
 import { hotelSearch } from './amadeus.js';
 import { webSearch as _rawWebSearch, webFetch } from './search.js';
+import { sovrenSiteAccess } from './sovren.js';
 import { getWebPrefetch } from '../cortex.js';
 import { soulRead, soulPropose, soulConfirm, soulLearn, soulForget } from './soul.js';
 import { todoAdd, todoList, todoComplete, todoRemove, todoUpdate, getAllTodos } from './todo.js';
@@ -166,6 +167,7 @@ const TOOL_MAP = new Map([
   ['project_update', projectUpdate],
   ['project_list_files', projectListFiles],
   ['project_file_read', projectFileRead],
+  ['sovren_site_access', sovrenSiteAccess],
   ['group_mode', async () => 'Done.'],
   ['group_block', async () => 'Done.'],
   ['group_status', async () => 'Done.'],

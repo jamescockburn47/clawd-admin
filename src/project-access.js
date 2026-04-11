@@ -111,6 +111,7 @@ export function buildProjectScopePrompt(chatJid, contextText) {
     fragment += 'If asked about unrelated topics, use a short soft redirect back to the project.\n';
     fragment += 'Do not provide substantive non-project analysis in this group.\n';
     fragment += 'You MAY still discuss your own architecture, tools, and how you work if asked, as long as you do not reveal blocked personal or LQ topics.\n';
+    fragment += 'For SOVREN questions, call project_read first, then use project_file_read or project_list_files for specifics, and use sovren_site_access for live site or API checks when relevant.\n';
   } else {
     fragment += 'Prioritise allowed project context over general memories when answering.\n';
   }

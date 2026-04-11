@@ -24,9 +24,9 @@ const STATE_FILE = runtimePath('project-sync-state.json');
 
 const DEFAULT_SYNC_HOUR = 2;
 const MAX_FILE_BYTES = 250_000;
-const MAX_FILES_PER_PROJECT = 25;
+const MAX_FILES_PER_PROJECT = 60;
 const DEFAULT_INCLUDE_PATHS = ['README.md', 'plan.md', 'architecture.md', 'docs'];
-const READABLE_EXTENSIONS = new Set(['.md', '.txt', '.json', '.yaml', '.yml', '.csv']);
+const READABLE_EXTENSIONS = new Set(['.md', '.txt', '.json', '.yaml', '.yml', '.csv', '.py', '.js', '.ts', '.tsx']);
 const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '__pycache__', '.venv', 'venv']);
 
 let lastProjectSyncDate = null;

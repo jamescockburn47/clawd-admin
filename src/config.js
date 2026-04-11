@@ -52,6 +52,12 @@ const ConfigSchema = z.object({
   PERPLEXITY_API_KEY: z.string().optional().default(''),
   PERPLEXITY_ENABLED: boolFromEnv.default('true'),
 
+  // Sovren access
+  SOVREN_WEB_URL: z.string().url().optional().default('https://www.sovren.xyz'),
+  SOVREN_API_URL: z.string().url().optional().default('https://api.sovren.xyz'),
+  SOVREN_DEMO_EMAIL: z.string().optional().default('peter@slaneyadvisors.com'),
+  SOVREN_DEMO_PASSWORD: z.string().optional().default('slaney2026'),
+
   // Dashboard — Pi connects to EVO's HTTP server
   HTTP_PORT: intFromEnv(3000).default('3000'),
   DASHBOARD_TOKEN: z.string().optional().default(''),
@@ -153,6 +159,11 @@ const config = {
 
   perplexityApiKey: env.PERPLEXITY_API_KEY,
   perplexityEnabled: env.PERPLEXITY_ENABLED,
+
+  sovrenWebUrl: env.SOVREN_WEB_URL,
+  sovrenApiUrl: env.SOVREN_API_URL,
+  sovrenDemoEmail: env.SOVREN_DEMO_EMAIL,
+  sovrenDemoPassword: env.SOVREN_DEMO_PASSWORD,
 
   httpPort: env.HTTP_PORT,
   dashboardToken: env.DASHBOARD_TOKEN,

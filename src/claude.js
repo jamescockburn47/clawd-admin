@@ -11,6 +11,7 @@ import { logReasoningTrace } from './reasoning-trace.js';
 import { PLANNING } from './constants.js';
 import { gatherIntelligence } from './cortex.js';
 import { buildProjectScopePrompt } from './project-access.js';
+import { filterToolsForChat } from './group-tool-policy.js';
 import { trackTokens, checkDailyLimit, incrementDailyCalls, getDailyCalls, recordCallInUsage, getUsageStats, flushUsage } from './usage-tracker.js';
 import { shouldCritique, runCritique } from './quality-gate.js';
 import logger from './logger.js';
@@ -42,17 +43,18 @@ class LLMService {
 
   getLastToolsCalled() { return this._lastToolsCalled; }
 
-  _getAvailableTools(isOwner = true) {
+  _getAvailableTools(isOwner = true, chatJid = null) {
     const hasGoogle = config.googleClientId && config.googleRefreshToken;
     const hasDarwin = !!config.darwinToken;
     const hasAmadeus = config.amadeusClientId && config.amadeusClientSecret;
-    return TOOL_DEFINITIONS.filter(t => {
+    const filtered = TOOL_DEFINITIONS.filter(t => {
       if (!isOwner && OWNER_ONLY_TOOLS.has(t.name)) return false;
       if (t.name.startsWith('calendar_') || t.name.startsWith('gmail_')) return hasGoogle;
       if (t.name === 'train_departures') return hasDarwin;
       if (t.name === 'hotel_search') return hasAmadeus;
       return true;
     });
+    return filterToolsForChat(chatJid, filtered);
   }
 
   _selectClient(userWantsClaude) {
@@ -150,7 +152,7 @@ class LLMService {
     if (config.ownerJid) ownerJids.add(config.ownerJid);
     if (config.ownerLid) ownerJids.add(config.ownerLid);
     const isOwner = !senderJid || ownerJids.size === 0 || ownerJids.has(senderJid);
-    const tools = this._getAvailableTools(isOwner);
+    const tools = this._getAvailableTools(isOwner, chatJid);
 
     const routeStart = Date.now();
     const isGroup = chatJid && chatJid.endsWith('@g.us');

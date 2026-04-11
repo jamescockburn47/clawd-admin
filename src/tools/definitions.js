@@ -684,6 +684,29 @@ export const TOOL_DEFINITIONS = [
       required: ['id', 'path'],
     },
   },
+  {
+    name: 'sovren_site_access',
+    description: 'Access the live SOVREN website or authenticated SOVREN API using the approved demo login path. Use for checking the public homepage, API health, documents, valuations, admin AI status, or LLM analytics.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        resource: {
+          type: 'string',
+          enum: ['homepage', 'health', 'login_test', 'documents', 'valuations', 'ai_status', 'llm_analytics'],
+          description: 'Which SOVREN site or API resource to access.',
+        },
+        hours: {
+          type: 'number',
+          description: 'Hours window for llm_analytics. Default 24.',
+        },
+        limit: {
+          type: 'number',
+          description: 'Result limit for llm_analytics. Default 20.',
+        },
+      },
+      required: ['resource'],
+    },
+  },
 
   // === OVERNIGHT STATUS ===
   {

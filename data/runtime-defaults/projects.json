@@ -294,13 +294,23 @@
       "projectScopeMode": "single_project_only",
       "sync": {
         "enabled": true,
-        "source": "git",
+        "source": "local",
         "includePaths": [
           "README.md",
           "plan.md",
           "architecture.md",
           "VALIDATION.md",
-          "docs"
+          "BRIEFING_FOR_PETER_AND_STARLA.md",
+          "claude.md",
+          "docs",
+          "backend/app/api/v1/auth.py",
+          "backend/app/api/v1/documents.py",
+          "backend/app/api/v1/valuations.py",
+          "backend/app/api/v1/admin.py",
+          "backend/app/config.py",
+          "frontend/src/context/AuthContext.tsx",
+          "frontend/src/services/api.ts",
+          "frontend/src/pages/Login.tsx"
         ]
       }
     }
