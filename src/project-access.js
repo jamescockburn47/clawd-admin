@@ -52,7 +52,23 @@ function buildProjectKnowledge(project) {
   if (project.status) lines.push(`Status: ${project.status}`);
   if (project.oneLiner) lines.push(`One-liner: ${project.oneLiner}`);
   if (project.summary) lines.push(`Summary: ${truncate(project.summary, MAX_SUMMARY_CHARS)}`);
+  if (project.foundingInsight) lines.push(`Founding insight: ${truncate(project.foundingInsight, MAX_SUMMARY_CHARS)}`);
+  if (project.coreFormula) lines.push(`Core formula: ${project.coreFormula}`);
+  if (Array.isArray(project.keyDifferentiators) && project.keyDifferentiators.length > 0) {
+    lines.push(`Key differentiators: ${project.keyDifferentiators.slice(0, 6).join(' | ')}`);
+  }
+  if (Array.isArray(project.architecture?.layers) && project.architecture.layers.length > 0) {
+    const architectureLines = project.architecture.layers
+      .map((layer) => `${layer.name}: ${layer.description}`)
+      .join(' | ');
+    lines.push(`Architecture layers: ${truncate(architectureLines, MAX_SUMMARY_CHARS)}`);
+  }
+  if (Array.isArray(project.nextSteps) && project.nextSteps.length > 0) {
+    lines.push(`Next steps: ${project.nextSteps.slice(0, 6).join(' | ')}`);
+  }
   if (project.evoPath) lines.push(`EVO path: ${project.evoPath}`);
+  if (project.localPath) lines.push(`Local path: ${project.localPath}`);
+  if (project.gitRepo) lines.push(`Git repo: ${project.gitRepo}`);
   if (Array.isArray(project.tags) && project.tags.length > 0) {
     lines.push(`Tags: ${project.tags.join(', ')}`);
   }

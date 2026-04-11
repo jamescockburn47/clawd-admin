@@ -20,6 +20,12 @@ describe('ambient agency policy', () => {
     assert.equal(config.policyName, 'lqcore-default');
   });
 
+  it('enables ambient agency for SOVREN by label', () => {
+    const config = getAmbientAgencyConfig({ groupLabel: 'SOVREN' });
+    assert.equal(config.enabled, true);
+    assert.equal(config.policyName, 'sovren-default');
+  });
+
   it('keeps ambient agency disabled for unrelated groups by default', () => {
     const config = getAmbientAgencyConfig({ groupLabel: 'Random Group' });
     assert.equal(config.enabled, false);
@@ -62,6 +68,20 @@ describe('ambient agency policy', () => {
     assert.equal(verdict.eligible, true);
     assert.equal(verdict.reason, 'eligible');
   });
+
+  it('accepts ambient SOVREN messages in project mode', () => {
+    const config = getAmbientAgencyConfig({ groupLabel: 'SOVREN' });
+    const verdict = isAmbientAgencyEligible({
+      isGroup: true,
+      triggerRespond: false,
+      text: 'Tell me what you know about SOVREN and how the engine works.',
+      groupLabel: 'SOVREN',
+      groupMode: 'project',
+      policy: config,
+    });
+    assert.equal(verdict.eligible, true);
+    assert.equal(verdict.reason, 'eligible');
+  });
 });
 
 describe('ambient agency scoring', () => {
@@ -76,6 +96,17 @@ describe('ambient agency scoring', () => {
     assert.ok(score.signals.includes('uncertainty'));
     assert.ok(score.signals.includes('action_items'));
     assert.ok(score.signals.includes('legal_topic'));
+  });
+
+  it('scores Sovren project and architecture questions highly', () => {
+    const score = scoreAmbientOpportunity({
+      text: 'Explain what you know about SOVREN and how your architecture works.',
+      recentTranscript: '[09:41] James: Peter, meet Clint. He knows all about SOVREN',
+    });
+
+    assert.ok(score.total >= 4, `expected project/architecture score, got ${score.total}`);
+    assert.ok(score.signals.includes('project_topic'));
+    assert.ok(score.signals.includes('architecture_request'));
   });
 
   it('keeps casual chatter below intervention threshold', () => {

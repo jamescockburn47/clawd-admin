@@ -17,11 +17,23 @@ const DISABLED_POLICY = Object.freeze({
 });
 
 const LQCORE_LABELS = new Set(['lqcore', 'lq core']);
+const SOVREN_LABELS = new Set(['sovren']);
+const SOVREN_AMBIENT_POLICY = Object.freeze({
+  enabled: true,
+  policyName: 'sovren-default',
+  minHeuristicScore: 3,
+  minModelConfidence: 0.72,
+  cooldownMs: 120000,
+  maxInterventionsPerHour: 10,
+});
 
 export function getAmbientAgencyConfig(opts) {
   const label = (opts.groupLabel || '').trim().toLowerCase();
   if (LQCORE_LABELS.has(label)) {
     return DEFAULT_AMBIENT_AGENCY_POLICY;
+  }
+  if (SOVREN_LABELS.has(label)) {
+    return SOVREN_AMBIENT_POLICY;
   }
   return DISABLED_POLICY;
 }
@@ -31,11 +43,18 @@ export function isAmbientAgencyEligible(input) {
   if (input.triggerRespond) return { eligible: false, reason: 'already_addressed' };
   if (!input.policy.enabled) return { eligible: false, reason: 'policy_disabled' };
   if (!input.text || input.text.trim().length < 12) return { eligible: false, reason: 'low_signal' };
-  if ((input.groupMode || 'colleague') !== 'open') return { eligible: false, reason: 'group_mode_blocked' };
+  const mode = input.groupMode || 'colleague';
+  const label = (input.groupLabel || '').trim().toLowerCase();
+  if (mode !== 'open' && !(mode === 'project' && SOVREN_LABELS.has(label))) {
+    return { eligible: false, reason: 'group_mode_blocked' };
+  }
   return { eligible: true, reason: 'eligible' };
 }
 
 const SIGNAL_PATTERNS = [
+  { signal: 'project_topic', weight: 3, pattern: /\b(sovren|sovereign award valuation engine|slaney methodology|valuation engine)\b/i },
+  { signal: 'architecture_request', weight: 2, pattern: /\b(architecture|how you work|how do you work|system|stack|tools|what do you know|explain)\b/i },
+  { signal: 'direct_bot_address', weight: 2, pattern: /^(hi|hello|hey)\s+clint\b|\bclint\b/i },
   { signal: 'legal_topic', weight: 2, pattern: /\b(authority|judgment|court|costs|disclosure|relief|claim|application|order|evidence|bundle|solicitor|counsel|tribunal|procedure)\b/i },
   { signal: 'uncertainty', weight: 2, pattern: /\b(not sure|unsure|unclear|i think|i doubt|do not think|doesn't seem|not convinced|question is whether)\b/i },
   { signal: 'action_items', weight: 2, pattern: /\b(we should|someone should|follow up|need to|action point|before tomorrow|deadline|owner)\b/i },
