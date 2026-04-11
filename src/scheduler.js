@@ -18,6 +18,7 @@ import { checkSystemKnowledgeRefresh, getLastKnowledgeRefreshDate } from './task
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
 import { checkGroundTruth, getLastHarvestDate } from './tasks/ground-truth.js';
 import { checkProjectKnowledgeSync, getLastProjectSyncDate } from './tasks/project-sync.js';
+import { checkSovrenCrossReference } from './tasks/sovren-contribution-cross-reference.js';
 import { checkConsolidateShadow } from './overnight/consolidate-shadow-task.js';
 import { checkProbe } from './overnight/probe-task.js';
 import { checkReport } from './overnight/report-task.js';
@@ -107,6 +108,7 @@ async function runScheduler() {
   await runTask('systemKnowledgeRefresh', () => checkSystemKnowledgeRefresh(todayStr, hours));
   await runTask('projectKnowledgeSync', () => checkProjectKnowledgeSync(todayStr, hours));
   await runTask('traceAnalysis', () => checkTraceAnalysis(sendFn, todayStr, hours));
+  await runTask('sovrenCrossReference', () => checkSovrenCrossReference(todayStr, hours, minutes));
   await runTask('groundTruth', () => checkGroundTruth(sendFn, todayStr, hours, minutes));
   await runTask('dailyBackup', () => checkDailyBackup(todayStr, hours));
 

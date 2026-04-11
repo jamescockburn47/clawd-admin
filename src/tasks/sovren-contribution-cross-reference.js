@@ -113,6 +113,26 @@ export async function runSovrenCrossReference() {
   );
 }
 
+/** Once-per-day guard so the scheduler can call this safely every 60 seconds. */
+let lastRunDate = null;
+const SCHEDULED_HOUR = 3;
+const SCHEDULED_MINUTE = 30;
+
+/**
+ * Scheduler entry point. Runs once at 03:30 London time each day.
+ */
+export async function checkSovrenCrossReference(todayStr, hours, minutes) {
+  if (lastRunDate === todayStr) return;
+  if (hours !== SCHEDULED_HOUR) return;
+  if (minutes < SCHEDULED_MINUTE) return;
+  lastRunDate = todayStr;
+  try {
+    await runSovrenCrossReference();
+  } catch (err) {
+    logger.warn({ err: err.message }, 'sovren cross-reference scheduled run failed');
+  }
+}
+
 // Allow running as a standalone script: node src/tasks/sovren-contribution-cross-reference.js
 if (import.meta.url === `file://${process.argv[1]}`) {
   runSovrenCrossReference()
