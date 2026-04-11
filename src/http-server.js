@@ -265,6 +265,26 @@ export function startHttpServer(port, deps) {
       }
     }
 
+    // --- Morning report JSON (Phase 3, structured + staleness-guarded) ---
+    if (path.startsWith('/api/morning-report/')) {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      const dateStr = path.split('/api/morning-report/')[1];
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        return json(res, 400, { error: 'Invalid date format. Use YYYY-MM-DD.' });
+      }
+      try {
+        const { buildAndRenderReport } = await import('./overnight/report.js');
+        const overnightDir = join(__dirname, '..', 'data', 'overnight');
+        const { report, text } = await buildAndRenderReport({
+          date: dateStr,
+          overnightDir,
+        });
+        return json(res, 200, { date: dateStr, report, text });
+      } catch (err) {
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     // --- Overnight events + shadow candidates (new event log, for clawd-console drill-down) ---
     if (path.startsWith('/api/overnight-events/')) {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });

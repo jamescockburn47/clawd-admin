@@ -17,6 +17,7 @@ import {
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
 import { checkConsolidateShadow } from './overnight/consolidate-shadow-task.js';
 import { checkProbe } from './overnight/probe-task.js';
+import { checkReport } from './overnight/report-task.js';
 import { checkWeeklyRetrospective, getLastRetroDate } from './tasks/weekly-retrospective.js';
 import { checkOvernightEvolution, getLastOvernightEvoDate } from './tasks/overnight-to-evolution.js';
 import { checkGroundTruth, getLastHarvestDate } from './tasks/ground-truth.js';
@@ -95,6 +96,7 @@ async function runScheduler() {
   await runTask('overnightExtraction', () => checkOvernightExtraction(todayStr, hours));
   await runTask('consolidateShadow', () => checkConsolidateShadow(todayStr, hours, minutes));
   await runTask('probe', () => checkProbe(todayStr, hours, minutes));
+  await runTask('report', () => checkReport(todayStr, hours, minutes));
   await runTask('selfImprovement', () => checkSelfImprovement(sendFn, todayStr, hours));
   await runTask('systemKnowledgeRefresh', () => checkSystemKnowledgeRefresh(todayStr, hours));
   await runTask('projectDeepThink', () => checkProjectDeepThink(sendFn, todayStr, hours));

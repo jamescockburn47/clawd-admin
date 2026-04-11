@@ -131,16 +131,25 @@ export async function checkMorningBriefing(sendFn, todayStr, hours, minutes) {
       sections.push(memLine);
     }
 
-    // Overnight digest (from the event log — replaces old Overnight insights block)
+    // Overnight report (Phase 3: structured, staleness-guarded). The REPORT
+    // stage runs at 06:50 and persists report-<date>.txt, but we rebuild
+    // here in-process so the briefing works even if the stage hasn't fired
+    // yet (e.g. bot started after 06:50 on a given day).
     try {
-      const { queryEvents } = await import('../overnight/events.js');
-      const { formatOvernightDigest } = await import('../overnight/overnight-digest.js');
-      const events = await queryEvents({ date: todayStr });
-      const digest = formatOvernightDigest(events);
-      sections.push(digest);
+      const { buildAndRenderReport } = await import('../overnight/report.js');
+      const { join, dirname, resolve } = await import('node:path');
+      const { fileURLToPath } = await import('node:url');
+      const moduleDir = dirname(fileURLToPath(import.meta.url));
+      const repoRoot = resolve(moduleDir, '..', '..');
+      const overnightDir = join(repoRoot, 'data', 'overnight');
+      const { text } = await buildAndRenderReport({
+        date: todayStr,
+        overnightDir,
+      });
+      sections.push(text);
     } catch (err) {
-      logger.warn({ err: err.message }, 'briefing overnight digest failed');
-      sections.push('*Overnight:* digest unavailable (see Clawd Console for details).');
+      logger.warn({ err: err.message }, 'briefing overnight report failed');
+      sections.push('*Overnight:* report unavailable (see Clint Console for details).');
     }
 
     const briefing = sections.join('\n\n');
