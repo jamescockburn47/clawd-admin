@@ -38,7 +38,7 @@ For deploy commands and SSH patterns, see [Deployment](docs/deployment.md).
 
 ## Project Overview
 
-WhatsApp admin assistant bot ("Clawd") running on EVO X2, with Rust dashboard on Pi 5 touchscreen. Personal assistant for James Cockburn: calendar, email, travel, todos, soul/personality system.
+WhatsApp admin assistant bot ("Clint", previously "Clawd") running on EVO X2, with Rust dashboard on Pi 5 touchscreen and a Next.js Clint Console on James's Legion 9 Pro laptop. Personal assistant for James Cockburn: calendar, email, travel, todos, soul/personality system.
 
 **Who uses it:** James (owner, full access) and MG (wife — calendar reading, todos, travel, web search only).
 
@@ -85,15 +85,29 @@ These are constraints the agent cannot infer from code. Do not revisit, reverse,
 - **Soul proposals via DM only.** Only James can approve personality changes.
 - **Confidence decays for volatile categories only.** Stable categories (identity, preference, person, legal, insight) never decay.
 
-### Evolution & The Forge
-- **DM approval required for all code changes.** No auto-deploy — ever.
-- **Deploy flow: merge → rsync → restart → health check.** Auto-revert on failure.
-- **The Forge replaces all overnight coding.** Skills are the primary output (`src/skills/`). Opus via Max subscription.
-- **Staged autonomy.** New skills auto-deploy (additive, sandboxed). Existing file modifications need approval.
-- **Three-gate validation.** Architect + tests + reviewer. All three for auto-deploy.
-- **Orchestrator is human-only.** `forge-orchestrator.js` cannot be modified by the Forge.
-- **Evolution scope limits.** Max 5 files, 150 lines. Manifest first, scoped execution. Banned files list is code-level.
-- **Forge runs at 04:30** (last, after all overnight outputs).
+### Overnight Pipeline — Four Stages (Compound Dream, Phases 2-5 complete)
+Authoritative spec: `docs/superpowers/specs/2026-04-10-compound-dream-overnight-design.md`.
+
+- **CONSOLIDATE (every night ~02:30).** Memory extraction with evidence-chain invariant: every new memory cites `sources: [{hash, excerpt}]` or gets rejected to `data/overnight/rejected-<date>.jsonl`. Phase 1 is currently in shadow mode writing to `shadow-candidates-<date>.jsonl`; cutover is a separate follow-up. 0 Opus sessions.
+- **PROBE (every night ~03:15).** Four observation types accumulated to `data/overnight/observations-<iso-week>.jsonl`: pattern observations (EVO 30B over traces), candidate proposals (EVO 30B with mission-alignment filter), drift checks (sample + replay + grade), quality-gate enrichment (from trace-analysis.json anomalies). Monday rollover to `archive/`. Weight decay: half every week past 14 days, zero past 12 weeks. 0 Opus sessions.
+- **REPORT (every morning ~06:50, before briefing).** Structured morning report generated from the event log + current-week observations. **ATLAS staleness guard** (hard): no candidate surfaces unless at least one evidence_ref points to a current-ISO-week observation. Sections: overnight summary, NEW this week, CONTINUING, DRIFT alerts, DEFERRED, ARCHIVE, Budget. Persists `data/overnight/report-<date>.json` and `.txt`. Read by `briefing.js` for the morning WhatsApp DM. 0 Opus sessions.
+- **IMPROVE (Saturday 22:00 London, or on-demand via `POST /api/forge-now`).** Weekly forge successor. 8-step pipeline:
+  1. read this week's observations (skip if <5)
+  2. groom (dedupe/cluster/decay/drift-surface)
+  3. synthesise 5-8 final candidates via EVO 30B (≥2 evidence refs per candidate)
+  4. Opus selection (1 session, NULL allowed)
+  5. skip on NULL
+  6. implement in fresh worktree via Claude Code CLI (1 Opus, 2-hour wall-clock timeout)
+  7. rolling replay regression check (20 stratified samples, grade via EVO 30B, any "worse" → reject)
+  8. branch-first deploy via `scripts/forge-ci.sh`, Tier A/B/C classification, auto-merge or proposal card
+  - Hard budget: 2 Opus sessions per deep night.
+  - Proposal cards written to `data/overnight/proposals/` for morning report pickup.
+  - Banned files (`src/overnight/tiering.ts` BANNED_FILES): `src/router.js`, `src/cortex.js`, `src/memory.js`, `src/message-handler.js`, `CLAUDE.md`, `docs/superpowers/**`, `data/runtime/**`.
+
+### Event log + morning briefing
+- **`data/overnight/events-<date>.jsonl`** is the single source of truth for what ran overnight. Every stage appends structured events. The morning report and the Clint Console `/overnight` page both read from here. "No event = did not happen" — the OvernightRunner writes a synthetic `verdict: failed` event if a stage completes silently.
+- **Four retrofitted operational tasks also write events:** `daily-backup`, `trace-analyser`, `system-refresh`, `ground-truth`. Stage is `'operations'`.
+- **Morning briefing** (07:00 London via `src/tasks/briefing.js`) reads the structured report and replaces the old 4-bullet "Overnight insights" block with plain-English per-section paragraphs. No LLM calls in the report path.
 
 ### Task Planner
 - **Goal reasoning, not mechanical decomposition.** Understand the goal first, then decompose.
