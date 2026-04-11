@@ -10,6 +10,11 @@ import { broadcastSSE } from '../sse.js';
 import { isInCooldown, isMuted, recordGroupResponse } from '../engagement.js';
 import { cacheSentMessage } from '../message-cache.js';
 import { logInteraction } from '../interaction-log.js';
+import { openFollowUpWindow, getConversationState } from '../participation/conversation-state.js';
+import { shouldContinueFollowUp } from '../participation/engagement-service.js';
+import { appendParticipationDecision } from '../participation/log-store.js';
+import { getParticipationProfile } from '../participation/policy-service.js';
+import { planContribution } from '../participation/contribution-planner.js';
 import {
   finalizeAgencyDecision,
   getAmbientAgencyConfig,
@@ -20,6 +25,14 @@ import { classifyAmbientOpportunity } from './model.js';
 import { logAgencyDecision } from './log.js';
 
 const interventionHistory = new Map();
+const DEFAULT_GROUP_LABEL = 'unknown';
+const SIGNALS = Object.freeze({
+  question: 'question',
+  researchGap: 'research_gap',
+  actionItems: 'action_items',
+  synthesisNeeded: 'synthesis_needed',
+  casualChatter: 'casual_chatter',
+});
 
 function pruneHistory(groupJid, now) {
   const recent = (interventionHistory.get(groupJid) || []).filter(
@@ -73,42 +86,119 @@ Recent conversation:
 ${opts.transcript}`;
 }
 
+function includesSignal(signals, signal) {
+  return signals.includes(signal);
+}
+
+function getParticipationContext(chatJid, replyTarget, profilePosture) {
+  const followUpWindow = getConversationState(chatJid).followUpWindow;
+  return {
+    replyTarget: replyTarget ?? null,
+    followUpWindowOpen: !!followUpWindow?.open,
+    followUpTurnIndex: followUpWindow?.turnIndex ?? null,
+    profilePosture,
+  };
+}
+
+function logParticipationDecision(input) {
+  appendParticipationDecision({
+    chatJid: input.chatJid,
+    shouldIntervene: input.finalDecision.shouldIntervene,
+    interventionType: input.finalDecision.interventionType,
+    reason: input.finalDecision.reason,
+    confidence: input.finalDecision.confidence,
+    replyTarget: input.replyTarget,
+    followUpWindowOpen: input.followUpWindowOpen,
+    followUpTurnIndex: input.followUpTurnIndex,
+    profilePosture: input.profilePosture,
+    plannedRole: input.plannedRole,
+  });
+}
+
+function rejectAmbientDecision(input) {
+  const finalDecision = {
+    shouldIntervene: false,
+    reason: input.reason,
+    interventionType: null,
+    confidence: input.confidence ?? 0,
+  };
+  logParticipationDecision({
+    chatJid: input.chatJid,
+    finalDecision,
+    ...input.participationContext,
+    plannedRole: input.plannedRole ?? null,
+  });
+  logAgencyDecision({
+    chatJid: input.chatJid,
+    groupLabel: input.groupLabel,
+    senderName: input.senderName,
+    text: input.text.slice(0, 300),
+    heuristic: input.heuristic,
+    participationProfile: input.profile,
+    participationContext: input.participationContext,
+    participationPlan: input.participationPlan,
+    finalDecision: { shouldIntervene: false, reason: input.reason },
+  });
+  return false;
+}
+
 export async function maybeRunAmbientAgency(opts) {
   if (!opts.text) return false;
 
-  const groupLabel = getGroupLabel(opts.chatJid);
+  const groupLabel = getGroupLabel(opts.chatJid) || DEFAULT_GROUP_LABEL;
   const groupConfig = getGroupConfig(opts.chatJid);
+  const groupMode = getGroupMode(opts.chatJid);
+  const profile = getParticipationProfile({
+    chatJid: opts.chatJid,
+    groupLabel,
+    groupMode,
+  });
+  const now = Date.now();
+  const inFollowUpExchange = shouldContinueFollowUp({
+    chatJid: opts.chatJid,
+    now,
+    directlyRepliesToClint: !!opts.directlyRepliesToClint,
+    mentionsClint: !!opts.mentionsClint,
+  });
   const policy = getAmbientAgencyConfig({ groupLabel });
   const eligibleVerdict = isAmbientAgencyEligible({
     isGroup: true,
     triggerRespond: opts.triggerRespond,
     text: opts.text,
     groupLabel,
-    groupMode: getGroupMode(opts.chatJid),
+    groupMode,
     policy,
   });
+  const participationContext = getParticipationContext(
+    opts.chatJid,
+    opts.replyTarget,
+    profile.posture,
+  );
 
   if (!eligibleVerdict.eligible) {
-    logAgencyDecision({
+    return rejectAmbientDecision({
       chatJid: opts.chatJid,
       groupLabel,
       senderName: opts.senderName,
-      text: opts.text.slice(0, 300),
-      finalDecision: { shouldIntervene: false, reason: eligibleVerdict.reason },
+      text: opts.text,
+      reason: eligibleVerdict.reason,
+      profile,
+      participationContext,
+      plannedRole: null,
     });
-    return false;
   }
 
-  const now = Date.now();
   if (inHourLimit(opts.chatJid, now, policy)) {
-    logAgencyDecision({
+    return rejectAmbientDecision({
       chatJid: opts.chatJid,
       groupLabel,
       senderName: opts.senderName,
-      text: opts.text.slice(0, 300),
-      finalDecision: { shouldIntervene: false, reason: 'hourly_limit' },
+      text: opts.text,
+      reason: 'hourly_limit',
+      profile,
+      participationContext,
+      plannedRole: null,
     });
-    return false;
   }
 
   const transcriptMessages = getRecentGroupMessages(opts.chatJid, 25);
@@ -117,32 +207,50 @@ export async function maybeRunAmbientAgency(opts) {
     text: opts.text,
     recentTranscript: transcript,
   });
+  const contributionPlan = planContribution({
+    posture: profile.posture,
+    inFollowUpExchange,
+    directlyRepliesToClint: !!opts.directlyRepliesToClint,
+    hasQuestion: includesSignal(heuristic.signals, SIGNALS.question),
+    hasResearchGap: includesSignal(heuristic.signals, SIGNALS.researchGap),
+    hasDecisionSignal:
+      includesSignal(heuristic.signals, SIGNALS.actionItems)
+      || includesSignal(heuristic.signals, SIGNALS.synthesisNeeded),
+    hasMemorySignal: false,
+    casualChatter: includesSignal(heuristic.signals, SIGNALS.casualChatter),
+  });
   const cooldownActive = isInCooldown(opts.chatJid)
     || isMuted(opts.chatJid)
     || inAmbientCooldown(opts.chatJid, now, policy);
 
   if (cooldownActive) {
-    logAgencyDecision({
+    return rejectAmbientDecision({
       chatJid: opts.chatJid,
       groupLabel,
       senderName: opts.senderName,
-      text: opts.text.slice(0, 300),
+      text: opts.text,
+      reason: 'cooldown',
       heuristic,
-      finalDecision: { shouldIntervene: false, reason: 'cooldown' },
+      profile,
+      participationContext,
+      participationPlan: contributionPlan,
+      plannedRole: contributionPlan.role,
     });
-    return false;
   }
 
   if (heuristic.total < policy.minHeuristicScore) {
-    logAgencyDecision({
+    return rejectAmbientDecision({
       chatJid: opts.chatJid,
       groupLabel,
       senderName: opts.senderName,
-      text: opts.text.slice(0, 300),
+      text: opts.text,
+      reason: 'heuristic_below_threshold',
       heuristic,
-      finalDecision: { shouldIntervene: false, reason: 'heuristic_below_threshold' },
+      profile,
+      participationContext,
+      participationPlan: contributionPlan,
+      plannedRole: contributionPlan.role,
     });
-    return false;
   }
 
   const modelVerdict = await classifyAmbientOpportunity({
@@ -157,6 +265,17 @@ export async function maybeRunAmbientAgency(opts) {
     policy,
     cooldownActive: false,
   });
+  const decisionParticipationContext = getParticipationContext(
+    opts.chatJid,
+    opts.replyTarget,
+    profile.posture,
+  );
+  logParticipationDecision({
+    chatJid: opts.chatJid,
+    finalDecision: decision,
+    ...decisionParticipationContext,
+    plannedRole: contributionPlan.role,
+  });
 
   logAgencyDecision({
     chatJid: opts.chatJid,
@@ -166,6 +285,12 @@ export async function maybeRunAmbientAgency(opts) {
     groupConfig,
     heuristic,
     modelVerdict,
+    participationProfile: profile,
+    participationContext: {
+      ...decisionParticipationContext,
+      inFollowUpExchange,
+    },
+    participationPlan: contributionPlan,
     finalDecision: decision,
   });
 
@@ -204,7 +329,18 @@ export async function maybeRunAmbientAgency(opts) {
   const sent = await opts.sock.sendMessage(opts.chatJid, { text: finalResponse });
   if (sent?.key?.id) {
     cacheSentMessage(sent.key.id, sent.message);
+    openFollowUpWindow({
+      chatJid: opts.chatJid,
+      sourceMessageId: sent.key.id,
+      replyTarget: opts.replyTarget ?? null,
+      expiresAt: Date.now() + profile.followUpWindowMs,
+    });
   }
+  const postSendParticipationContext = getParticipationContext(
+    opts.chatJid,
+    opts.replyTarget,
+    profile.posture,
+  );
   pushMessage(opts.chatJid, {
     senderName: 'Clint',
     text: finalResponse,
@@ -234,6 +370,11 @@ export async function maybeRunAmbientAgency(opts) {
     },
     toolsCalled: [],
     response: { text: finalResponse, chars: finalResponse.length },
+    participation: {
+      plannedRole: contributionPlan.role,
+      inFollowUpExchange,
+      ...postSendParticipationContext,
+    },
     latencyMs: null,
     messageIds: sent?.key?.id ? [sent.key.id] : [],
   });

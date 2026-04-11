@@ -20,6 +20,15 @@ import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, up
 import { getSystemHealth } from './scheduler.js';
 import { getQualitySummary, getRecentFeedback } from './interaction-log.js';
 import { getWorkingMemoryState } from './lquorum-rag.js';
+import { getRegisteredGroups } from './group-registry.js';
+import { getParticipationProfile } from './participation/policy-service.js';
+import { getRecentParticipationDecisions } from './participation/log-store.js';
+import {
+  buildParticipationSummary,
+  DEFAULT_PARTICIPATION_DECISIONS_PAGE_SIZE,
+  PARTICIPATION_DECISIONS_RESPONSE_CAP,
+  serializeParticipationDecisionsForApi,
+} from './participation/http.js';
 import { handleVoiceLocal, handleVoiceCommand, handleDashboardChat } from './voice-handler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -330,6 +339,56 @@ export function startHttpServer(port, deps) {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       const days = parseInt(new URL(req.url, 'http://localhost').searchParams.get('days') || '7');
       return json(res, 200, { summary: getQualitySummary(days), recentFeedback: getRecentFeedback(20) });
+    }
+    if (path === '/api/participation/groups') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      try {
+        const registered = getRegisteredGroups();
+        const groups = registered.map((g) => {
+          const profile = getParticipationProfile({
+            chatJid: g.jid,
+            groupLabel: g.label || g.jid,
+            groupMode: g.mode,
+          });
+          return buildParticipationSummary({
+            chatJid: profile.chatJid,
+            groupLabel: profile.groupLabel,
+            groupMode: profile.groupMode,
+            posture: profile.posture,
+            researchEnabled: profile.researchEnabled,
+            memoryRecallEnabled: profile.memoryRecallEnabled,
+            maxUnsolicitedPerHour: profile.maxUnsolicitedPerHour,
+            followUpWindowMs: profile.followUpWindowMs,
+            cooldownMs: profile.cooldownMs,
+          });
+        });
+        return json(res, 200, { groups });
+      } catch (err) {
+        return json(res, 500, { error: err.message });
+      }
+    }
+    if (path === '/api/participation/decisions') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      try {
+        const rawLimit = parseInt(
+          new URL(req.url, 'http://localhost').searchParams.get('limit') ||
+            String(DEFAULT_PARTICIPATION_DECISIONS_PAGE_SIZE),
+          10,
+        );
+        const safeLimit = Math.min(
+          PARTICIPATION_DECISIONS_RESPONSE_CAP,
+          Math.max(
+            0,
+            Number.isFinite(rawLimit)
+              ? rawLimit
+              : DEFAULT_PARTICIPATION_DECISIONS_PAGE_SIZE,
+          ),
+        );
+        const raw = getRecentParticipationDecisions(safeLimit);
+        return json(res, 200, serializeParticipationDecisionsForApi(raw));
+      } catch (err) {
+        return json(res, 500, { error: err.message });
+      }
     }
     if (path === '/api/evo' || path === '/api/ollama') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });

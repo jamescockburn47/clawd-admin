@@ -13,6 +13,9 @@ import logger from './logger.js';
 const DATA_DIR = join('data');
 const LOG_FILE = join(DATA_DIR, 'interactions.jsonl');
 const FEEDBACK_FILE = join(DATA_DIR, 'feedback.jsonl');
+// Approximation only: overnight reporting samples the recent tail of the log
+// for a cheap cross-check, not a guaranteed full-day exhaustive scan.
+const PARTICIPATION_CROSSCHECK_INTERACTION_TAIL_LIMIT = 5000;
 
 // In-memory ring buffer: maps sent WhatsApp message IDs to interaction IDs
 // so we can correlate reactions (thumbs up/down) back to the interaction
@@ -36,6 +39,7 @@ export function logInteraction({
   source,         // 'whatsapp' | 'voice' | 'dashboard'
   input,          // { text, hadImage }
   routing,        // { category, model, forceClaude, reason, classifySource }
+  participation,  // optional participation metadata for ambient/follow-up diagnostics
   toolsCalled,    // [{ name, success, latencyMs }]
   response,       // { text, chars, tokens }
   latencyMs,      // total time from receipt to response sent
@@ -57,6 +61,7 @@ export function logInteraction({
       preview: response?.text ? response.text.slice(0, 500) : null,
     },
     latencyMs: latencyMs || null,
+    participation: participation || null,
   };
 
   try {
@@ -187,6 +192,34 @@ export function getRecentFeedback(limit = 100) {
     }).filter(Boolean);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Count interaction log entries on a UTC calendar day (YYYY-MM-DD) that include
+ * participation metadata (ambient / follow-up diagnostics). Used by the overnight
+ * participation summary as a labeled cross-check alongside decision logs.
+ * This is a recent-tail approximation, not an exact full-file day scan.
+ */
+export function countParticipationTaggedInteractionsOnDate(isoDate, baseDir = '.') {
+  try {
+    const logFile = join(baseDir, LOG_FILE);
+    if (!existsSync(logFile)) return 0;
+    const lines = readFileSync(logFile, 'utf-8').trim().split('\n').filter(Boolean);
+    let tagged = 0;
+    for (const line of lines.slice(-PARTICIPATION_CROSSCHECK_INTERACTION_TAIL_LIMIT)) {
+      try {
+        const entry = JSON.parse(line);
+        if (typeof entry.ts === 'string' && entry.ts.startsWith(isoDate) && entry.participation) {
+          tagged += 1;
+        }
+      } catch {
+        // intentional: skip malformed lines
+      }
+    }
+    return tagged;
+  } catch {
+    return 0;
   }
 }
 

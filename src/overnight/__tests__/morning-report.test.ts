@@ -136,8 +136,9 @@ describe('overnight/morning-report.renderReportAsText', () => {
       makeEvent({ stage: 'consolidate', phase: 'store', reason: 'stored=14 rejected=0 store_errors=0' }),
       makeEvent({ stage: 'operations', phase: 'daily-backup', reason: '3 files backed up' }),
     ];
-    const report = buildMorningReport({ date: '2026-04-11', events, observations: [], now });
-    const text = renderReportAsText(report);
+    const built = buildMorningReport({ date: '2026-04-11', events, observations: [], now });
+    const { text, ...report } = built;
+    assert.equal(text, renderReportAsText(report));
 
     assert.match(text, /Overnight/);
     assert.match(text, /Memory/);
@@ -150,8 +151,9 @@ describe('overnight/morning-report.renderReportAsText', () => {
       makeEvent({ stage: 'operations', phase: 'daily-backup', verdict: 'failed', reason: 'disk full' }),
       makeEvent({ stage: 'consolidate', phase: 'extract', reason: 'ok' }),
     ];
-    const report = buildMorningReport({ date: '2026-04-11', events, observations: [], now });
-    const text = renderReportAsText(report);
+    const built = buildMorningReport({ date: '2026-04-11', events, observations: [], now });
+    const { text, ...report } = built;
+    assert.equal(text, renderReportAsText(report));
 
     const errorsIdx = text.indexOf('Errors');
     const memoryIdx = text.indexOf('Memory');
@@ -172,8 +174,9 @@ describe('overnight/morning-report.renderReportAsText', () => {
         }),
       );
     }
-    const report = buildMorningReport({ date: '2026-04-11', events, observations: [], now });
-    const text = renderReportAsText(report);
+    const built = buildMorningReport({ date: '2026-04-11', events, observations: [], now });
+    const { text, ...report } = built;
+    assert.equal(text, renderReportAsText(report));
     const wordCount = text.split(/\s+/).filter(Boolean).length;
     assert.ok(
       wordCount <= MAX_REPORT_WORDS + 20,
@@ -203,8 +206,9 @@ describe('overnight/morning-report.renderReportAsText', () => {
         weight: 5,
       } as CandidateObservation,
     ];
-    const report = buildMorningReport({ date: '2026-04-11', events: [], observations: obs, now });
-    const text = renderReportAsText(report);
+    const built = buildMorningReport({ date: '2026-04-11', events: [], observations: obs, now });
+    const { text, ...report } = built;
+    assert.equal(text, renderReportAsText(report));
     assert.match(text, /NEW/i);
     assert.match(text, /DEFERRED/i);
     assert.match(text, /cap cortex/);

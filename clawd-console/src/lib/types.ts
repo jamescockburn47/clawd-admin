@@ -338,6 +338,18 @@ export interface MorningReportBudget {
   tokens_used: number;
 }
 
+/** Aggregated from participation decision JSONL for the report date (UTC). */
+export interface ParticipationLearningSummary {
+  reviewed: number;
+  accepted: number;
+  overstayed: number;
+  missedOpenings: number;
+  crossChecks?: {
+    taggedInteractions: number;
+    taggedTraces: number;
+  };
+}
+
 export interface MorningReport {
   date: string;
   mode: 'cheap' | 'deep' | 'emergency';
@@ -350,10 +362,57 @@ export interface MorningReport {
   deferredCandidates: MorningCandidateObservation[];
   archive: MorningObservation[];
   budget: MorningReportBudget;
+  /** Present on rebuilt reports; older cached payloads may omit. */
+  participationSummary?: ParticipationLearningSummary | null;
 }
 
 export interface MorningReportResponse {
   date: string;
   report: MorningReport;
   text: string;
+}
+
+// Group participation — GET /api/participation/groups, /api/participation/decisions (bot dashboard)
+export type ParticipationPosture = 'direct_only' | 'rare_high_confidence' | 'active_participant';
+
+export type ParticipationGroupMode = 'open' | 'project' | 'colleague';
+
+export interface ParticipationGroupSummary {
+  chatJid: string;
+  groupLabel: string;
+  groupMode: ParticipationGroupMode;
+  posture: ParticipationPosture;
+  researchEnabled: boolean;
+  memoryRecallEnabled: boolean;
+  maxUnsolicitedPerHour: number;
+  followUpWindowMs: number;
+  cooldownMs: number;
+}
+
+export interface ParticipationDecisionReplyTarget {
+  kind: 'quoted';
+  messageId: string;
+  senderName: string;
+}
+
+export interface ParticipationDecision {
+  timestamp: string;
+  chatJid: string;
+  shouldIntervene: boolean;
+  interventionType: string | null;
+  reason: string;
+  confidence: number;
+  replyTarget: ParticipationDecisionReplyTarget | null;
+  followUpWindowOpen: boolean;
+  followUpTurnIndex: number | null;
+  profilePosture: string | null;
+  plannedRole: string | null;
+}
+
+export interface ParticipationGroupsResponse {
+  groups: ParticipationGroupSummary[];
+}
+
+export interface ParticipationDecisionsResponse {
+  decisions: ParticipationDecision[];
 }

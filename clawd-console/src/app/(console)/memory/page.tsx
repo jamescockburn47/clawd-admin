@@ -19,6 +19,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { getMemoryLensTabs, memoryMatchesLens } from "@/lib/participation/view-models"
 
 // API response shapes
 interface ListResponse {
@@ -72,6 +73,8 @@ export default function MemoryPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<Memory | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+
+  const [memoryLens, setMemoryLens] = useState<string>(getMemoryLensTabs()[0] ?? "all memories")
 
   // Load all memories on mount
   useEffect(() => {
@@ -141,6 +144,11 @@ export default function MemoryPage() {
         ? allMemories
         : allMemories.filter((m) => m.category === activeCategory),
     [allMemories, activeCategory]
+  )
+
+  const lensFiltered = useMemo(
+    () => filtered.filter((m) => memoryMatchesLens(m, memoryLens)),
+    [filtered, memoryLens]
   )
 
   // Edit handler
@@ -236,6 +244,27 @@ export default function MemoryPage() {
         </Button>
       </div>
 
+      <div className="flex flex-col gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Behavioural lens
+        </p>
+        <div className="flex flex-wrap gap-1.5" aria-label="Memory behavioural lens filters">
+          {getMemoryLensTabs().map((tab) => (
+            <Button
+              key={tab}
+              type="button"
+              aria-pressed={memoryLens === tab}
+              variant={memoryLens === tab ? "default" : "outline"}
+              size="sm"
+              className="h-8 rounded-md px-2.5 text-xs font-normal"
+              onClick={() => setMemoryLens(tab)}
+            >
+              {tab}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       {/* Search bar */}
       <div className="flex gap-2">
         <Input
@@ -300,7 +329,8 @@ export default function MemoryPage() {
           {/* Count */}
           {!loading && (
             <p className="text-xs text-muted-foreground">
-              Showing {filtered.length} of {allMemories.length} memories
+              Showing {lensFiltered.length} of {allMemories.length} memories
+              {memoryLens !== "all memories" ? ` (lens: ${memoryLens})` : ""}
             </p>
           )}
 
@@ -315,18 +345,20 @@ export default function MemoryPage() {
           {isLoading && <SkeletonGrid />}
 
           {/* Empty */}
-          {!isLoading && !error && filtered.length === 0 && (
+          {!isLoading && !error && lensFiltered.length === 0 && (
             <Card>
               <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                No memories found.
+                {filtered.length === 0
+                  ? "No memories found."
+                  : `No memories match the "${memoryLens}" lens for this category view.`}
               </CardContent>
             </Card>
           )}
 
           {/* Grid */}
-          {!isLoading && filtered.length > 0 && (
+          {!isLoading && lensFiltered.length > 0 && (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {filtered.map((m) => (
+              {lensFiltered.map((m) => (
                 <MemoryCard
                   key={m.id}
                   memory={m}

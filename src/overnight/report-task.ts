@@ -1,6 +1,9 @@
 // src/overnight/report-task.ts — scheduler-invoked REPORT task.
 // Spec: docs/superpowers/specs/2026-04-10-compound-dream-overnight-design.md §4.3.
 //
+// Participation: the REPORT stage passes repoRoot into morning-report so the plain-text
+// report can aggregate data/runtime/participation-decisions.jsonl (UTC day) without a parallel pipeline.
+//
 // Runs at 06:50 London, 10 minutes before the morning briefing at 07:00.
 // This ordering matters: the briefing reads the generated report file, so
 // the report must land first. The task is in-process, reads the event log

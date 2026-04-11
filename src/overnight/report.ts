@@ -12,11 +12,11 @@
 // (structured + rendered output). This file is composition only.
 
 import { writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { StageContext, StageFn } from './runner.js';
 import { queryEvents } from './events.js';
 import { isoWeekOf, queryObservations } from './probe-observations.js';
-import { buildMorningReport, renderReportAsText, type MorningReport } from './morning-report.js';
+import { buildMorningReport, type MorningReport } from './morning-report.js';
 
 export interface ReportStageDeps {
   overnightDir: string;
@@ -84,13 +84,14 @@ export function makeReportStage(deps: ReportStageDeps): StageFn {
     }
 
     // --- 2. Build report ----------------------------------------------
-    const report = buildMorningReport({
+    const built = buildMorningReport({
       date: ctx.date,
       events,
       observations,
       now: nowDate,
+      repoRoot: ctx.repoRoot,
     });
-    const text = renderReportAsText(report);
+    const { text, ...report } = built;
 
     // --- 3. Persist ----------------------------------------------------
     const jsonPath = join(deps.overnightDir, `report-${ctx.date}.json`);
@@ -134,6 +135,7 @@ export async function buildAndRenderReport(opts: {
   date: string;
   overnightDir: string;
   now?: Date;
+  repoRoot?: string;
 }): Promise<{ report: MorningReport; text: string }> {
   const nowDate = opts.now ?? new Date();
   const events = await queryEvents({ date: opts.date, overnightDir: opts.overnightDir });
@@ -142,12 +144,14 @@ export async function buildAndRenderReport(opts: {
     isoWeek: currentWeek,
     overnightDir: opts.overnightDir,
   });
-  const report = buildMorningReport({
+  const repoRoot = opts.repoRoot ?? resolve(opts.overnightDir, '..', '..');
+  const built = buildMorningReport({
     date: opts.date,
     events,
     observations,
     now: nowDate,
+    repoRoot,
   });
-  const text = renderReportAsText(report);
+  const { text, ...report } = built;
   return { report, text };
 }

@@ -1,3 +1,5 @@
+import type { ParticipationDecisionsResponse, ParticipationGroupsResponse } from './types';
+
 type FetchOpts = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> };
 
 async function fetchJson<T>(url: string, opts: FetchOpts = {}): Promise<T> {
@@ -37,4 +39,18 @@ export function postEvo<T>(path: string, body: unknown): Promise<T> {
     method: 'POST',
     body: JSON.stringify(body),
   });
+}
+
+/** Registered groups with merged participation posture (dashboard token on Pi proxy). */
+export function fetchParticipationGroups(): Promise<ParticipationGroupsResponse> {
+  return fetchPi<ParticipationGroupsResponse>('participation/groups');
+}
+
+/** Recent participation decisions (newest first), optional limit capped server-side. */
+export function fetchParticipationDecisions(limit?: number): Promise<ParticipationDecisionsResponse> {
+  const q =
+    limit !== undefined && Number.isFinite(limit)
+      ? `?limit=${encodeURIComponent(String(Math.trunc(limit)))}`
+      : '';
+  return fetchPi<ParticipationDecisionsResponse>(`participation/decisions${q}`);
 }

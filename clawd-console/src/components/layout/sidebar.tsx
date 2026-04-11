@@ -9,6 +9,8 @@ import {
   GitBranch,
   Brain,
   Radio,
+  Users,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -37,6 +39,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/evolution', label: 'Evolution Pipeline', icon: GitBranch },
       { href: '/memory', label: 'Memory Browser', icon: Brain },
+      { href: '/groups', label: 'Groups', icon: Users },
+      { href: '/playbook', label: 'Playbook', icon: BookOpen },
     ],
   },
   {

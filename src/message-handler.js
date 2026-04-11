@@ -25,6 +25,10 @@ import { getRecentGroupMessages, formatTranscript } from './topic-scan.js';
 import { queueGroupMessage } from './group-message-processor.js';
 import { runSkillPostProcessors } from './skill-registry.js';
 import { maybeRunAmbientAgency } from './agency/service.js';
+import { getDefaultFollowUpWindowMs } from './participation/engagement-service.js';
+import { openFollowUpWindow, recordParticipantTurn } from './participation/conversation-state.js';
+import { applyProductionFollowUpTurn } from './participation/follow-up-runtime.js';
+import { quotedReplyTarget } from './participation/reply-target.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -52,6 +56,14 @@ export function extractText(message) {
     || msg.documentMessage?.caption
     || msg.documentWithCaptionMessage?.message?.documentMessage?.caption
     || '';
+}
+
+function deriveReplyTarget(message, botJid) {
+  const contextInfo = message.message?.extendedTextMessage?.contextInfo;
+  if (!contextInfo?.stanzaId || contextInfo.participant !== botJid) {
+    return null;
+  }
+  return quotedReplyTarget(contextInfo.stanzaId, 'Clint');
 }
 
 // --- Message splitting and typing simulation ---
@@ -141,12 +153,23 @@ export async function handleIncomingMessage(sock, message, botJid) {
     const text = extractText(message);
     const msgHasImage = !!message.message?.imageMessage;
     const docInfo = getDocumentInfo(message);
+    const replyTarget = deriveReplyTarget(message, botJid);
 
     logger.info({ sender: senderName, text: text || (msgHasImage ? '[photo]' : docInfo ? `[file: ${docInfo.fileName}]` : '[empty]') }, 'message received');
 
     if (!text && !msgHasImage && !docInfo) return;
 
     pushMessage(chatJid, { senderName, text, hasImage: msgHasImage, isBot: false });
+    if (isGroup) {
+      recordParticipantTurn({
+        chatJid,
+        senderName,
+        text: text || (msgHasImage ? '[photo]' : docInfo ? `[file: ${docInfo.fileName}]` : ''),
+        messageId: msgId || null,
+        timestamp: Date.now(),
+        isBot: false,
+      });
+    }
 
     // Phase 5: evolution DM approval gates retired. Replaced by proposal
     // cards written to data/overnight/proposals/ by the IMPROVE stage.
@@ -165,8 +188,17 @@ export async function handleIncomingMessage(sock, message, botJid) {
       });
     }
 
-    const repliedToBot = message.message?.extendedTextMessage?.contextInfo?.participant === botJid;
+    const repliedToBot = !!replyTarget;
     const mentionedJids = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
+    const mentionsClint = mentionedJids.includes(botJid);
+    const followUpParticipation = applyProductionFollowUpTurn({
+      chatJid,
+      isGroup: !!isGroup,
+      isFromMe: !!message.key.fromMe,
+      now: Date.now(),
+      directlyRepliesToClint: repliedToBot,
+      mentionsClint,
+    });
     if (isGroup && mentionedJids.length > 0) {
       logger.info({ mentionedJids, botJid, text: (text || '').slice(0, 80) }, 'mention debug');
     }
@@ -190,6 +222,9 @@ export async function handleIncomingMessage(sock, message, botJid) {
             senderJid,
             senderName,
             text,
+            replyTarget,
+            directlyRepliesToClint: repliedToBot,
+            mentionsClint,
             triggerRespond: false,
           });
         } catch (err) {
@@ -446,6 +481,14 @@ export async function handleIncomingMessage(sock, message, botJid) {
       }
       if (chunks.length > 1) await new Promise((r) => setTimeout(r, 300));
     }
+    if (isGroup && sentMsgIds[0]) {
+      openFollowUpWindow({
+        chatJid,
+        sourceMessageId: sentMsgIds[0],
+        replyTarget,
+        expiresAt: Date.now() + getDefaultFollowUpWindowMs(),
+      });
+    }
 
     pushMessage(chatJid, { senderName: 'Clint', text: finalResponse, hasImage: false, isBot: true });
     if (isGroup) recordGroupResponse(chatJid);
@@ -473,6 +516,14 @@ export async function handleIncomingMessage(sock, message, botJid) {
         classifySource: routingResult?.classifySource || null,
         routeForceClaude: routingResult?.routeForceClaude || false,
       },
+      participation: isGroup ? {
+        replyTarget,
+        directlyRepliesToClint: repliedToBot,
+        mentionsClint,
+        inFollowUpExchange: followUpParticipation.inFollowUpExchange,
+        followUpWindowOpen: followUpParticipation.followUpWindowOpen,
+        followUpTurnIndex: followUpParticipation.followUpTurnIndex,
+      } : null,
       toolsCalled: getLastToolsCalled(), response: { text: finalResponse, chars: finalResponse.length, filtered: !filterResult.safe },
       latencyMs: responseLatency, messageIds: sentMsgIds,
     });

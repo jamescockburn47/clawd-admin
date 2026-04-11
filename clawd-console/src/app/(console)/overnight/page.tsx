@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { filterParticipationLearningEvents } from "@/lib/participation/view-models"
 
 function yesterdayStr(): string {
   const d = new Date()
@@ -35,14 +36,29 @@ function SummaryBar({ report }: { report: MorningReport }) {
     { label: "drift alerts", value: report.summary.driftAlertsThisWeek },
   ]
 
+  const p = report.participationSummary
+
   return (
-    <div className="flex flex-wrap gap-4 text-sm">
-      {items.map(({ label, value }) => (
-        <div key={label} className="flex items-baseline gap-1">
-          <span className="text-lg font-semibold tabular-nums">{value}</span>
-          <span className="text-muted-foreground">{label}</span>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-4 text-sm">
+        {items.map(({ label, value }) => (
+          <div key={label} className="flex items-baseline gap-1">
+            <span className="text-lg font-semibold tabular-nums">{value}</span>
+            <span className="text-muted-foreground">{label}</span>
+          </div>
+        ))}
+      </div>
+      {p && (
+        <div className="rounded-md border border-border/80 bg-muted/30 px-3 py-2 text-sm">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            Participation learning (UTC day, decision log)
+          </p>
+          <p className="text-muted-foreground leading-relaxed">
+            Reviewed {p.reviewed}; accepted {p.accepted}. Overstayed (explicit): {p.overstayed}.
+            Missed openings (proxy, model/heuristic gate): {p.missedOpenings}.
+          </p>
         </div>
-      ))}
+      )}
     </div>
   )
 }
@@ -131,6 +147,64 @@ function ObservationList({
         ))
       )}
     </div>
+  )
+}
+
+function ParticipationLearningCard({
+  eventLog,
+  loading,
+  error,
+}: {
+  eventLog: OvernightEvent[] | null
+  loading: boolean
+  error: string | null
+}) {
+  const rows = eventLog ? filterParticipationLearningEvents(eventLog) : []
+
+  return (
+    <Card>
+      <CardContent className="pt-4">
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Participation learning
+        </p>
+        <p className="mb-3 text-xs text-muted-foreground leading-relaxed">
+          Overnight events whose inputs or phases mention group participation, ambient speech, or
+          follow-up tuning. Full log remains under Events.
+        </p>
+        {loading && (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-16 w-full" />
+          </div>
+        )}
+        {!loading && error && (
+          <p className="text-sm text-destructive">{error}</p>
+        )}
+        {!loading && !error && rows.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No participation-tagged overnight signals for this date.
+          </p>
+        )}
+        {!loading &&
+          !error &&
+          rows.map((e) => (
+            <Card key={e.id} size="sm" className="mt-2 border-border/80">
+              <CardContent className="flex flex-col gap-1.5 pt-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">{e.stage}</Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(e.timestamp).toLocaleTimeString("en-GB", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                <p className="text-sm font-medium leading-snug">{e.phase}</p>
+                <p className="text-xs text-muted-foreground leading-snug">{e.reason}</p>
+              </CardContent>
+            </Card>
+          ))}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -317,7 +391,12 @@ export default function OvernightPage() {
           <TabsTrigger value="soul">Soul</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="summary" className="mt-4">
+        <TabsContent value="summary" className="mt-4 flex flex-col gap-4">
+          <ParticipationLearningCard
+            eventLog={eventLog}
+            loading={eventsLoading}
+            error={eventsError}
+          />
           {reportData ? (
             <MorningReportSummary data={reportData} />
           ) : (

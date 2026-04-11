@@ -7,6 +7,7 @@ import { OvernightRunner } from '../runner.js';
 import { appendEvent, queryEvents } from '../events.js';
 import { appendObservation } from '../probe-observations.js';
 import { makeReportStage, buildAndRenderReport } from '../report.js';
+import { buildMorningReport } from '../morning-report.js';
 
 describe('overnight/report.runReportStage', () => {
   let tmpRoot: string;
@@ -111,6 +112,50 @@ describe('overnight/report.runReportStage', () => {
   });
 });
 
+it('buildMorningReport includes participation learning summary when decision logs exist', () => {
+  const report = buildMorningReport({
+    date: '2026-04-11',
+    events: [],
+    observations: [],
+    now: new Date('2026-04-11T07:00:00Z'),
+    participationSummary: {
+      reviewed: 6,
+      accepted: 4,
+      overstayed: 1,
+      missedOpenings: 2,
+      crossChecks: {
+        taggedInteractions: 3,
+        taggedTraces: 2,
+      },
+    },
+  });
+
+  assert.match(report.text, /participation/i);
+  assert.match(report.text, /overstayed/i);
+  assert.match(report.text, /cross-checks/i);
+});
+
+it('buildMorningReport renders zero-valued participation cross-checks explicitly', () => {
+  const report = buildMorningReport({
+    date: '2026-04-11',
+    events: [],
+    observations: [],
+    now: new Date('2026-04-11T07:00:00Z'),
+    participationSummary: {
+      reviewed: 1,
+      accepted: 0,
+      overstayed: 0,
+      missedOpenings: 0,
+      crossChecks: {
+        taggedInteractions: 0,
+        taggedTraces: 0,
+      },
+    },
+  });
+
+  assert.match(report.text, /Cross-checks: 0 interaction logs and 0 reasoning traces/i);
+});
+
 describe('overnight/report.buildAndRenderReport', () => {
   let tmpRoot: string;
   let overnightDir: string;
@@ -162,5 +207,56 @@ describe('overnight/report.buildAndRenderReport', () => {
     });
     assert.equal(report.events.length, 1);
     assert.equal(report.summary.memoryStored, 7);
+  });
+
+  it('loads participation cross-check counts from logs alongside decisions', async () => {
+    mkdirSync(join(tmpRoot, 'data', 'runtime'), { recursive: true });
+    writeFileSync(
+      join(tmpRoot, 'data', 'runtime', 'participation-decisions.jsonl'),
+      [
+        JSON.stringify({
+          timestamp: '2026-04-11T01:00:00.000Z',
+          shouldIntervene: true,
+          reason: 'approved',
+        }),
+        JSON.stringify({
+          timestamp: '2026-04-11T01:10:00.000Z',
+          shouldIntervene: false,
+          reason: 'heuristic_below_threshold',
+        }),
+      ].join('\n') + '\n',
+    );
+    writeFileSync(
+      join(tmpRoot, 'data', 'interactions.jsonl'),
+      [
+        JSON.stringify({
+          ts: '2026-04-11T03:00:00.000Z',
+          participation: { plannedRole: 'answer' },
+        }),
+        JSON.stringify({
+          ts: '2026-04-11T03:05:00.000Z',
+          participation: { plannedRole: 'synthesis' },
+        }),
+      ].join('\n') + '\n',
+    );
+    writeFileSync(
+      join(tmpRoot, 'data', 'reasoning-traces.jsonl'),
+      JSON.stringify({
+        timestamp: '2026-04-11T03:00:00.000Z',
+        participation: { plannedRole: 'answer' },
+      }) + '\n',
+    );
+
+    const { report, text } = await buildAndRenderReport({
+      date: '2026-04-11',
+      overnightDir,
+      now: new Date('2026-04-11T07:00:00Z'),
+      repoRoot: tmpRoot,
+    });
+
+    assert.equal(report.participationSummary?.reviewed, 2);
+    assert.equal(report.participationSummary?.crossChecks?.taggedInteractions, 2);
+    assert.equal(report.participationSummary?.crossChecks?.taggedTraces, 1);
+    assert.match(text, /cross-checks/i);
   });
 });

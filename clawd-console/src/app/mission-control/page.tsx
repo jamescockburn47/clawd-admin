@@ -1,8 +1,18 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { fetchPi } from '@/lib/api';
-import type { EvolutionTask, EvolutionListResponse, SystemHealth } from '@/lib/types';
+import { fetchParticipationDecisions, fetchParticipationGroups, fetchPi } from '@/lib/api';
+import type {
+  EvolutionTask,
+  EvolutionListResponse,
+  ParticipationDecision,
+  ParticipationGroupSummary,
+  SystemHealth,
+} from '@/lib/types';
+import {
+  buildParticipationMissionSummary,
+  deriveParticipationMissionInputs,
+} from '@/lib/participation/view-models';
 import { StatusHeader } from '@/components/mission-control/status-header';
 import { LiveFeed } from '@/components/mission-control/live-feed';
 import { ActionPanel } from '@/components/mission-control/action-panel';
@@ -50,11 +60,15 @@ function deriveForgeSchedule(tasks: EvolutionTask[]): string {
   return 'Forge runs at 22:30';
 }
 
+const PARTICIPATION_DECISION_LIMIT = 60;
+
 export default function MissionControlPage() {
   const [messages, setMessages] = useState<Record<string, unknown>[]>([]);
   const [evoTasks, setEvoTasks] = useState<EvolutionTask[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [participationGroups, setParticipationGroups] = useState<ParticipationGroupSummary[]>([]);
+  const [participationDecisions, setParticipationDecisions] = useState<ParticipationDecision[]>([]);
 
   // Fetch messages
   const fetchMessages = useCallback(async () => {
@@ -102,12 +116,26 @@ export default function MissionControlPage() {
     }
   }, []);
 
+  const fetchParticipation = useCallback(async () => {
+    try {
+      const [g, d] = await Promise.all([
+        fetchParticipationGroups(),
+        fetchParticipationDecisions(PARTICIPATION_DECISION_LIMIT),
+      ]);
+      setParticipationGroups(g.groups ?? []);
+      setParticipationDecisions(d.decisions ?? []);
+    } catch (err) {
+      console.error('[mission-control] participation fetch failed', err);
+    }
+  }, []);
+
   const refreshAll = useCallback(() => {
     void fetchMessages();
     void fetchEvo();
     void fetchTodos();
     void fetchHealth();
-  }, [fetchMessages, fetchEvo, fetchTodos, fetchHealth]);
+    void fetchParticipation();
+  }, [fetchMessages, fetchEvo, fetchTodos, fetchHealth, fetchParticipation]);
 
   // Initial fetch
   useEffect(() => {
@@ -140,6 +168,9 @@ export default function MissionControlPage() {
   const forgeStatus = deriveForgeStatus(evoTasks);
   const modelDistribution = deriveModelDistribution(messages);
   const forgeSchedule = deriveForgeSchedule(evoTasks);
+  const participationMissionSummary = buildParticipationMissionSummary(
+    deriveParticipationMissionInputs(participationGroups, participationDecisions)
+  );
 
   const handleRefresh = useCallback(() => {
     fetchEvo();
@@ -154,6 +185,14 @@ export default function MissionControlPage() {
         memory={memoryStatus}
         forgeStatus={forgeStatus}
       />
+
+      <div
+        className="shrink-0 border-b border-zinc-800 bg-zinc-900/80 px-4 py-2 text-[11px] leading-snug text-zinc-400"
+        title="Fleet default posture and recent participation decisions (see Groups for per-room detail)."
+      >
+        <span className="font-medium text-zinc-500">Participation </span>
+        {participationMissionSummary}
+      </div>
 
       <div className="flex min-h-0 flex-1">
         {/* Left: Live Feed — takes ~60% */}
