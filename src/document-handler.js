@@ -1,5 +1,5 @@
 // src/document-handler.js — Document download, parsing, and summarisation
-// Handles PDFs, DOCX, and plain text documents from WhatsApp messages.
+// Handles PDFs, DOCX, xlsx, and plain text documents from WhatsApp messages.
 
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
@@ -9,12 +9,20 @@ const mammoth = require('mammoth');
 import logger from './logger.js';
 import { summariseDocument, parseDocumentWithDocling } from './evo-llm.js';
 import { checkEvoHealth, storeDocument } from './memory.js';
+import { detectContribution } from './sovren/contribution-detector.js';
+import { ingestXlsx, ingestDocument } from './sovren/contribution-pipeline.js';
 
 // Text-based mimetypes we can read and inject into context
 const TEXT_MIMETYPES = new Set([
   'text/plain', 'text/markdown', 'text/csv', 'text/html',
   'application/json', 'text/x-python', 'text/javascript',
   'application/xml', 'text/xml',
+]);
+
+// Excel mimetypes — handled by the SOVREN xlsx parser, not the generic text path
+const XLSX_MIMETYPES = new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
 ]);
 
 function isTextDocument(mimetype) {
@@ -43,9 +51,43 @@ export function getDocumentInfo(message) {
  * @param {string} senderName - Sender display name
  * @param {string} chatJid - Chat JID for caching
  * @param {Map} lastDocByChat - Document cache map
+ * @param {object} [opts] - Optional { senderJid, isGroup } for SOVREN contribution detection
  * @returns {{ messageText: string }} - Updated message text with document context injected
  */
-export async function processDocument(buffer, docInfo, messageText, senderName, chatJid, lastDocByChat) {
+export async function processDocument(buffer, docInfo, messageText, senderName, chatJid, lastDocByChat, opts = {}) {
+  // SOVREN contribution detection — runs on every document, regardless of type
+  const sovrenDetect = detectContribution({
+    chatJid,
+    isGroup: !!opts.isGroup,
+    senderJid: opts.senderJid ?? null,
+    senderName,
+    text: messageText || '',
+    fileName: docInfo.fileName,
+  });
+
+  // Excel files: handled by the SOVREN xlsx parser if a contribution, or short-circuited otherwise
+  if (XLSX_MIMETYPES.has(docInfo.mimetype)) {
+    if (sovrenDetect.isContribution && sovrenDetect.contributor) {
+      try {
+        const result = await ingestXlsx({
+          buffer,
+          fileName: docInfo.fileName,
+          contributorName: sovrenDetect.contributor.displayName,
+          contributorSlug: sovrenDetect.contributor.slug,
+          coverText: messageText || undefined,
+        });
+        const docContext = `--- SOVREN contribution ingested: ${docInfo.fileName} ---\n${result.reply}\n--- End contribution ---`;
+        lastDocByChat.set(chatJid, { raw: result.reply, fileName: docInfo.fileName, timestamp: Date.now() });
+        return { messageText: `${messageText || ''}\n\n${docContext}` };
+      } catch (err) {
+        logger.warn({ err: err.message, fileName: docInfo.fileName }, 'sovren xlsx ingest failed');
+        return { messageText: `${messageText || ''}\n\n[Attached spreadsheet: ${docInfo.fileName} — SOVREN ingest failed: ${err.message}]` };
+      }
+    }
+    // Non-SOVREN xlsx — for now we just acknowledge without parsing.
+    return { messageText: `${messageText || ''}\n\n[Attached spreadsheet: ${docInfo.fileName} — outside SOVREN scope, not parsed]` };
+  }
+
   let textContent = null;
 
   if (isTextDocument(docInfo.mimetype)) {
@@ -104,8 +146,29 @@ export async function processDocument(buffer, docInfo, messageText, senderName, 
       chatJid,
     }).catch(err => logger.warn({ err: err.message, fileName: docInfo.fileName }, 'document memory storage failed'));
 
+    // SOVREN contribution layer: if this document is from a registered contributor
+    // in a SOVREN context, ALSO record it in the methodology contribution store.
+    // The generic memory storage above is unaffected — this is additional, structured storage.
+    if (sovrenDetect.isContribution && sovrenDetect.contributor) {
+      ingestDocument({
+        buffer,
+        fileName: docInfo.fileName,
+        mimetype: docInfo.mimetype,
+        text: textContent,
+        contributorName: sovrenDetect.contributor.displayName,
+        contributorSlug: sovrenDetect.contributor.slug,
+        coverText: messageText || undefined,
+      }).then((result) => {
+        if (result.entry) {
+          logger.info({ id: result.entry.id, kind: result.entry.kind }, 'sovren document contribution stored');
+        }
+      }).catch((err) => {
+        logger.warn({ err: err.message, fileName: docInfo.fileName }, 'sovren document ingest failed');
+      });
+    }
+
     messageText = `${messageText}\n\n${docContext}`;
-    logger.info({ fileName: docInfo.fileName, mime: docInfo.mimetype, chars: textContent.length, summarised: !!docSummary }, 'document content injected');
+    logger.info({ fileName: docInfo.fileName, mime: docInfo.mimetype, chars: textContent.length, summarised: !!docSummary, sovrenContribution: sovrenDetect.isContribution }, 'document content injected');
   } else {
     messageText = `${messageText}\n\n[Attached file: ${docInfo.fileName} (${docInfo.mimetype}) — unsupported format, cannot read contents]`;
     logger.info({ fileName: docInfo.fileName, mime: docInfo.mimetype }, 'unsupported document format');

@@ -411,10 +411,41 @@ export async function handleIncomingMessage(sock, message, botJid) {
     if (docInfo && !imageData) {
       try {
         const buffer = await downloadMediaMessage(message, 'buffer', {});
-        const result = await processDocument(buffer, docInfo, messageText, senderName, chatJid, lastDocByChat);
+        const result = await processDocument(buffer, docInfo, messageText, senderName, chatJid, lastDocByChat, { senderJid, isGroup });
         messageText = result.messageText;
       } catch (err) {
         logger.warn({ err: err.message, fileName: docInfo.fileName }, 'document download/parse failed');
+      }
+    }
+
+    // SOVREN contribution capture for plain-text messages from registered
+    // contributors. The burst grouper coalesces multi-message contributions
+    // (e.g. cover email + "And finally:" + template) into a single store entry.
+    // Imports are lazy to avoid loading the sovren module on every message.
+    if (text && !docInfo && !imageData) {
+      try {
+        const { detectContribution } = await import('./sovren/contribution-detector.js');
+        const sovrenDetect = detectContribution({
+          chatJid,
+          isGroup: !!isGroup,
+          senderJid,
+          senderName,
+          text,
+          fileName: null,
+        });
+        if (sovrenDetect.isContribution && sovrenDetect.contributor) {
+          const { recordTextMessage } = await import('./sovren/contribution-pipeline.js');
+          recordTextMessage({
+            contributorSlug: sovrenDetect.contributor.slug,
+            contributorName: sovrenDetect.contributor.displayName,
+            chatJid,
+            timestamp: Date.now(),
+            text,
+            attachment: null,
+          });
+        }
+      } catch (err) {
+        logger.warn({ err: err.message }, 'sovren text contribution capture failed');
       }
     }
 

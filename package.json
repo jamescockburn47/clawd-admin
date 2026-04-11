@@ -19,6 +19,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@whiskeysockets/baileys": "^6.7.16",
     "amadeus": "^11.0.0",
+    "exceljs": "^4.4.0",
     "googleapis": "^171.4.0",
     "mammoth": "^1.8.0",
     "national-rail-darwin-promises": "^2.1.3",
