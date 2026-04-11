@@ -21,10 +21,10 @@ const SOVREN_LABELS = new Set(['sovren']);
 const SOVREN_AMBIENT_POLICY = Object.freeze({
   enabled: true,
   policyName: 'sovren-default',
-  minHeuristicScore: 3,
-  minModelConfidence: 0.72,
+  minHeuristicScore: 2,
+  minModelConfidence: 0.65,
   cooldownMs: 120000,
-  maxInterventionsPerHour: 10,
+  maxInterventionsPerHour: 14,
 });
 
 export function getAmbientAgencyConfig(opts) {

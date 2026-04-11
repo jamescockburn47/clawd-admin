@@ -93,6 +93,7 @@ describe('project-access', () => {
     assert.match(fragment, /Architecture layers:/i);
     assert.match(fragment, /Next steps:/i);
     assert.match(fragment, /single_project_only/);
+    assert.match(fragment, /You MAY still discuss your own architecture/i);
   });
 
   it('falls back to default project definitions when runtime projects are missing', async () => {

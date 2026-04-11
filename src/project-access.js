@@ -110,6 +110,7 @@ export function buildProjectScopePrompt(chatJid, contextText) {
     fragment += 'You may discuss ONLY the primary project in this group.\n';
     fragment += 'If asked about unrelated topics, use a short soft redirect back to the project.\n';
     fragment += 'Do not provide substantive non-project analysis in this group.\n';
+    fragment += 'You MAY still discuss your own architecture, tools, and how you work if asked, as long as you do not reveal blocked personal or LQ topics.\n';
   } else {
     fragment += 'Prioritise allowed project context over general memories when answering.\n';
   }

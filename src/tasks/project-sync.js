@@ -89,6 +89,14 @@ async function runGit(args, cwd = REPO_ROOT) {
 
 async function resolveProjectSource(project) {
   const syncConfig = project.sync || {};
+  const localCandidates = [project.evoPath, project.localPath]
+    .filter(Boolean)
+    .map((p) => String(p).replace(/^~\//, `${process.env.HOME || process.env.USERPROFILE || ''}/`));
+  for (const candidate of localCandidates) {
+    const absolute = resolve(candidate);
+    if (existsSync(absolute)) return { root: absolute, source: `local:${absolute}` };
+  }
+
   const preferGit = syncConfig.source === 'git' || (syncConfig.preferGit !== false && !!project.gitRepo);
   if (preferGit && project.gitRepo) {
     const mirrorDir = join(PROJECT_MIRROR_ROOT, project.id);
@@ -103,14 +111,6 @@ async function resolveProjectSource(project) {
     } catch (err) {
       logger.warn({ projectId: project.id, err: err.message }, 'project-sync: git source failed, falling back to local path');
     }
-  }
-
-  const localCandidates = [project.evoPath, project.localPath]
-    .filter(Boolean)
-    .map((p) => String(p).replace(/^~\//, `${process.env.HOME || process.env.USERPROFILE || ''}/`));
-  for (const candidate of localCandidates) {
-    const absolute = resolve(candidate);
-    if (existsSync(absolute)) return { root: absolute, source: `local:${absolute}` };
   }
   return null;
 }
