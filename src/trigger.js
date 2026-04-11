@@ -1,4 +1,5 @@
 import config from './config.js';
+import { getGroupConfig, getGroupLabel } from './group-registry.js';
 
 // Bot names for direct addressing. @mention always works regardless of name.
 // 'claude' and 'assistant' deliberately excluded — too broad, matches general AI discussion.
@@ -7,6 +8,7 @@ const BOT_NAMES = ['clint', 'clintbot', 'clintsec', 'clawd', 'clawdbot', 'clawds
 
 // Secretary mode trigger — admin/single-tool mode, skips planner
 const SECRETARY_NAMES = ['clintsec', 'clawdsec'];
+const NAME_IN_TEXT_GROUP_LABELS = new Set(['sovren']);
 
 export function shouldRespond({ text, hasImage, isFromMe, isGroup, senderJid, botJid, groupJid, mentionedJids }) {
   // Never respond to own messages
@@ -21,7 +23,10 @@ export function shouldRespond({ text, hasImage, isFromMe, isGroup, senderJid, bo
   }
 
   // Only respond in configured group (if set)
-  if (config.whatsappGroupJid && groupJid !== config.whatsappGroupJid) {
+  const groupLabel = (getGroupLabel(groupJid) || '').trim().toLowerCase();
+  const groupConfig = getGroupConfig(groupJid);
+  const allowProjectScopedBypass = !!(groupConfig?.allowedProjects?.length);
+  if (config.whatsappGroupJid && groupJid !== config.whatsappGroupJid && !allowProjectScopedBypass) {
     return { respond: false };
   }
 
@@ -58,6 +63,15 @@ export function shouldRespond({ text, hasImage, isFromMe, isGroup, senderJid, bo
     if (lowerText.startsWith(name + ' ') || lowerText === name) {
       return { respond: true, mode: 'direct', secretaryMode: SECRETARY_NAMES.includes(name) };
     }
+  }
+
+  // 3. Name-in-text addressing for explicitly opted-in project groups (e.g. SOVREN)
+  if (
+    NAME_IN_TEXT_GROUP_LABELS.has(groupLabel)
+    && groupConfig?.projectScopeMode === 'single_project_only'
+    && BOT_NAMES.some((name) => lowerText.includes(name))
+  ) {
+    return { respond: true, mode: 'direct', secretaryMode: detectSecretaryMode(text) };
   }
 
   // Not directly addressed → silent. No passive mode.

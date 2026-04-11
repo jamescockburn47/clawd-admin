@@ -1,6 +1,8 @@
 // test/trigger.test.js — Trigger module: shouldRespond logic for DMs, groups, mentions, prefixes
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 process.env.ANTHROPIC_API_KEY = 'test-key-not-real';
 // Set group JID filter BEFORE config.js is imported (Object.freeze prevents later mutation)
@@ -14,6 +16,8 @@ const BOT_JID = '1234567890@s.whatsapp.net';
 const BOT_LID = '1234567890@lid';
 const OTHER_JID = '9999999999@s.whatsapp.net';
 const GROUP_JID = '120363001234567890@g.us';
+const REGISTRY_PATH = join('data', 'runtime', 'group-registry.json');
+let originalRegistry;
 
 async function loadModules() {
   const mod = await import('../src/trigger.js');
@@ -34,6 +38,33 @@ function base(overrides = {}) {
     ...overrides,
   };
 }
+
+beforeEach(() => {
+  if (existsSync(REGISTRY_PATH)) {
+    originalRegistry = readFileSync(REGISTRY_PATH, 'utf-8');
+  }
+  writeFileSync(REGISTRY_PATH, JSON.stringify({
+    groups: {
+      [FILTERED_GROUP_JID]: {
+        label: 'Open Group',
+        mode: 'open',
+      },
+      '120363425230153097@g.us': {
+        label: 'SOVREN',
+        mode: 'project',
+        allowedProjects: ['sovren'],
+        projectScopeMode: 'single_project_only',
+        offTopicPolicy: 'soft_redirect',
+      },
+    },
+  }, null, 2));
+});
+
+afterEach(() => {
+  if (originalRegistry) {
+    writeFileSync(REGISTRY_PATH, originalRegistry);
+  }
+});
 
 // ─── DM behaviour ───────────────────────────────────────────────
 
@@ -172,6 +203,16 @@ describe('Group name-in-text (no passive mode)', () => {
       isGroup: true,
     }));
     assert.equal(result.respond, false);
+  });
+
+  it('responds to name-in-text addressing in the SOVREN project group', () => {
+    const result = shouldRespond(base({
+      text: 'Hi Clint, tell Peter what you know about SOVREN',
+      isGroup: true,
+      groupJid: '120363425230153097@g.us',
+    }));
+    assert.equal(result.respond, true);
+    assert.equal(result.mode, 'direct');
   });
 
   it('"clawdsec" alone as text responds (exact match is a prefix command)', () => {
