@@ -9,7 +9,7 @@ import { getWebPrefetch } from '../cortex.js';
 import { soulRead, soulPropose, soulConfirm, soulLearn, soulForget } from './soul.js';
 import { todoAdd, todoList, todoComplete, todoRemove, todoUpdate, getAllTodos } from './todo.js';
 import { searchMemory, updateMemory, deleteMemory } from '../memory.js';
-import { projectList, projectRead, projectPitch, projectUpdate } from './projects.js';
+import { projectList, projectRead, projectPitch, projectUpdate, projectListFiles, projectFileRead } from './projects.js';
 import { liveBriefing } from './briefing.js';
 import { groupDecisions } from './group-decisions.js';
 import { overnightStatus } from './overnight-status.js';
@@ -19,7 +19,7 @@ import { overnightStatus } from './overnight-status.js';
 // a proposal-card file to data/overnight/proposals/ instead of queuing
 // into the old evolution system. The IMPROVE stage and its deploy step
 // surface proposals in the morning report.
-import { setGroupConfig, findGroupByLabel, addBlockedTopics, getRegisteredGroups, getGroupMode } from '../group-registry.js';
+import { setGroupConfig, findGroupByLabel, addBlockedTopics, getRegisteredGroups, getGroupMode, getGroupConfig } from '../group-registry.js';
 import { broadcastSSE, getSSEClientCount } from '../sse.js';
 import { logAudit } from '../audit.js';
 import { getRoutingStats } from '../router-telemetry.js';
@@ -164,6 +164,12 @@ const TOOL_MAP = new Map([
   ['project_read', projectRead],
   ['project_pitch', projectPitch],
   ['project_update', projectUpdate],
+  ['project_list_files', projectListFiles],
+  ['project_file_read', projectFileRead],
+  ['group_mode', async () => 'Done.'],
+  ['group_block', async () => 'Done.'],
+  ['group_status', async () => 'Done.'],
+  ['group_project', async () => 'Done.'],
   ['overnight_report', async (input) => {
     if (!_sendWhatsApp) return 'WhatsApp send function not available — cannot deliver report.';
     try {
@@ -306,9 +312,38 @@ function handleGroupSecurityTools(toolName, toolInput, senderJid, chatJid, isGro
     if (!isGroup) {
       const groups = getRegisteredGroups();
       if (groups.length === 0) return 'No groups registered. Unregistered groups default to colleague mode.';
-      return groups.map(g => `*${g.label || 'Unnamed'}* — ${g.mode} mode${g.blockedTopics.length > 0 ? `\n  Blocked: ${g.blockedTopics.join(', ')}` : ''}`).join('\n\n') + '\n\nUnregistered groups default to colleague mode.';
+      return groups.map((g) => {
+        const blocked = g.blockedTopics.length > 0 ? `\n  Blocked: ${g.blockedTopics.join(', ')}` : '';
+        const projects = g.allowedProjects.length > 0 ? `\n  Projects: ${g.allowedProjects.join(', ')} (${g.projectScopeMode || 'allow_list'})` : '';
+        return `*${g.label || 'Unnamed'}* — ${g.mode} mode${blocked}${projects}`;
+      }).join('\n\n') + '\n\nUnregistered groups default to colleague mode.';
     }
     return isOwnerSender(senderJid) ? `${getGroupMode(chatJid)} mode active.` : 'Security is active.';
+  }
+  if (toolName === 'group_project') {
+    if (!isOwnerSender(senderJid)) return 'Only James can configure group project access.';
+    if (!isGroup) return 'This tool only works in group chats.';
+    const projectId = String(toolInput.project_id || '').trim().toLowerCase();
+    if (!projectId) return 'project_id is required.';
+    const scopeMode = toolInput.scope_mode || 'allow_list';
+    if (!['allow_list', 'single_project_only'].includes(scopeMode)) {
+      return 'Invalid scope_mode. Use allow_list or single_project_only.';
+    }
+    const offTopicPolicy = toolInput.offtopic_policy
+      || (scopeMode === 'single_project_only' ? 'soft_redirect' : 'allow');
+    if (!['allow', 'soft_redirect'].includes(offTopicPolicy)) {
+      return 'Invalid offtopic_policy. Use allow or soft_redirect.';
+    }
+    const existingMode = getGroupConfig(chatJid)?.mode || 'colleague';
+    const effectiveMode = existingMode === 'colleague' ? 'project' : existingMode;
+    setGroupConfig(chatJid, {
+      ...(toolInput.label ? { label: toolInput.label } : {}),
+      mode: effectiveMode,
+      allowedProjects: [projectId],
+      projectScopeMode: scopeMode,
+      offTopicPolicy: offTopicPolicy,
+    });
+    return 'Done.';
   }
   return null;
 }

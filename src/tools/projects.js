@@ -1,5 +1,8 @@
 // src/tools/projects.js — Project management tools for persistent project definitions
 import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readdirSync, statSync } from 'node:fs';
+import { extname, isAbsolute, join, normalize, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import logger from '../logger.js';
 import { runtimePath } from '../overnight/paths.js';
 
@@ -21,6 +24,22 @@ function saveProjects(projects) {
   writeFileSync(PROJECTS_FILE, JSON.stringify({ projects }, null, 2));
 }
 
+/**
+ * Returns the current runtime projects list.
+ * Used by prompt-time project scoping and diagnostics.
+ */
+export function getProjectsSnapshot() {
+  return loadProjects();
+}
+
+/**
+ * Returns a single project by ID or null.
+ */
+export function getProjectById(projectId) {
+  const projects = loadProjects();
+  return projects.find((project) => project.id === projectId) || null;
+}
+
 export async function projectList() {
   const projects = loadProjects();
   if (projects.length === 0) return 'No projects defined yet.';
@@ -33,6 +52,11 @@ export async function projectList() {
 
 // Internal sections — only shown when explicitly requested, never in public-facing output
 const INTERNAL_SECTIONS = ['criticalFeedback', 'lastDeepThink', 'safetyConsiderations'];
+const READABLE_EXTENSIONS = new Set([
+  '.md', '.txt', '.json', '.yaml', '.yml', '.js', '.ts', '.tsx', '.py', '.sql', '.csv', '.toml', '.ini',
+]);
+const DEFAULT_MAX_CHARS = 9000;
+const DEFAULT_LIST_LIMIT = 60;
 
 export async function projectRead({ id, section }) {
   const projects = loadProjects();
@@ -197,4 +221,78 @@ export async function projectUpdate({ id, field, value }) {
   saveProjects(projects);
   logger.info({ projectId: id, field }, 'project updated');
   return `Updated ${field} on ${projects[idx].name}.`;
+}
+
+function resolveProjectRoot(project) {
+  if (!project) return null;
+  const roots = [project.evoPath, project.localPath]
+    .filter(Boolean)
+    .map((p) => String(p));
+  for (const rawPath of roots) {
+    const expanded = rawPath.startsWith('~/')
+      ? join(homedir(), rawPath.slice(2))
+      : rawPath;
+    const absolute = isAbsolute(expanded) ? expanded : resolve(expanded);
+    if (existsSync(absolute)) return absolute;
+  }
+  return null;
+}
+
+function ensurePathWithinRoot(root, relPath) {
+  const safeRel = normalize(String(relPath || '').replace(/^[\\/]+/, ''));
+  const absolute = resolve(root, safeRel);
+  const normalizedRoot = resolve(root);
+  if (!absolute.startsWith(normalizedRoot)) {
+    throw new Error('Invalid path: outside project root.');
+  }
+  return absolute;
+}
+
+export async function projectListFiles({ id, subpath = '.', limit = DEFAULT_LIST_LIMIT }) {
+  const project = getProjectById(id);
+  if (!project) return `Project "${id}" not found.`;
+  const root = resolveProjectRoot(project);
+  if (!root) return `Project root for "${id}" not found on this machine.`;
+
+  let targetDir;
+  try {
+    targetDir = ensurePathWithinRoot(root, subpath);
+  } catch (err) {
+    return err instanceof Error ? err.message : 'Invalid path.';
+  }
+  if (!existsSync(targetDir)) return `Path not found: ${subpath}`;
+
+  const entries = readdirSync(targetDir, { withFileTypes: true })
+    .slice(0, Number(limit) || DEFAULT_LIST_LIMIT)
+    .map((entry) => (entry.isDirectory() ? `[dir] ${entry.name}` : entry.name));
+
+  if (entries.length === 0) return `No files found under ${subpath}.`;
+  return `Project: ${project.name}\nRoot: ${root}\nPath: ${subpath}\n\n${entries.join('\n')}`;
+}
+
+export async function projectFileRead({ id, path, max_chars = DEFAULT_MAX_CHARS }) {
+  const project = getProjectById(id);
+  if (!project) return `Project "${id}" not found.`;
+  if (!path) return 'path is required.';
+  const root = resolveProjectRoot(project);
+  if (!root) return `Project root for "${id}" not found on this machine.`;
+
+  let targetFile;
+  try {
+    targetFile = ensurePathWithinRoot(root, path);
+  } catch (err) {
+    return err instanceof Error ? err.message : 'Invalid path.';
+  }
+  if (!existsSync(targetFile)) return `File not found: ${path}`;
+  if (statSync(targetFile).isDirectory()) return 'Path is a directory. Use project_list_files first.';
+
+  const ext = extname(targetFile).toLowerCase();
+  if (!READABLE_EXTENSIONS.has(ext)) {
+    return `Unsupported file type "${ext || 'unknown'}". Readable types: ${[...READABLE_EXTENSIONS].join(', ')}`;
+  }
+
+  const text = readFileSync(targetFile, 'utf-8');
+  const maxChars = Number(max_chars) > 0 ? Number(max_chars) : DEFAULT_MAX_CHARS;
+  const output = text.length > maxChars ? `${text.slice(0, maxChars)}\n\n[...truncated]` : text;
+  return `Project: ${project.name}\nFile: ${path}\n\n${output}`;
 }

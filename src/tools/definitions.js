@@ -584,7 +584,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'project_read',
-    description: 'Read a project\'s full details or a specific section. Use to recall project architecture, pitch points, next steps, etc. Available projects: atlas (ATLAS — litigation AI), clint-agi (Clint AGI — recursive self-improving intelligence).',
+    description: 'Read a project\'s full details or a specific section. Use to recall project architecture, pitch points, next steps, etc. Available projects include atlas, clint-agi, and sovren.',
     input_schema: {
       type: 'object',
       properties: {
@@ -638,6 +638,50 @@ export const TOOL_DEFINITIONS = [
         },
       },
       required: ['id', 'field', 'value'],
+    },
+  },
+  {
+    name: 'project_list_files',
+    description: 'List files in a project directory so project docs can be inspected on demand.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Project ID, e.g. "sovren".',
+        },
+        subpath: {
+          type: 'string',
+          description: 'Relative path inside the project root. Defaults to ".".',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum entries to list. Defaults to 60.',
+        },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'project_file_read',
+    description: 'Read a text file from a project root (for plans, architecture docs, specs, and notes).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Project ID, e.g. "sovren".',
+        },
+        path: {
+          type: 'string',
+          description: 'Relative file path inside the project root.',
+        },
+        max_chars: {
+          type: 'number',
+          description: 'Maximum characters to return. Defaults to 9000.',
+        },
+      },
+      required: ['id', 'path'],
     },
   },
 
@@ -806,6 +850,34 @@ export const TOOL_DEFINITIONS = [
       type: 'object',
       properties: {},
       required: [],
+    },
+  },
+  {
+    name: 'group_project',
+    description: 'Configure project access for a group. Supports allow-list project IDs and scope mode. Owner only. If the group is currently colleague mode, this tool upgrades it to project mode automatically.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        project_id: {
+          type: 'string',
+          description: 'Project ID to allow (for example: sovren).',
+        },
+        scope_mode: {
+          type: 'string',
+          enum: ['allow_list', 'single_project_only'],
+          description: 'allow_list = project allowed but general discussion still possible. single_project_only = soft-redirect off-topic chat back to the project.',
+        },
+        offtopic_policy: {
+          type: 'string',
+          enum: ['allow', 'soft_redirect'],
+          description: 'How to handle non-project messages. single_project_only normally uses soft_redirect.',
+        },
+        label: {
+          type: 'string',
+          description: 'Optional group label to save while configuring access.',
+        },
+      },
+      required: ['project_id'],
     },
   },
 ];

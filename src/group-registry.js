@@ -141,6 +141,22 @@ export function getGroupRestrictions(chatJid) {
     );
   }
 
+  // Optional project scoping layer (thin overlay, does not replace mode rules)
+  if (Array.isArray(config?.allowedProjects) && config.allowedProjects.length > 0) {
+    const allowedList = config.allowedProjects.map((id) => `- ${id}`).join('\n');
+    const scopeMode = config.projectScopeMode || 'allow_list';
+    const offTopicPolicy = config.offTopicPolicy || 'allow';
+    parts.push(
+      `## PROJECT ACCESS\n` +
+      `This group can discuss ONLY these project(s):\n${allowedList}\n` +
+      `Project scope mode: ${scopeMode}\n` +
+      `Off-topic policy: ${offTopicPolicy}\n` +
+      (scopeMode === 'single_project_only'
+        ? 'If asked about unrelated topics, give a brief redirect back to the allowed project.'
+        : 'Prioritise allowed project knowledge over general memories when relevant.')
+    );
+  }
+
   if (parts.length === 0) return '';
   return '\n\n' + parts.join('\n\n');
 }
@@ -155,6 +171,9 @@ export function getRegisteredGroups() {
     label: config.label,
     mode: config.mode || 'colleague',
     blockedTopics: config.blockedTopics || [],
+    allowedProjects: config.allowedProjects || [],
+    projectScopeMode: config.projectScopeMode || null,
+    offTopicPolicy: config.offTopicPolicy || null,
   }));
 }
 

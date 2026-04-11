@@ -17,6 +17,7 @@ import { checkDailyBackup, getLastBackupDate } from './tasks/daily-backup.js';
 import { checkSystemKnowledgeRefresh, getLastKnowledgeRefreshDate } from './tasks/system-refresh.js';
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
 import { checkGroundTruth, getLastHarvestDate } from './tasks/ground-truth.js';
+import { checkProjectKnowledgeSync, getLastProjectSyncDate } from './tasks/project-sync.js';
 import { checkConsolidateShadow } from './overnight/consolidate-shadow-task.js';
 import { checkProbe } from './overnight/probe-task.js';
 import { checkReport } from './overnight/report-task.js';
@@ -62,6 +63,7 @@ export function getSystemHealth() {
     knowledgeRefresh: { enabled: !!config.evoMemoryEnabled, lastRun: getLastKnowledgeRefreshDate() },
     traceAnalysis: { enabled: true, lastRun: getLastAnalysisDate() },
     groundTruth: { enabled: true, lastRun: getLastHarvestDate() },
+    projectSync: { enabled: true, lastRun: getLastProjectSyncDate() },
     weeklyReview: { enabled: true, lastRun: getLastReviewDate() },
     backup: { lastRun: getLastBackupDate() },
     // New four-stage overnight pipeline — dates come from the event log,
@@ -103,6 +105,7 @@ async function runScheduler() {
 
   // Retained operational tasks (spec §8 "What gets kept")
   await runTask('systemKnowledgeRefresh', () => checkSystemKnowledgeRefresh(todayStr, hours));
+  await runTask('projectKnowledgeSync', () => checkProjectKnowledgeSync(todayStr, hours));
   await runTask('traceAnalysis', () => checkTraceAnalysis(sendFn, todayStr, hours));
   await runTask('groundTruth', () => checkGroundTruth(sendFn, todayStr, hours, minutes));
   await runTask('dailyBackup', () => checkDailyBackup(todayStr, hours));

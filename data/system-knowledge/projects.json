@@ -29,6 +29,19 @@
       "Legal Quants: What It Is and What It Might Become"
     ]
   },
+  "sovren": {
+    "summary": "SOVREN (Sovereign Award Valuation Engine) is a deterministic platform for valuing arbitration awards against sovereign and corporate debtors. The valuation chain is strictly non-generative: AI can assist extraction and suggestions, but all valuation outputs are deterministic and human-validated before use.",
+    "evoPath": "~/projects/sovren",
+    "gitRepo": "https://github.com/jamescockburn47/SOVREN",
+    "localPath": "C:\\Users\\James\\Desktop\\Projects\\SOVREN",
+    "coreFormula": "V = MIN[(GCV_accrued - Enforcement_Costs) x (1 - Settlement_Discount) x S_Factor x (1 / (1 + r)^T), Bond_Cap]",
+    "principles": [
+      "Zero AI in valuation calculations",
+      "AI assists, humans decide",
+      "Privacy-first local processing on EVO",
+      "Full auditability for every calculation step"
+    ]
+  },
   "imageHandling": {
     "summary": "I can see images now — my local model (Qwen3-VL on EVO) understands photos sent via WhatsApp. I process them locally without needing Claude. If the local model is down, Claude handles it as fallback. Follow-up questions within 5 minutes reuse the same image, so people don't need to resend. No tools are used for pure vision queries."
   },

@@ -20,14 +20,24 @@ const CATEGORY_TOOLS = {
   [CATEGORY.TASK]: new Set(['todo_add', 'todo_list', 'todo_complete', 'todo_remove', 'todo_update']),
   [CATEGORY.TRAVEL]: new Set(['train_departures', 'train_fares', 'hotel_search', 'search_trains', 'search_accommodation']),
   [CATEGORY.EMAIL]: new Set(['gmail_search', 'gmail_read', 'gmail_draft', 'gmail_confirm_send']),
-  [CATEGORY.RECALL]: new Set(['memory_search', 'memory_update', 'memory_delete', 'project_list', 'project_read', 'project_pitch', 'overnight_report']),
+  [CATEGORY.RECALL]: new Set([
+    'memory_search', 'memory_update', 'memory_delete',
+    'project_list', 'project_read', 'project_pitch', 'project_update',
+    'project_list_files', 'project_file_read',
+    'overnight_report',
+  ]),
   [CATEGORY.PLANNING]: null,
   [CATEGORY.CONVERSATIONAL]: new Set(),
   [CATEGORY.GENERAL_KNOWLEDGE]: new Set(['web_search', 'web_fetch']),
   [CATEGORY.SYSTEM]: new Set(['system_status', 'memory_search', 'overnight_report']),
 };
 
-const READ_SAFE_TOOLS = new Set(['todo_list', 'calendar_list_events', 'calendar_find_free_time', 'memory_search', 'system_status', 'soul_read', 'project_list', 'project_read', 'project_pitch']);
+const READ_SAFE_TOOLS = new Set([
+  'todo_list', 'calendar_list_events', 'calendar_find_free_time',
+  'memory_search', 'system_status', 'soul_read',
+  'project_list', 'project_read', 'project_pitch',
+  'project_list_files', 'project_file_read',
+]);
 const WRITE_DANGEROUS_TOOLS = new Set(['gmail_draft', 'gmail_confirm_send', 'calendar_create_event', 'calendar_update_event', 'soul_propose', 'soul_confirm', 'memory_update', 'memory_delete']);
 const WRITE_LIKELY_CATEGORIES = new Set([CATEGORY.EMAIL]);
 const MEMORY_CATEGORIES = new Set([CATEGORY.TRAVEL, CATEGORY.RECALL, CATEGORY.PLANNING, CATEGORY.SYSTEM]);
@@ -55,7 +65,7 @@ Reply with ONLY the category name. Nothing else.`;
 const KEYWORD_RULES = [
   { category: CATEGORY.RECALL, test: (l) => /\b(dream|diary|dreamt|dreamed|last night|overnight|overnight.*report)\b/.test(l) && /\b(tell|what|about|how|show|recall|review|read|describe|share|report|regenerate|resend|send|generate)\b/.test(l) },
   { category: CATEGORY.PLANNING, test: (l) => /\b(soul|personality)\b/.test(l) && /\b(change|update|modify|propose|set|adjust|learn|forget|remove)\b/.test(l) },
-  { category: CATEGORY.PLANNING, test: (l) => /\b(project|pitch|atlas|clint.?agi|clawd.?agi)\b/.test(l) },
+  { category: CATEGORY.PLANNING, test: (l) => /\b(project|pitch|atlas|clint.?agi|clawd.?agi|sovren)\b/.test(l) },
   { category: CATEGORY.PLANNING, test: (l) => /\b(self.?program|self.?cod|evolution|evolve|tweak.*classif|fix.*yourself|upgrade.*yourself|improve.*yourself|recode|reprogram)\b/.test(l) },
   { category: CATEGORY.EMAIL, test: (l) => (/\b(gmail|inbox|draft an? email|send an? email|reply to .* email|forward .* email|compose)\b/.test(l)) || (/\b(email|mail)\b/.test(l) && /\b(check|read|search|send|draft|compose|write|reply|forward)\b/.test(l)) },
   { category: CATEGORY.TASK, test: (l) => /\b(todo|to-do|to do list|remind me|add task|mark done|mark complete|my tasks|reminders)\b/.test(l) || l.startsWith('/todo') },

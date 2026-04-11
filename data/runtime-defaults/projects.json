@@ -242,6 +242,67 @@
         "insightsExtracted": 8,
         "summary": "## Strategic Analysis\n\n### What's Actually Here vs. What's Claimed\n\nLet me separate the genuinely novel from the well-packaged ordinary.\n\n**Genuinely novel and running in production:**\n- The overnight dream/diary cycle that consolidates experience into durable memory and behavioral adjustments. This is rare. Most agent systems either have no memory consolidation or do it naively (append-only logs, RAG over transcripts). Clawd's first-person reflective synthesis — where a local model reasons about the day's events and extracts cross-session connections — is architecturally closer to what the ICLR 2026 RSI workshop calls \"experience accumulation\" than almost anything in the hobbyist agent space.\n- The classifier self-improvement loop. It's narrow (keyword classifier scope), but it's *real* recursive self-improvement: probe → hypothesize fix → validate → deploy. That's not prompt engineering. That's a genuine closed-loop optimization cycle with a human gate.\n- The soul system as a mutable-but-gated identity layer. Most agent personality is baked into system prompts and never changes. Clawd's personality evolves through an explicit proposal/review/merge process. That's version-controlled identity, which is conceptually interesting.\n\n**Well-packaged but not structurally novel:**\n- Multi-model orchestration (local + cloud + classifier + embeddings) — this is good engineering but increasingly common. LangChain, CrewAI, and dozens of frameworks do model routing. The implementation quality matters, but the architecture isn't differentiated.\n- Environmental grounding (voice, vision, calendar, email) — these are tool integrations. Good ones, running on constrained hardware, which is impressive. But \"embodied AI\" this is not — it's a well-wired tool belt.\n- Social intelligence / engagement classifier — interesting for the WhatsApp group use case, but it's a classifier deciding when to post. That's moderation logic, not social cognition.\n\n**Claimed but not yet real:**\n- Adversarial reasoning — described as \"designed\" and \"ATLAS-derived\" but not running in production on Clawd. The ATLAS Claimant Brain / Defendant Brain / Referee architecture exists as a design, not a deployed system. This is the most over-credited primitive in the current pitch.\n- World model — explicitly marked as Phase 3 / research-grade. No knowledge graph exists. No causal reasoning chains exist. Honest marking, but it means the \"8 primitives\" framing counts futures as present.\n\n**The honest primitive count is closer to 5 running, 3 designed.**\n\n---\n\n### The Central Strategic Question Nobody Has Asked\n\nRaymond's critique was right: this is a \"persistent self-governing agent architecture,\" not AGI. But even that framing dodges the harder question:\n\n**Is the goal to build a product, a research contribution, or a personal tool?**\n\nThese three paths diverge completely:\n\n1. **Personal tool** — Keep building for James. Optimize for his workflow, his cases, his life. The overnight diary, the morn"
       }
+    },
+    {
+      "id": "sovren",
+      "name": "SOVREN — Sovereign Award Valuation Engine",
+      "status": "active",
+      "created": "2026-04-11T10:00:00.000Z",
+      "updated": "2026-04-11T10:00:00.000Z",
+      "oneLiner": "Deterministic valuation platform for arbitration awards against sovereign and corporate debtors.",
+      "summary": "SOVREN (Sovereign Award Valuation Engine) is a deterministic valuation platform built for arbitration award monetisation. Core invariant: zero AI in the valuation chain. AI supports extraction and drafting, but all valuation outputs are deterministic, auditable, and human-validated before use.",
+      "foundingInsight": "AI can accelerate extraction and analysis, but the valuation chain must remain deterministic and fully auditable for legal and commercial trust.",
+      "evoPath": "~/projects/sovren",
+      "localPath": "C:\\Users\\James\\Desktop\\Projects\\SOVREN",
+      "gitRepo": "https://github.com/jamescockburn47/SOVREN",
+      "keyDifferentiators": [
+        "Zero AI in valuation calculations — deterministic decimal arithmetic only",
+        "Human validation gateway before any extracted value enters valuation",
+        "Full step-by-step auditability across inputs, formulas, and outputs",
+        "Privacy-first local AI processing on EVO infrastructure"
+      ],
+      "architecture": {
+        "layers": [
+          {
+            "name": "Extraction and Validation",
+            "description": "Hybrid regex plus local LLM extraction with mandatory human confirmation before valuation."
+          },
+          {
+            "name": "Deterministic Valuation Engine",
+            "description": "Interest, recovery time, enforcement cost, S-factor, NPV discounting, and price cap modules composed into one auditable formula."
+          },
+          {
+            "name": "Reporting and Delivery",
+            "description": "Tiered outputs with full premium audit trail and scenario analysis."
+          }
+        ]
+      },
+      "nextSteps": [
+        "Keep extraction confidence and validation workflows explicit in output",
+        "Expand precedent corpus for RAG reference while preserving deterministic valuation boundary",
+        "Maintain sovereign parameter governance and auditability"
+      ],
+      "tags": [
+        "sovren",
+        "arbitration",
+        "valuation",
+        "deterministic",
+        "sovereign-debt",
+        "enforcement"
+      ],
+      "offTopicPolicy": "soft_redirect",
+      "projectScopeMode": "single_project_only",
+      "sync": {
+        "enabled": true,
+        "source": "git",
+        "includePaths": [
+          "README.md",
+          "plan.md",
+          "architecture.md",
+          "VALIDATION.md",
+          "docs"
+        ]
+      }
     }
   ]
 }

@@ -73,6 +73,8 @@ These are constraints the agent cannot infer from code. Do not revisit, reverse,
 - **Ambient agency is opt-in by group.** `LQCore` may receive unsolicited participation when Clint judges a contribution genuinely useful; default posture elsewhere remains silent unless addressed.
 - **Ambient agency is speak-only.** No unsolicited tool actions, writes, or private-owner/admin actions. Ambient group contributions may use only non-private context.
 - **Three security modes: open, project, colleague.** Unregistered groups default to colleague (most restrictive). James sets modes in-group.
+- **Project-scoped groups are allowed.** A group may be bound to specific project IDs (for example `sovren`) with `single_project_only` scope and `soft_redirect` off-topic behaviour; in those groups, Clint prioritises allowed project knowledge ahead of general memories.
+- **Project knowledge sync supports git sources.** Nightly `project-sync` can pull a project mirror from its configured Git repo (for example SOVREN) and ingest changed docs into memory.
 - **Three-layer defense: prompt + output filter + canary.** Cannot be prompt-injected. Output filter is deterministic regex.
 - **Anti-prompt-injection hardening.** Identity lock, instruction hierarchy, anti-extraction, anti-role-play.
 - **ALL groups block personal admin tools.** Calendar, email, travel, todos — DMs to James only. Memories/dreams/insights are NOT blocked.

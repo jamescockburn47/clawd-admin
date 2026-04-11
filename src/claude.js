@@ -10,6 +10,7 @@ import { logRouting } from './router-telemetry.js';
 import { logReasoningTrace } from './reasoning-trace.js';
 import { PLANNING } from './constants.js';
 import { gatherIntelligence } from './cortex.js';
+import { buildProjectScopePrompt } from './project-access.js';
 import { trackTokens, checkDailyLimit, incrementDailyCalls, getDailyCalls, recordCallInUsage, getUsageStats, flushUsage } from './usage-tracker.js';
 import { shouldCritique, runCritique } from './quality-gate.js';
 import logger from './logger.js';
@@ -157,6 +158,7 @@ class LLMService {
     const { route, memoryFragment, timing: cortexTiming } = await gatherIntelligence(
       context, !!imageData, isGroup, { secretaryMode: options.secretaryMode },
     );
+    const projectScopeFragment = isGroup ? buildProjectScopePrompt(chatJid, context) : '';
 
     const { category, source: classifySource, forceClaude, reason: routeReason } = route;
     const userWantsClaude = CLAUDE_REQUEST_PATTERNS.test(context);
@@ -204,7 +206,13 @@ class LLMService {
         i === claudeTools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t,
       );
 
-      const system = [{ type: 'text', text: getSystemPrompt(mode, isOwner, isGroup, category, chatJid) + memoryFragment, cache_control: { type: 'ephemeral' } }];
+      const system = [{
+        type: 'text',
+        text: getSystemPrompt(mode, isOwner, isGroup, category, chatJid)
+          + projectScopeFragment
+          + memoryFragment,
+        cache_control: { type: 'ephemeral' },
+      }];
       const userContent = [];
       if (imageData) { userContent.push(imageData); logger.info('image sent to Claude vision'); }
       userContent.push({ type: 'text', text: context });
