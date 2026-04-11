@@ -20,7 +20,7 @@ export function toStringArray(value) {
     : [];
 }
 
-function formatObjectEntries(obj) {
+export function formatObjectEntries(obj) {
   if (!obj || typeof obj !== 'object') return '';
   return Object.entries(obj)
     .filter(([, value]) => typeof value === 'string')
@@ -71,7 +71,7 @@ function generateKnowledgeEntries() {
   });
 
   // Each device
-  for (const device of doc.architecture.devices) {
+  for (const device of Array.isArray(doc.architecture?.devices) ? doc.architecture.devices : []) {
     const hw = device.hardware ? ` Hardware: ${device.hardware}.` : '';
     entries.push({
       fact: `${device.name} (${device.ip || device.location}) — ${device.role}. Runs: ${device.runs}.${hw}`,
@@ -86,7 +86,7 @@ function generateKnowledgeEntries() {
   });
 
   // Router layers
-  const router = doc.messageFlow.router;
+  const router = doc.messageFlow?.router || {};
   const routerFacts = [router.layer1, router.layer2, router.layer3, router.layer4]
     .filter(Boolean).join(' ');
   entries.push({
@@ -95,7 +95,7 @@ function generateKnowledgeEntries() {
   });
 
   // Model selection
-  const models = doc.messageFlow.modelSelection;
+  const models = doc.messageFlow?.modelSelection || {};
   const modelFacts = Object.values(models).filter(Boolean).join(' ');
   entries.push({
     fact: `Model routing: ${modelFacts}`,
@@ -107,16 +107,20 @@ function generateKnowledgeEntries() {
     .map(([cat, tools]) => `${cat}: ${toStringArray(tools).join(', ')}`)
     .filter((line) => !line.endsWith(': '))
     .join('. ');
-  entries.push({
-    fact: `Tool inventory: ${toolLines}`,
-    tags: ['tools', 'capabilities'],
-  });
+  if (toolLines) {
+    entries.push({
+      fact: `Tool inventory: ${toolLines}`,
+      tags: ['tools', 'capabilities'],
+    });
+  }
 
   // Scheduler
-  entries.push({
-    fact: `Scheduler (${doc.scheduler.interval} interval): ${toStringArray(doc.scheduler?.tasks).join('. ')}.`,
-    tags: ['scheduler', 'automation', 'reminders', 'briefing'],
-  });
+  if (doc.scheduler?.interval || toStringArray(doc.scheduler?.tasks).length > 0) {
+    entries.push({
+      fact: `Scheduler (${doc.scheduler?.interval || 'unknown'} interval): ${toStringArray(doc.scheduler?.tasks).join('. ')}.`,
+      tags: ['scheduler', 'automation', 'reminders', 'briefing'],
+    });
+  }
 
   // Voice pipeline
   entries.push({
@@ -124,10 +128,12 @@ function generateKnowledgeEntries() {
     tags: ['voice', 'pipeline', 'whisper', 'tts'],
   });
 
-  entries.push({
-    fact: `Voice features: ${toStringArray(doc.voicePipeline?.features).join('. ')}. Config: ${doc.voicePipeline.config}.`,
-    tags: ['voice', 'features', 'wake', 'contacts'],
-  });
+  if (toStringArray(doc.voicePipeline?.features).length > 0 || doc.voicePipeline?.config) {
+    entries.push({
+      fact: `Voice features: ${toStringArray(doc.voicePipeline?.features).join('. ')}. Config: ${doc.voicePipeline?.config || 'unknown'}.`,
+      tags: ['voice', 'features', 'wake', 'contacts'],
+    });
+  }
 
   // Soul system
   entries.push({
@@ -164,13 +170,15 @@ function generateKnowledgeEntries() {
   });
 
   // Guardrails
-  entries.push({
-    fact: `Critical guardrails: ${toStringArray(doc.guardrails).join(' ')}`,
-    tags: ['guardrails', 'safety', 'restrictions'],
-  });
+  if (toStringArray(doc.guardrails).length > 0) {
+    entries.push({
+      fact: `Critical guardrails: ${toStringArray(doc.guardrails).join(' ')}`,
+      tags: ['guardrails', 'safety', 'restrictions'],
+    });
+  }
 
   // Users
-  for (const [name, desc] of Object.entries(doc.users)) {
+  for (const [name, desc] of Object.entries(doc.users || {})) {
     entries.push({
       fact: `User ${name}: ${desc}`,
       tags: ['users', 'access', name],
@@ -204,17 +212,21 @@ function generateKnowledgeEntries() {
 
   // Tech stack
   const stackLines = formatObjectEntries(doc.techStack);
-  entries.push({
-    fact: `Tech stack: ${stackLines}`,
-    tags: ['tech', 'stack', 'dependencies'],
-  });
+  if (stackLines) {
+    entries.push({
+      fact: `Tech stack: ${stackLines}`,
+      tags: ['tech', 'stack', 'dependencies'],
+    });
+  }
 
   // Circuit breakers
   const cbLines = formatObjectEntries(doc.circuitBreakers);
-  entries.push({
-    fact: `Circuit breakers: ${cbLines}`,
-    tags: ['circuit-breaker', 'resilience', 'failover'],
-  });
+  if (cbLines) {
+    entries.push({
+      fact: `Circuit breakers: ${cbLines}`,
+      tags: ['circuit-breaker', 'resilience', 'failover'],
+    });
+  }
 
   // Version + changelog
   try {
