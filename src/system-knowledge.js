@@ -73,8 +73,10 @@ function generateKnowledgeEntries() {
   // Each device
   for (const device of Array.isArray(doc.architecture?.devices) ? doc.architecture.devices : []) {
     const hw = device.hardware ? ` Hardware: ${device.hardware}.` : '';
+    const role = device.role || device.framework || 'supporting component';
+    const runs = device.runs || device.layout || device.connectivity || 'see architecture summary';
     entries.push({
-      fact: `${device.name} (${device.ip || device.location}) — ${device.role}. Runs: ${device.runs}.${hw}`,
+      fact: `${device.name} (${device.ip || device.location}) — ${role}. Runs: ${runs}.${hw}`,
       tags: ['architecture', 'device', device.name.toLowerCase().replace(/\s+/g, '_')],
     });
   }
