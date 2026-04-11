@@ -13,7 +13,9 @@ import { isMuteTrigger, activateMute, isMuted, shouldEngage, detectNegativeSigna
 import { scanMessage } from './lquorum-rag.js';
 import { logConversation } from './memory.js';
 import { getDocumentInfo, processDocument } from './document-handler.js';
-import { handleEvolutionConfirmation, handleEvolutionApproval } from './evolution-gate.js';
+// Phase 5: evolution-gate retired. The old DM-approval flow is replaced
+// by proposal cards written to data/overnight/proposals/ by the new
+// IMPROVE stage. See docs/superpowers/specs/2026-04-10-compound-dream-*.
 import { cacheSentMessage } from './message-cache.js';
 import { recordDecryptionFailure } from './session-repair.js';
 import { filterResponse, getBlockedResponse } from './output-filter.js';
@@ -181,11 +183,8 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     pushMessage(chatJid, { senderName, text, hasImage: msgHasImage, isBot: false });
 
-    // Evolution gates (owner DM only)
-    if (!isGroup && (isOwnerChat(chatJid) || isOwnerJid(senderJid)) && text) {
-      if (await handleEvolutionConfirmation(sock, chatJid, text)) return;
-      if (await handleEvolutionApproval(sock, chatJid, text)) return;
-    }
+    // Phase 5: evolution DM approval gates retired. Replaced by proposal
+    // cards written to data/overnight/proposals/ by the IMPROVE stage.
 
     if (isGroup && text) scanMessage(text);
 

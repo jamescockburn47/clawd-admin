@@ -1,9 +1,29 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectGroupMode, detectGroupModeExit, detectTopicSelection, buildExecutionPrompt } from '../src/group-modes.js';
-import { setPendingAction, clearPendingAction, getPendingAction } from '../src/pending-action.js';
+
+// src/group-modes.js → src/stress-test.ts → src/config.js validates
+// ANTHROPIC_API_KEY at import time. Stub before dynamic import runs.
+process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'test-key-not-real';
+process.env.OWNER_JID = process.env.OWNER_JID || '1234@s.whatsapp.net';
+
+let detectGroupMode;
+let detectGroupModeExit;
+let detectTopicSelection;
+let buildExecutionPrompt;
+let setPendingAction;
+let clearPendingAction;
+let getPendingAction;
 
 describe('group-modes', () => {
+  before(async () => {
+    ({ detectGroupMode, detectGroupModeExit, detectTopicSelection, buildExecutionPrompt } = await import(
+      '../src/group-modes.js'
+    ));
+    ({ setPendingAction, clearPendingAction, getPendingAction } = await import(
+      '../src/pending-action.js'
+    ));
+  });
+
   const CHAT_JID = '120363001234567890@g.us';
   const TOPICS = [
     { displayNum: 1, number: 1, label: 'AI Regulation', summary: 'EU AI Act' },

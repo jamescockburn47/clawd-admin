@@ -1,5 +1,12 @@
 // Scheduler — 60-second interval, dispatches all scheduled tasks.
 // Each task is isolated: one failing task doesn't block others.
+//
+// Phase 5 retirement: checkOvernightExtraction, checkSelfImprovement,
+// checkProjectDeepThink, checkOvernightReport, checkWeeklyRetrospective,
+// checkOvernightEvolution, checkForge, checkEvolutionTasks are all removed.
+// Their functionality is replaced by the new consolidate/probe/report/improve
+// four-stage overnight pipeline. See:
+//   docs/superpowers/specs/2026-04-10-compound-dream-overnight-design.md
 
 import { checkEvoHealth, isEvoOnline, syncCache, getEvoStatus } from './memory.js';
 import { keepEvoWarm } from './evo-llm.js';
@@ -8,21 +15,12 @@ import { checkSideGigMeetings } from './tasks/meeting-alerts.js';
 import { checkMorningBriefing, checkWeeklyReview, getLastBriefingDate, getLastReviewDate } from './tasks/briefing.js';
 import { checkDailyBackup, getLastBackupDate } from './tasks/daily-backup.js';
 import { checkSystemKnowledgeRefresh, getLastKnowledgeRefreshDate } from './tasks/system-refresh.js';
-import { checkEvolutionTasks } from './tasks/evolution-dispatch.js';
-import {
-  checkSelfImprovement, checkOvernightExtraction, checkOvernightReport,
-  checkProjectDeepThink, getLastSelfImproveDate, getLastExtractionDate,
-  getLastReportDate, getLastProjectThinkDate,
-} from './tasks/improvement-cycle.js';
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
+import { checkGroundTruth, getLastHarvestDate } from './tasks/ground-truth.js';
 import { checkConsolidateShadow } from './overnight/consolidate-shadow-task.js';
 import { checkProbe } from './overnight/probe-task.js';
 import { checkReport } from './overnight/report-task.js';
 import { checkImprove } from './overnight/improve-task.js';
-import { checkWeeklyRetrospective, getLastRetroDate } from './tasks/weekly-retrospective.js';
-import { checkOvernightEvolution, getLastOvernightEvoDate } from './tasks/overnight-to-evolution.js';
-import { checkGroundTruth, getLastHarvestDate } from './tasks/ground-truth.js';
-import { checkForge, getLastForgeDate } from './tasks/forge-orchestrator.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -61,16 +59,17 @@ export function getSystemHealth() {
     whatsapp: { connected: !!sendFn },
     evo: { online: evo.online, queueDepth: evo.queueDepth || 0 },
     briefing: { enabled: !!config.briefingEnabled, lastRun: getLastBriefingDate() },
-    diary: { enabled: !!config.dreamModeEnabled, lastRun: getLastExtractionDate() },
-    selfImprove: { enabled: !!config.evoToolEnabled, lastRun: getLastSelfImproveDate() },
     knowledgeRefresh: { enabled: !!config.evoMemoryEnabled, lastRun: getLastKnowledgeRefreshDate() },
-    projectDeepThink: { enabled: true, lastRun: getLastProjectThinkDate() },
-    overnightReport: { enabled: true, lastRun: getLastReportDate() },
     traceAnalysis: { enabled: true, lastRun: getLastAnalysisDate() },
-    weeklyRetrospective: { enabled: true, lastRun: getLastRetroDate() },
-    overnightEvolution: { enabled: true, lastRun: getLastOvernightEvoDate() },
-    forge: { enabled: true, lastRun: getLastForgeDate() },
+    groundTruth: { enabled: true, lastRun: getLastHarvestDate() },
+    weeklyReview: { enabled: true, lastRun: getLastReviewDate() },
     backup: { lastRun: getLastBackupDate() },
+    // New four-stage overnight pipeline — dates come from the event log,
+    // not from module-level state, so we expose them as "see event log".
+    consolidate: { enabled: true, source: 'data/overnight/events-<date>.jsonl' },
+    probe: { enabled: true, source: 'data/overnight/events-<date>.jsonl' },
+    report: { enabled: true, source: 'data/overnight/events-<date>.jsonl' },
+    improve: { enabled: true, schedule: 'Saturday 22:00 London', source: 'data/overnight/events-<date>.jsonl' },
   };
 }
 
@@ -90,25 +89,22 @@ async function runScheduler() {
     await runTask('evoHealth', () => checkEvoHealth());
   }
 
+  // Daytime user-facing tasks
   await runTask('todoReminders', () => checkTodoReminders(sendFn));
   await runTask('sideGigMeetings', () => checkSideGigMeetings(sendFn));
   await runTask('morningBriefing', () => checkMorningBriefing(sendFn, todayStr, hours, minutes));
   await runTask('weeklyReview', () => checkWeeklyReview(sendFn, todayStr, hours));
-  await runTask('overnightExtraction', () => checkOvernightExtraction(todayStr, hours));
+
+  // New four-stage overnight pipeline (spec §4)
   await runTask('consolidateShadow', () => checkConsolidateShadow(todayStr, hours, minutes));
   await runTask('probe', () => checkProbe(todayStr, hours, minutes));
   await runTask('report', () => checkReport(todayStr, hours, minutes));
   await runTask('improve', () => checkImprove(todayStr, hours, minutes));
-  await runTask('selfImprovement', () => checkSelfImprovement(sendFn, todayStr, hours));
+
+  // Retained operational tasks (spec §8 "What gets kept")
   await runTask('systemKnowledgeRefresh', () => checkSystemKnowledgeRefresh(todayStr, hours));
-  await runTask('projectDeepThink', () => checkProjectDeepThink(sendFn, todayStr, hours));
   await runTask('traceAnalysis', () => checkTraceAnalysis(sendFn, todayStr, hours));
   await runTask('groundTruth', () => checkGroundTruth(sendFn, todayStr, hours, minutes));
-  await runTask('weeklyRetrospective', () => checkWeeklyRetrospective(sendFn, todayStr, hours));
-  await runTask('overnightReport', () => checkOvernightReport(sendFn, todayStr, hours, minutes));
-  await runTask('overnightEvolution', () => checkOvernightEvolution(sendFn, todayStr, hours));
-  await runTask('forge', () => checkForge(sendFn, todayStr, hours, minutes));
-  await runTask('evolutionTasks', () => checkEvolutionTasks(sendFn));
   await runTask('dailyBackup', () => checkDailyBackup(todayStr, hours));
 
   // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online

@@ -13,8 +13,12 @@ import { projectList, projectRead, projectPitch, projectUpdate } from './project
 import { liveBriefing } from './briefing.js';
 import { groupDecisions } from './group-decisions.js';
 import { overnightStatus } from './overnight-status.js';
-import { sendOvernightReport } from '../overnight-report.js';
-import { createTask } from '../evolution.js';
+// Phase 5: overnight-report.js retired. The overnight_report tool now
+// reads from the new morning-report.ts in src/overnight/.
+// Phase 5: evolution.js retired. The evolution_task tool now writes
+// a proposal-card file to data/overnight/proposals/ instead of queuing
+// into the old evolution system. The IMPROVE stage and its deploy step
+// surface proposals in the morning report.
 import { setGroupConfig, findGroupByLabel, addBlockedTopics, getRegisteredGroups, getGroupMode } from '../group-registry.js';
 import { broadcastSSE, getSSEClientCount } from '../sse.js';
 import { logAudit } from '../audit.js';
@@ -162,8 +166,20 @@ const TOOL_MAP = new Map([
   ['project_update', projectUpdate],
   ['overnight_report', async (input) => {
     if (!_sendWhatsApp) return 'WhatsApp send function not available — cannot deliver report.';
-    try { await sendOvernightReport(_sendWhatsApp, input.date || null); return `Overnight report generated and sent.`; }
-    catch (err) { return `Failed to generate overnight report: ${err.message}`; }
+    try {
+      const { buildAndRenderReport } = await import('../overnight/report.js');
+      const { dirname, join, resolve } = await import('node:path');
+      const { fileURLToPath } = await import('node:url');
+      const moduleDir = dirname(fileURLToPath(import.meta.url));
+      const repoRoot = resolve(moduleDir, '..', '..');
+      const overnightDir = join(repoRoot, 'data', 'overnight');
+      const date = input.date || new Date().toISOString().slice(0, 10);
+      const { text } = await buildAndRenderReport({ date, overnightDir });
+      await _sendWhatsApp(text);
+      return `Overnight report for ${date} generated and sent.`;
+    } catch (err) {
+      return `Failed to generate overnight report: ${err.message}`;
+    }
   }],
   ['send_file', sendFileHandler],
   ['evolution_task', async () => 'Evolution tasks require DM confirmation. This should not have been called directly.'],
@@ -185,12 +201,34 @@ export function setSendDocument(fn) { _sendDocument = fn; }
 export function getSendDocument() { return _sendDocument; }
 export function setSendOwnerDM(fn) { _sendOwnerDM = fn; }
 
-export function confirmEvolutionTask(confirmId) {
+export async function confirmEvolutionTask(confirmId) {
   const pending = _pendingEvolution.get(confirmId);
   if (!pending) return null;
   if (Date.now() > pending.expiresAt) { _pendingEvolution.delete(confirmId); return null; }
   _pendingEvolution.delete(confirmId);
-  return createTask(pending.instruction, 'whatsapp', pending.priority);
+
+  // Phase 5: write a proposal card for the new IMPROVE stage to pick up
+  // at its next scheduled run. No direct task queue anymore.
+  try {
+    const { writeFile, mkdir } = await import('fs/promises');
+    const { join, dirname, resolve } = await import('path');
+    const { fileURLToPath } = await import('url');
+    const moduleDir = dirname(fileURLToPath(import.meta.url));
+    const repoRoot = resolve(moduleDir, '..', '..');
+    const proposalsDir = join(repoRoot, 'data', 'overnight', 'proposals');
+    await mkdir(proposalsDir, { recursive: true });
+    const filename = `whatsapp-request-${Date.now()}.json`;
+    const payload = {
+      source: 'whatsapp',
+      priority: pending.priority,
+      instruction: pending.instruction,
+      createdAt: new Date().toISOString(),
+    };
+    await writeFile(join(proposalsDir, filename), JSON.stringify(payload, null, 2), 'utf8');
+    return { proposalFile: filename };
+  } catch (err) {
+    return { error: err.message };
+  }
 }
 
 // --- Owner check ---

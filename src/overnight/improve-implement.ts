@@ -78,8 +78,7 @@ a fresh git worktree. Rules:
 4. Commit with a single conventional-commit-style message describing the change.
 5. Do NOT modify any file outside the candidate's scope.
 6. Do NOT modify banned files: src/router.js, src/cortex.js, src/memory.js,
-   src/message-handler.js, src/tasks/forge-orchestrator.js, CLAUDE.md,
-   docs/superpowers/**.
+   src/message-handler.js, CLAUDE.md, docs/superpowers/**.
 
 If you cannot implement the candidate safely (e.g. because it would require
 modifying banned files, or because the tests consistently fail), commit

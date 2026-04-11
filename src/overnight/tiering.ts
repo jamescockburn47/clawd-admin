@@ -15,7 +15,6 @@ export const MAX_TIER_B_LINES = 150;
  * NOTE: prefix matches use isBannedPath(); exact paths are matched directly.
  */
 export const BANNED_FILES: readonly string[] = Object.freeze([
-  'src/tasks/forge-orchestrator.js',
   'src/message-handler.js',
   'src/router.js',
   'src/cortex.js',

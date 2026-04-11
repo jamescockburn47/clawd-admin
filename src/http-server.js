@@ -152,73 +152,49 @@ export function startHttpServer(port, deps) {
       } catch (err) { return json(res, 500, { error: err.message }); }
     }
 
-    if (req.method === 'POST' && path === '/api/evolution/task') {
+    // --- Phase 5 retirement: old evolution/improvement routes ---
+    // Evolution task queue replaced by IMPROVE stage + proposal cards in
+    // data/overnight/proposals/. Manual improvement replaced by on-demand
+    // forge via /api/forge-now (see below).
+    if (
+      (req.method === 'POST' && path === '/api/evolution/task') ||
+      path === '/api/evolution/list' ||
+      (req.method === 'POST' && path === '/api/evolution/approve') ||
+      (req.method === 'POST' && path === '/api/evolution/reject') ||
+      (req.method === 'POST' && path === '/api/improvement/run-now')
+    ) {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      try {
-        const { createTask: ct } = await import('./evolution.js');
-        const body = JSON.parse(await readBody(req));
-        if (!body.instruction) return json(res, 400, { error: 'instruction required' });
-        return json(res, 200, { ok: true, task: ct(body.instruction, body.source || 'dream', body.priority || 'normal') });
-      } catch (err) { return json(res, 500, { error: err.message }); }
+      return json(res, 410, {
+        error: 'retired',
+        message:
+          'This endpoint was retired in Phase 5. See /api/morning-report/:date for the current report, ' +
+          '/api/overnight-events/:date for the raw event log, and data/overnight/proposals/ for pending candidates.',
+      });
     }
 
-    if (path === '/api/evolution/list') {
+    // --- On-demand forge trigger (spec §4.4 emergency mode) ---
+    if (req.method === 'POST' && path === '/api/forge-now') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       try {
-        const { getEvolutionReport, loadTasks } = await import('./evolution.js');
-        return json(res, 200, { report: getEvolutionReport(), tasks: loadTasks() });
-      } catch (err) { return json(res, 500, { error: err.message }); }
-    }
-
-    if (req.method === 'POST' && path === '/api/evolution/approve') {
-      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      try {
-        const { taskId } = JSON.parse(await readBody(req));
-        if (!taskId) return json(res, 400, { error: 'taskId required' });
-        const { getTaskById, updateTask } = await import('./evolution.js');
-        const task = getTaskById(taskId);
-        if (!task) return json(res, 404, { error: 'task not found' });
-        if (task.status !== 'awaiting_approval') return json(res, 400, { error: `task status is '${task.status}', expected 'awaiting_approval'` });
-        updateTask(taskId, { status: 'approved' });
-        const { deployApprovedTask } = await import('./evolution-executor.js');
-        const result = await deployApprovedTask(task);
-        updateTask(taskId, { status: 'deployed', result: `Deployed ${result.files.length} file(s)` });
-        return json(res, 200, { success: true, taskId, files: result.files });
-      } catch (err) { return json(res, 500, { error: err.message }); }
-    }
-
-    if (req.method === 'POST' && path === '/api/evolution/reject') {
-      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      try {
-        const { taskId } = JSON.parse(await readBody(req));
-        if (!taskId) return json(res, 400, { error: 'taskId required' });
-        const { getTaskById, updateTask } = await import('./evolution.js');
-        const task = getTaskById(taskId);
-        if (!task) return json(res, 404, { error: 'task not found' });
-        const { rejectTask } = await import('./evolution-executor.js');
-        await rejectTask(task);
-        updateTask(taskId, { status: 'rejected', result: 'Rejected via API' });
-        return json(res, 200, { success: true, taskId });
-      } catch (err) { return json(res, 500, { error: err.message }); }
-    }
-
-    if (req.method === 'POST' && path === '/api/improvement/run-now') {
-      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      try {
-        const bodyText = await readBody(req);
-        const body = bodyText ? JSON.parse(bodyText) : {};
-        const notify = body.notify === true;
-        const todayStr = body.todayStr || null;
-        const reportDate = body.reportDate || null;
-        const { runImprovementPipelineNow } = await import('./tasks/manual-improvement-run.js');
-
-        const ownerSend = async (message) => {
-          if (!config.ownerJid) return null;
-          return sendProactiveMessage(config.ownerJid, message);
-        };
-
-        const result = await runImprovementPipelineNow(ownerSend, { notify, todayStr, reportDate });
-        return json(res, 200, { ok: true, result });
+        const { checkImprove } = await import('./overnight/improve-task.js');
+        const { getLondonTime } = await import('./scheduler.js').catch(() => ({ getLondonTime: null }));
+        // getLondonTime is not exported from scheduler; compute inline
+        const now = new Date();
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Europe/London',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        }).formatToParts(now);
+        const year = parts.find((p) => p.type === 'year').value;
+        const month = parts.find((p) => p.type === 'month').value;
+        const day = parts.find((p) => p.type === 'day').value;
+        const todayStr = `${year}-${month}-${day}`;
+        // Fire-and-forget so the HTTP request returns quickly
+        checkImprove(todayStr, 22, 0, undefined, { emergencyMode: true }).catch((err) => {
+          logger.error({ err: err.message }, 'forge-now: emergency improve failed');
+        });
+        return json(res, 202, { ok: true, message: 'emergency IMPROVE started', todayStr });
       } catch (err) {
         return json(res, 500, { error: err.message });
       }
@@ -247,22 +223,14 @@ export function startHttpServer(port, deps) {
       if (!plan) return json(res, 404, { error: 'plan not found' });
       return json(res, 200, { plan });
     }
-    // --- Overnight report JSON (for clawd-console) ---
+    // --- Phase 5 retirement: /api/overnight-report/:date replaced by
+    // /api/morning-report/:date which reads from the event log (spec §4.3). ---
     if (path.startsWith('/api/overnight-report/')) {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      const dateStr = path.split('/api/overnight-report/')[1];
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-        return json(res, 400, { error: 'Invalid date format. Use YYYY-MM-DD.' });
-      }
-      const localPath = join('/tmp', `overnight-report-${dateStr}.json`);
-      try {
-        if (existsSync(localPath)) {
-          return json(res, 200, JSON.parse(readFileSync(localPath, 'utf-8')));
-        }
-        return json(res, 404, { error: `No overnight report for ${dateStr}` });
-      } catch (err) {
-        return json(res, 500, { error: err.message });
-      }
+      return json(res, 410, {
+        error: 'retired',
+        message: 'Use /api/morning-report/:date instead (spec §4.3).',
+      });
     }
 
     // --- Morning report JSON (Phase 3, structured + staleness-guarded) ---
@@ -347,12 +315,15 @@ export function startHttpServer(port, deps) {
       } catch { /* intentional: log dir may not exist yet on fresh start */ }
       return json(res, 200, { date: today, totalMessages, groupCount, groups });
     }
+    // --- Phase 5 retirement: weekly retrospective folded into IMPROVE. ---
     if (path === '/api/retrospective') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      const { getLatestRetrospective } = await import('./tasks/weekly-retrospective.js');
-      const retro = getLatestRetrospective();
-      if (!retro) return json(res, 200, { retrospective: null, message: 'No retrospective yet — runs Sundays at 4 AM' });
-      return json(res, 200, { retrospective: retro });
+      return json(res, 200, {
+        retrospective: null,
+        message:
+          'Weekly retrospective was retired in Phase 5. See /api/morning-report/:date (Saturday) ' +
+          'for the IMPROVE stage output.',
+      });
     }
     if (path === '/api/quality') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });

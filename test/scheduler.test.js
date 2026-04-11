@@ -16,17 +16,22 @@ describe('getSystemHealth', () => {
     if (!getSystemHealth) await loadModules();
   });
 
-  it('returns all expected subsystem keys', () => {
+  it('returns all expected subsystem keys (post-Phase-5)', () => {
     const health = getSystemHealth();
+    // Persistent user-facing subsystems
     assert.ok('whatsapp' in health);
     assert.ok('evo' in health);
     assert.ok('briefing' in health);
-    assert.ok('diary' in health);
-    assert.ok('selfImprove' in health);
     assert.ok('knowledgeRefresh' in health);
-    assert.ok('projectDeepThink' in health);
-    assert.ok('overnightReport' in health);
+    assert.ok('weeklyReview' in health);
+    assert.ok('traceAnalysis' in health);
+    assert.ok('groundTruth' in health);
     assert.ok('backup' in health);
+    // New four-stage overnight pipeline (Phase 2-4)
+    assert.ok('consolidate' in health);
+    assert.ok('probe' in health);
+    assert.ok('report' in health);
+    assert.ok('improve' in health);
   });
 
   it('whatsapp shows disconnected before initScheduler', () => {

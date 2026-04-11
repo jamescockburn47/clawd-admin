@@ -26,12 +26,12 @@ describe('topic-scan', () => {
       assert.ok(result.includes('James: Hi there'));
     });
 
-    it('uses "Clawd" for bot messages', () => {
+    it('uses "Clint" for bot messages', () => {
       const messages = [
-        { timestamp: '2026-03-27T10:00:00Z', sender: 'Clawd', text: 'I think...', isBot: true },
+        { timestamp: '2026-03-27T10:00:00Z', sender: 'Clint', text: 'I think...', isBot: true },
       ];
       const result = formatTranscript(messages);
-      assert.ok(result.includes('Clawd: I think...'));
+      assert.ok(result.includes('Clint: I think...'));
     });
 
     it('handles missing timestamps gracefully', () => {

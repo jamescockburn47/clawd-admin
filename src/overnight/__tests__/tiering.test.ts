@@ -4,9 +4,9 @@ import { classifyTier, BANNED_FILES, type DiffSummary } from '../tiering.js';
 
 describe('overnight/tiering', () => {
   describe('BANNED_FILES', () => {
-    it('contains the files named in spec §4.4', () => {
+    it('contains the files named in spec §4.4 (post-Phase-5 retirement)', () => {
+      // forge-orchestrator.js deleted in Phase 5, no longer in the list
       const expected = [
-        'src/tasks/forge-orchestrator.js',
         'src/message-handler.js',
         'src/router.js',
         'src/cortex.js',
