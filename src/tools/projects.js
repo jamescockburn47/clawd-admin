@@ -8,6 +8,7 @@ import { runtimePath } from '../overnight/paths.js';
 
 // Post Phase 0 spec §6.1 P1: runtime state lives in data/runtime/
 const PROJECTS_FILE = runtimePath('projects.json');
+const DEFAULT_PROJECTS_FILE = join(process.cwd(), 'data', 'runtime-defaults', 'projects.json');
 
 function loadProjects() {
   try {
@@ -20,6 +21,32 @@ function loadProjects() {
   }
 }
 
+function loadDefaultProjects() {
+  try {
+    if (!existsSync(DEFAULT_PROJECTS_FILE)) return [];
+    const data = JSON.parse(readFileSync(DEFAULT_PROJECTS_FILE, 'utf-8'));
+    return data.projects || [];
+  } catch (err) {
+    logger.warn({ err: err.message }, 'failed to load default projects');
+    return [];
+  }
+}
+
+function getMergedProjects() {
+  const runtimeProjects = loadProjects();
+  const defaultsById = new Map(loadDefaultProjects().map((project) => [project.id, project]));
+  const merged = runtimeProjects.map((project) => ({
+    ...(defaultsById.get(project.id) || {}),
+    ...project,
+  }));
+  for (const [id, fallbackProject] of defaultsById.entries()) {
+    if (!merged.some((project) => project.id === id)) {
+      merged.push(fallbackProject);
+    }
+  }
+  return merged;
+}
+
 function saveProjects(projects) {
   writeFileSync(PROJECTS_FILE, JSON.stringify({ projects }, null, 2));
 }
@@ -29,19 +56,19 @@ function saveProjects(projects) {
  * Used by prompt-time project scoping and diagnostics.
  */
 export function getProjectsSnapshot() {
-  return loadProjects();
+  return getMergedProjects();
 }
 
 /**
  * Returns a single project by ID or null.
  */
 export function getProjectById(projectId) {
-  const projects = loadProjects();
+  const projects = getMergedProjects();
   return projects.find((project) => project.id === projectId) || null;
 }
 
 export async function projectList() {
-  const projects = loadProjects();
+  const projects = getMergedProjects();
   if (projects.length === 0) return 'No projects defined yet.';
 
   return projects.map(p => {
@@ -59,7 +86,7 @@ const DEFAULT_MAX_CHARS = 9000;
 const DEFAULT_LIST_LIMIT = 60;
 
 export async function projectRead({ id, section }) {
-  const projects = loadProjects();
+  const projects = getMergedProjects();
   const project = projects.find(p => p.id === id);
   if (!project) return `Project "${id}" not found. Use project_list to see available projects.`;
 
@@ -162,7 +189,7 @@ export async function projectRead({ id, section }) {
 }
 
 export async function projectPitch({ id, audience }) {
-  const projects = loadProjects();
+  const projects = getMergedProjects();
   const project = projects.find(p => p.id === id);
   if (!project) return `Project "${id}" not found.`;
 

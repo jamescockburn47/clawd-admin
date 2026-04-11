@@ -1,14 +1,16 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 describe('project-access', () => {
   const GROUP_REGISTRY_PATH = join('data', 'runtime', 'group-registry.json');
   const PROJECTS_PATH = join('data', 'runtime', 'projects.json');
+  const DEFAULT_PROJECTS_PATH = join('data', 'runtime-defaults', 'projects.json');
   let originalGroupRegistry;
   let originalProjects;
+  let originalDefaultProjects;
 
   beforeEach(() => {
     if (existsSync(GROUP_REGISTRY_PATH)) {
@@ -16,6 +18,9 @@ describe('project-access', () => {
     }
     if (existsSync(PROJECTS_PATH)) {
       originalProjects = readFileSync(PROJECTS_PATH, 'utf-8');
+    }
+    if (existsSync(DEFAULT_PROJECTS_PATH)) {
+      originalDefaultProjects = readFileSync(DEFAULT_PROJECTS_PATH, 'utf-8');
     }
 
     writeFileSync(GROUP_REGISTRY_PATH, JSON.stringify({
@@ -30,7 +35,7 @@ describe('project-access', () => {
       },
     }, null, 2));
 
-    writeFileSync(PROJECTS_PATH, JSON.stringify({
+    const projectPayload = JSON.stringify({
       projects: [{
         id: 'sovren',
         name: 'SOVREN — Sovereign Award Valuation Engine',
@@ -56,7 +61,9 @@ describe('project-access', () => {
         evoPath: '~/projects/sovren',
         localPath: 'C:\\Users\\James\\Desktop\\Projects\\SOVREN',
       }],
-    }, null, 2));
+    }, null, 2);
+    writeFileSync(PROJECTS_PATH, projectPayload);
+    writeFileSync(DEFAULT_PROJECTS_PATH, projectPayload);
   });
 
   afterEach(() => {
@@ -65,6 +72,9 @@ describe('project-access', () => {
     }
     if (originalProjects) {
       writeFileSync(PROJECTS_PATH, originalProjects);
+    }
+    if (originalDefaultProjects) {
+      writeFileSync(DEFAULT_PROJECTS_PATH, originalDefaultProjects);
     }
   });
 
@@ -83,5 +93,14 @@ describe('project-access', () => {
     assert.match(fragment, /Architecture layers:/i);
     assert.match(fragment, /Next steps:/i);
     assert.match(fragment, /single_project_only/);
+  });
+
+  it('falls back to default project definitions when runtime projects are missing', async () => {
+    if (existsSync(PROJECTS_PATH)) unlinkSync(PROJECTS_PATH);
+    const moduleUrl = pathToFileURL(join(process.cwd(), 'src', 'tools', 'projects.js')).href + `?t=${Date.now()}`;
+    const { getProjectById } = await import(moduleUrl);
+    const project = getProjectById('sovren');
+    assert.ok(project);
+    assert.equal(project.name, 'SOVREN — Sovereign Award Valuation Engine');
   });
 });
