@@ -14,6 +14,20 @@ const KNOWLEDGE_CATEGORY = 'system';
 const KNOWLEDGE_DIR = join('data', 'system-knowledge');
 const KNOWLEDGE_FILE_LEGACY = join('data', 'system-knowledge.json');
 
+export function toStringArray(value) {
+  return Array.isArray(value)
+    ? value.filter((item) => typeof item === 'string')
+    : [];
+}
+
+function formatObjectEntries(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  return Object.entries(obj)
+    .filter(([, value]) => typeof value === 'string')
+    .map(([key, value]) => `${key}: ${value}`)
+    .join('. ');
+}
+
 // Load the structured knowledge document from modular sub-files
 // Falls back to legacy monolithic file if directory doesn't exist
 function loadKnowledgeDoc() {
@@ -89,8 +103,9 @@ function generateKnowledgeEntries() {
   });
 
   // Tools (grouped)
-  const toolLines = Object.entries(doc.tools)
-    .map(([cat, tools]) => `${cat}: ${tools.join(', ')}`)
+  const toolLines = Object.entries(doc.tools || {})
+    .map(([cat, tools]) => `${cat}: ${toStringArray(tools).join(', ')}`)
+    .filter((line) => !line.endsWith(': '))
     .join('. ');
   entries.push({
     fact: `Tool inventory: ${toolLines}`,
@@ -99,7 +114,7 @@ function generateKnowledgeEntries() {
 
   // Scheduler
   entries.push({
-    fact: `Scheduler (${doc.scheduler.interval} interval): ${doc.scheduler.tasks.join('. ')}.`,
+    fact: `Scheduler (${doc.scheduler.interval} interval): ${toStringArray(doc.scheduler?.tasks).join('. ')}.`,
     tags: ['scheduler', 'automation', 'reminders', 'briefing'],
   });
 
@@ -110,7 +125,7 @@ function generateKnowledgeEntries() {
   });
 
   entries.push({
-    fact: `Voice features: ${doc.voicePipeline.features.join('. ')}. Config: ${doc.voicePipeline.config}.`,
+    fact: `Voice features: ${toStringArray(doc.voicePipeline?.features).join('. ')}. Config: ${doc.voicePipeline.config}.`,
     tags: ['voice', 'features', 'wake', 'contacts'],
   });
 
@@ -150,7 +165,7 @@ function generateKnowledgeEntries() {
 
   // Guardrails
   entries.push({
-    fact: `Critical guardrails: ${doc.guardrails.join(' ')}`,
+    fact: `Critical guardrails: ${toStringArray(doc.guardrails).join(' ')}`,
     tags: ['guardrails', 'safety', 'restrictions'],
   });
 
@@ -188,18 +203,14 @@ function generateKnowledgeEntries() {
   }
 
   // Tech stack
-  const stackLines = Object.entries(doc.techStack)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join('. ');
+  const stackLines = formatObjectEntries(doc.techStack);
   entries.push({
     fact: `Tech stack: ${stackLines}`,
     tags: ['tech', 'stack', 'dependencies'],
   });
 
   // Circuit breakers
-  const cbLines = Object.entries(doc.circuitBreakers)
-    .map(([k, v]) => `${k}: ${v}`)
-    .join('. ');
+  const cbLines = formatObjectEntries(doc.circuitBreakers);
   entries.push({
     fact: `Circuit breakers: ${cbLines}`,
     tags: ['circuit-breaker', 'resilience', 'failover'],

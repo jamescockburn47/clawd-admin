@@ -21,6 +21,11 @@ const QUEUE_IMAGE_DIR = join(QUEUE_DIR, 'images');
 const DOC_LOG_DIR = join(process.cwd(), 'data', 'document-logs');
 const DOC_CACHE_DIR = join(process.cwd(), 'data', 'document-cache');
 
+export function parseQueuedItem(raw) {
+  if (!raw || !raw.trim()) return null;
+  return JSON.parse(raw);
+}
+
 // --- MemoryClient class (owns connection state, cache, queue) ---
 
 class MemoryClient {
@@ -525,7 +530,13 @@ class MemoryClient {
     for (const file of textFiles) {
       const filepath = join(QUEUE_TEXT_DIR, file);
       try {
-        const data = JSON.parse(readFileSync(filepath, 'utf-8'));
+        const raw = readFileSync(filepath, 'utf-8');
+        const data = parseQueuedItem(raw);
+        if (!data) {
+          logger.warn({ file }, 'discarding empty queued item');
+          unlinkSync(filepath);
+          continue;
+        }
         if (data.type === 'store') {
           await this._fetch('/memory/store', { method: 'POST', body: JSON.stringify(data), timeout: TIMEOUTS.MEMORY_STORE });
         } else if (data.type === 'note') {
@@ -536,6 +547,11 @@ class MemoryClient {
         unlinkSync(filepath);
         processed++;
       } catch (err) {
+        if (err instanceof SyntaxError) {
+          logger.warn({ err: err.message, file }, 'discarding malformed queued item');
+          try { unlinkSync(filepath); } catch { /* intentional: best-effort cleanup */ }
+          continue;
+        }
         logger.error({ err: err.message, file }, 'failed to process queued item');
         break;
       }
