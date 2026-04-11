@@ -284,7 +284,7 @@ function generateKnowledgeEntries() {
 function generateFallbackEntries() {
   return [
     {
-      fact: 'Clint is a distributed WhatsApp admin assistant: Raspberry Pi 5 runs Node.js (Baileys, HTTP API, scheduler). EVO X2 runs llama-server (OpenAI-compatible, tools + classifier + embeddings via nomic-embed-text on port 8083), memory service (port 5100), and Whisper + voice listener. Cloud: MiniMax M2.7 (default chat), Claude Opus 4.6 (quality gate + explicit request). The Pi touchscreen runs a Rust (egui) dashboard against localhost:3000.',
+      fact: 'Clint is a distributed WhatsApp admin assistant centered on the EVO X2. EVO runs the Node.js bot runtime (Baileys, HTTP API, scheduler), local AI services, memory integration, and the voice listener. The Raspberry Pi 5 is a Rust touchscreen dashboard and backup screen that connects to the EVO API. Cloud routing uses MiniMax M2.7 by default, with Claude Opus 4.6 only for premium or explicit-request paths.',
       tags: ['architecture', 'overview'],
     },
   ];
@@ -439,8 +439,8 @@ export async function getLiveSystemSnapshot() {
   const routerStats = getRoutingStats();
 
   return `\n\n## Live System Status (${new Date().toLocaleTimeString('en-GB', { timeZone: 'Europe/London' })})
-- Pi: running ${hours}h ${mins}m, ${(mem.rss / 1048576).toFixed(0)}MB RSS
+- EVO X2 runtime: running ${hours}h ${mins}m, ${(mem.rss / 1048576).toFixed(0)}MB RSS
 - WhatsApp: ${waConnected ? 'connected' : 'disconnected'}
 - EVO X2 llama-server: ${evoStatus}
-- Routing today: ${routerStats.total > 0 ? `${routerStats.local} local, ${routerStats.claude} Claude, ${routerStats.fallback} fallbacks` : 'no messages yet'}`;
+- Routing today: ${routerStats.total > 0 ? `${routerStats.local} local, ${routerStats.cloud} cloud, ${routerStats.fallback} fallbacks` : 'no messages yet'}`;
 }

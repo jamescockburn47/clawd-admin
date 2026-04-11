@@ -58,9 +58,14 @@ export default function CalendarPage() {
   }, []);
 
   useEffect(() => {
-    load();
+    const initialId = setTimeout(() => {
+      void load();
+    }, 0);
     const id = setInterval(load, REFRESH_MS);
-    return () => clearInterval(id);
+    return () => {
+      clearTimeout(initialId);
+      clearInterval(id);
+    };
   }, [load]);
 
   const weather = data?.weather?.[0] ?? null;

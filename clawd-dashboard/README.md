@@ -4,15 +4,13 @@ Rust + egui native kiosk UI for the Pi touchscreen. Talks to Clawdbot over HTTP 
 
 ## Environment variables
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `CLAWDBOT_URL` | `http://localhost:3000` | Pi Node API base URL |
-| `DASHBOARD_TOKEN` | *(built-in fallback for dev)* | Bearer + SSE `token` query param — **set in production** |
+- `CLAWDBOT_URL`: defaults to `http://localhost:3000`. On the real Pi this should point at the EVO host, not the Pi itself.
+- `DASHBOARD_TOKEN`: defaults to the invalid placeholder `dev-token-change-me`. Set a real token in production for Bearer auth and the SSE `token` query param, including `/api/status`.
 
 Example on the Pi (systemd `Environment=` or shell before launch):
 
 ```bash
-export CLAWDBOT_URL=http://localhost:3000
+export CLAWDBOT_URL=http://10.0.0.2:3000
 export DASHBOARD_TOKEN=your_token_from_.env
 ```
 
@@ -26,4 +24,4 @@ cargo build --release
 
 ## Deploy
 
-Copy `src/*.rs` from this repo, rebuild on the Pi, restart the dashboard process (see root `CLAUDE.md`).
+Copy `src/*.rs` from this repo, rebuild on the Pi, restart the dashboard process, and make sure `CLAWDBOT_URL` still targets the EVO bot API plus the correct `DASHBOARD_TOKEN`.

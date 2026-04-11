@@ -265,3 +265,95 @@ export interface OvernightEventsResponse {
   events: OvernightEvent[];
   shadowCandidates: ShadowCandidate[];
 }
+
+export type MorningObservationKind =
+  | 'pattern'
+  | 'candidate'
+  | 'drift'
+  | 'quality_failure';
+
+export interface MorningObservationBase {
+  kind: MorningObservationKind;
+  date: string;
+  evidence_refs: string[];
+  weight: number;
+}
+
+export interface MorningPatternObservation extends MorningObservationBase {
+  kind: 'pattern';
+  observation: string;
+}
+
+export interface MorningCandidateObservation extends MorningObservationBase {
+  kind: 'candidate';
+  title: string;
+  category: string;
+  predicted_benefit: string;
+  scope: string;
+  rough_cost: string;
+}
+
+export interface MorningDriftObservation extends MorningObservationBase {
+  kind: 'drift';
+  original_timestamp: string;
+  input_hash: string;
+  diff_summary: string;
+  judged: 'better' | 'worse' | 'neutral';
+  reason: string;
+}
+
+export interface MorningQualityFailureObservation extends MorningObservationBase {
+  kind: 'quality_failure';
+  category: string;
+  cortex_summary?: string;
+  memory_count?: number;
+  tools_fired?: string[];
+  rejection_reason: string;
+}
+
+export type MorningObservation =
+  | MorningPatternObservation
+  | MorningCandidateObservation
+  | MorningDriftObservation
+  | MorningQualityFailureObservation;
+
+export interface MorningReportSummary {
+  consolidateEvents: number;
+  probeEvents: number;
+  operationsEvents: number;
+  reportEvents: number;
+  improveEvents: number;
+  memoryStored: number;
+  memoryRejected: number;
+  patternsObserved: number;
+  candidatesProposed: number;
+  driftAlertsThisWeek: number;
+  qualityFailuresThisWeek: number;
+  backupOk: boolean;
+  traceAnalysisOk: boolean;
+}
+
+export interface MorningReportBudget {
+  opus_sessions_used: number;
+  tokens_used: number;
+}
+
+export interface MorningReport {
+  date: string;
+  mode: 'cheap' | 'deep' | 'emergency';
+  events: OvernightEvent[];
+  errors: OvernightEvent[];
+  summary: MorningReportSummary;
+  newThisWeek: MorningObservation[];
+  continuingWithFreshEvidence: MorningObservation[];
+  driftAlerts: MorningDriftObservation[];
+  deferredCandidates: MorningCandidateObservation[];
+  archive: MorningObservation[];
+  budget: MorningReportBudget;
+}
+
+export interface MorningReportResponse {
+  date: string;
+  report: MorningReport;
+  text: string;
+}

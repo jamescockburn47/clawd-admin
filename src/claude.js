@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import config from './config.js';
-import { getSystemPrompt, isProfessionalGroup } from './prompt.js';
+import { getSystemPrompt } from './prompt.js';
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
 import { executeTool } from './tools/handler.js';
 import { getToolsForCategory, mustUseClaude, CATEGORY } from './router.js';
@@ -63,7 +63,13 @@ class LLMService {
 
   /** Run the tool use loop, returning final response */
   async _toolLoop(activeClient, activeModel, breaker, system, messages, cachedTools, isGroup, mode, senderJid, chatJid) {
-    let response = await breaker.call(
+    let loopClient = activeClient;
+    let loopModel = activeModel;
+    let loopBreaker = breaker;
+    let provider = loopClient === this._claudeClient ? 'claude' : 'minimax';
+    let usedFallback = false;
+
+    let response = await loopBreaker.call(
       () => activeClient.messages.create({
         model: activeModel,
         max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
@@ -76,6 +82,11 @@ class LLMService {
     // Fallback: MiniMax failed → Claude
     if (!response && activeClient !== this._claudeClient && this._minimaxClient) {
       logger.warn('MiniMax unavailable, falling back to Claude');
+      loopClient = this._claudeClient;
+      loopModel = this._claudeModel;
+      loopBreaker = this._claudeBreaker;
+      provider = 'claude';
+      usedFallback = true;
       response = await this._claudeBreaker.call(
         () => this._claudeClient.messages.create({
           model: this._claudeModel,
@@ -108,9 +119,9 @@ class LLMService {
       }
       messages.push({ role: 'user', content: toolResults });
 
-      response = await breaker.call(
-        () => activeClient.messages.create({
-          model: activeModel,
+      response = await loopBreaker.call(
+        () => loopClient.messages.create({
+          model: loopModel,
           max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
           system, messages,
           ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
@@ -122,7 +133,7 @@ class LLMService {
       logger.info({ loop: loopCount, input: response.usage?.input_tokens, output: response.usage?.output_tokens }, 'tool loop');
     }
 
-    return response;
+    return { response, provider, modelName: loopModel, usedFallback };
   }
 
   /** Main entry point — handles routing, cortex, tools, quality gate */
@@ -131,7 +142,7 @@ class LLMService {
 
     if (!checkDailyLimit()) {
       logger.warn({ limit: config.dailyCallLimit }, 'daily limit reached');
-      return null;
+      return { text: null, meta: null };
     }
 
     const ownerJids = new Set();
@@ -167,7 +178,18 @@ class LLMService {
             model: { selected: 'evo-30b', reason: 'needsPlan', qualityGate: false },
             plan: planResult.plan, toolsCalled: planResult.plan.steps.map(s => s.tool), totalTimeMs: Date.now() - routeStart,
           });
-          return planResult.response;
+          return {
+            text: planResult.response,
+            meta: {
+              category,
+              classifySource,
+              routeReason,
+              routeForceClaude: forceClaude,
+              provider: 'planner',
+              providerReason: 'needs_plan',
+              modelName: 'evo-30b',
+            },
+          };
         }
         logger.warn('task planner failed, falling back to single-shot');
       } catch (err) {
@@ -188,9 +210,23 @@ class LLMService {
       userContent.push({ type: 'text', text: context });
       const messages = [{ role: 'user', content: userContent }];
 
-      const response = await this._toolLoop(activeClient, activeModel, breaker, system, messages, cachedTools, isGroup, mode, senderJid, chatJid);
+      const toolLoopResult = await this._toolLoop(activeClient, activeModel, breaker, system, messages, cachedTools, isGroup, mode, senderJid, chatJid);
 
-      if (!response) return 'API is temporarily unavailable. Try again shortly.';
+      if (!toolLoopResult) {
+        return {
+          text: 'API is temporarily unavailable. Try again shortly.',
+          meta: {
+            category,
+            classifySource,
+            routeReason,
+            routeForceClaude: forceClaude,
+            provider: 'unavailable',
+            providerReason: 'api_unavailable',
+            modelName: activeModel,
+          },
+        };
+      }
+      const { response, provider, modelName, usedFallback } = toolLoopResult;
 
       recordCallInUsage();
       const cacheInfo = response.usage?.cache_read_input_tokens ? ` (cache: ${response.usage.cache_read_input_tokens})` : '';
@@ -198,28 +234,71 @@ class LLMService {
 
       const textBlocks = response.content.filter(b => b.type === 'text');
       let text = textBlocks.map(b => b.text).join('\n');
-      if (!text) return null;
+      if (!text) {
+        return {
+          text: null,
+          meta: {
+            category,
+            classifySource,
+            routeReason,
+            routeForceClaude: forceClaude,
+            provider,
+            providerReason: usedFallback ? 'minimax_fallback' : (userWantsClaude ? 'explicit_request' : 'default_cloud_model'),
+            modelName,
+          },
+        };
+      }
 
-      if (shouldCritique(category, text, userWantsClaude)) {
+      const critiqueApplied = shouldCritique(category, text, userWantsClaude);
+      if (critiqueApplied) {
         text = await runCritique(text, category, trackTokens);
       }
 
-      const selectedModel = userWantsClaude ? 'claude' : (this._minimaxClient ? 'minimax' : 'claude');
-      logRouting({ category, confidence: null, model: selectedModel, latencyMs: cortexTiming.totalMs, classifyMs: cortexTiming.phase1Ms, fallback: !forceClaude && config.evoToolEnabled, reason: routeReason || classifySource, toolsCalled: this._lastToolsCalled, text: context });
+      const providerReason = userWantsClaude
+        ? 'explicit_request'
+        : (usedFallback ? 'minimax_fallback' : (provider === 'minimax' ? 'default_cloud_model' : 'default_claude_model'));
+      logRouting({
+        category,
+        confidence: route.confidence || null,
+        model: provider,
+        latencyMs: Date.now() - routeStart,
+        classifyMs: cortexTiming.phase1Ms,
+        fallback: usedFallback,
+        reason: routeReason || classifySource,
+        toolsCalled: this._lastToolsCalled,
+        text: context,
+      });
       logReasoningTrace({
         chatId: chatJid, sender: senderJid, engagement: null,
         routing: { category, layer: classifySource, needsPlan: route.needsPlan || false, planReason: route.planReason || null, forceClaude, writeIntent: !!routeReason?.includes('write'), confidence: route.confidence || null, timeMs: Date.now() - routeStart },
-        model: { selected: selectedModel, reason: userWantsClaude ? 'explicit_request' : (forceClaude ? 'forceClaude' : 'default'), qualityGate: shouldCritique(category, text, userWantsClaude) },
+        model: { selected: provider, modelName, reason: providerReason, qualityGate: critiqueApplied, routeForceClaude: forceClaude },
         plan: null, toolsCalled: this._lastToolsCalled, totalTimeMs: Date.now() - routeStart,
       });
 
-      return text;
+      return {
+        text,
+        meta: {
+          category,
+          classifySource,
+          routeReason,
+          routeForceClaude: forceClaude,
+          provider,
+          providerReason,
+          modelName,
+        },
+      };
     } catch (err) {
       const status = err?.status;
-      if (status === 429) { logger.error({ status }, 'rate limited'); return 'Hit the API rate limit. Try again in a moment.'; }
-      if (status === 529) { logger.error({ status }, 'API overloaded'); return 'Claude API is overloaded. Try again shortly.'; }
+      if (status === 429) {
+        logger.error({ status }, 'rate limited');
+        return { text: 'Hit the API rate limit. Try again in a moment.', meta: null };
+      }
+      if (status === 529) {
+        logger.error({ status }, 'API overloaded');
+        return { text: 'Claude API is overloaded. Try again shortly.', meta: null };
+      }
       logger.error({ err: err.message, status }, 'API error');
-      return null;
+      return { text: null, meta: null };
     }
   }
 
@@ -283,6 +362,10 @@ const llmService = new LLMService({
 
 // --- Facade exports ---
 export { LLMService };
-export const getClawdResponse = (ctx, mode, sender, img, chat, opts) => llmService.getResponse(ctx, mode, sender, img, chat, opts);
+export const getClawdResponseResult = (ctx, mode, sender, img, chat, opts) => llmService.getResponse(ctx, mode, sender, img, chat, opts);
+export const getClawdResponse = async (ctx, mode, sender, img, chat, opts) => {
+  const result = await llmService.getResponse(ctx, mode, sender, img, chat, opts);
+  return result?.text ?? null;
+};
 export const getGroupModeResponse = (sys, msg, opus, sender, chat) => llmService.getGroupModeResponse(sys, msg, opus, sender, chat);
 export const getLastToolsCalled = () => llmService.getLastToolsCalled();

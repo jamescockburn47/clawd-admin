@@ -644,7 +644,7 @@ export const TOOL_DEFINITIONS = [
   // === OVERNIGHT STATUS ===
   {
     name: 'overnight_status',
-    description: "Get a concise plain-text summary of what the overnight jobs did last night: forge outcome, evolution tasks queued, self-improve cycle results. Use when asked \"what happened overnight\", \"what did the forge do\", \"what's awaiting my approval\", or similar questions about specific overnight job outcomes. Fast — reads persisted artifacts, does not regenerate anything.",
+    description: "Get a concise plain-text summary of the current overnight pipeline for a given date: event-log activity, shadow candidate counts, morning report availability, and any IMPROVE/proposal outcomes. Use when asked \"what happened overnight\", \"what ran last night\", \"did anything fail\", or \"what's awaiting my approval\". Fast — reads persisted artifacts and does not regenerate the report.",
     input_schema: {
       type: 'object',
       properties: {
@@ -660,7 +660,7 @@ export const TOOL_DEFINITIONS = [
   // === OVERNIGHT REPORT ===
   {
     name: 'overnight_report',
-    description: 'Regenerate and RESEND the full overnight intelligence report (diary summaries, facts, insights, soul observations, project deep think, self-improvement, system health). Sends via email and WhatsApp. Use ONLY when James asks to regenerate, resend, or review the full overnight report. For "what happened overnight" use overnight_status instead.',
+    description: 'Regenerate and send the structured morning report for a given date from the Phase 5 event log pipeline. Use ONLY when James asks to regenerate, resend, or review the full morning report. This sends via WhatsApp using the current report renderer; it does not email or recreate the retired diary/retrospective format. For "what happened overnight" use overnight_status instead.',
     input_schema: {
       type: 'object',
       properties: {
@@ -676,7 +676,7 @@ export const TOOL_DEFINITIONS = [
   // === EVOLUTION ===
   {
     name: 'evolution_task',
-    description: 'Create a coding task for autonomous execution. Clint will run Claude Code CLI on EVO to make the change in a git branch, then send the diff to James for approval before deploying. Use when James asks to fix, change, add, or improve Clint\'s own code.',
+    description: 'Legacy self-coding queue placeholder retained for backward compatibility. The old direct evolution task queue is retired in Phase 5; weekly IMPROVE and proposal cards are the active self-improvement path. Do not use this for normal overnight reporting or active code changes unless James is explicitly asking about the retired queue behavior.',
     input_schema: {
       type: 'object',
       properties: {

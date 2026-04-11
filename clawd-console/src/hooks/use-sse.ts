@@ -21,7 +21,16 @@ export function useSSE({ url, onEvent, enabled = true }: UseSSEOptions): UseSSER
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+  const connectRef = useRef<(() => void) | null>(null);
+  const lastEventAtRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
+
+  useEffect(() => {
+    lastEventAtRef.current = lastEventAt;
+  }, [lastEventAt]);
 
   const connect = useCallback(() => {
     if (!enabled) return;
@@ -45,7 +54,9 @@ export function useSSE({ url, onEvent, enabled = true }: UseSSEOptions): UseSSER
       // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s max
       const delay = Math.min(backoffRef.current, 30000);
       backoffRef.current = delay * 2;
-      timerRef.current = setTimeout(connect, delay);
+      timerRef.current = setTimeout(() => {
+        connectRef.current?.();
+      }, delay);
     };
 
     // Listen for named events
@@ -88,14 +99,18 @@ export function useSSE({ url, onEvent, enabled = true }: UseSSEOptions): UseSSER
     // Watchdog: force reconnect if no event in 45 seconds
     if (watchdogRef.current) clearInterval(watchdogRef.current);
     watchdogRef.current = setInterval(() => {
-      if (lastEventAt && Date.now() - lastEventAt > 45000) {
+      if (lastEventAtRef.current && Date.now() - lastEventAtRef.current > 45000) {
         es.close();
         esRef.current = null;
         setConnected(false);
-        connect();
+        connectRef.current?.();
       }
     }, 15000);
-  }, [url, enabled, lastEventAt]);
+  }, [url, enabled]);
+
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   useEffect(() => {
     connect();

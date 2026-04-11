@@ -1,5 +1,5 @@
 // Router telemetry — logs routing decisions to data/router-stats.jsonl
-import { appendFileSync, readFileSync, existsSync } from 'fs';
+import { appendFileSync } from 'fs';
 import { join } from 'path';
 import logger from './logger.js';
 
@@ -7,26 +7,28 @@ const STATS_FILE = join('data', 'router-stats.jsonl');
 
 // In-memory counters for quick status queries (reset daily)
 let todayDate = new Date().toDateString();
-const counters = { local: 0, claude: 0, fallback: 0, total: 0 };
+const counters = { local: 0, cloud: 0, claude: 0, fallback: 0, total: 0 };
 
 function resetIfNewDay() {
   const today = new Date().toDateString();
   if (today !== todayDate) {
     todayDate = today;
     counters.local = 0;
+    counters.cloud = 0;
     counters.claude = 0;
     counters.fallback = 0;
     counters.total = 0;
   }
 }
 
-export function logRouting({ category, confidence, model, latencyMs, fallback, reason, toolsCalled, text }) {
+export function logRouting({ category, confidence, model, latencyMs, classifyMs, fallback, reason, toolsCalled, text }) {
   resetIfNewDay();
 
   counters.total++;
   if (fallback) counters.fallback++;
   else if (model === 'local') counters.local++;
-  else counters.claude++;
+  else counters.cloud++;
+  if (model === 'claude') counters.claude++;
 
   const entry = {
     ts: new Date().toISOString(),
@@ -34,6 +36,7 @@ export function logRouting({ category, confidence, model, latencyMs, fallback, r
     confidence: confidence ?? null,
     model,
     latencyMs: latencyMs ?? null,
+    classifyMs: classifyMs ?? null,
     fallback: fallback || false,
     reason: reason || null,
     tools: toolsCalled || [],

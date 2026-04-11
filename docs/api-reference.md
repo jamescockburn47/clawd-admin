@@ -2,7 +2,7 @@
 
 ## HTTP Endpoints
 
-All endpoints on Pi port 3000. Auth via `DASHBOARD_TOKEN` as Bearer token or query param.
+Main bot API runs on EVO port 3000. Auth uses `DASHBOARD_TOKEN` via `Authorization: Bearer ...` or `?token=` where noted.
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
@@ -17,7 +17,7 @@ All endpoints on Pi port 3000. Auth via `DASHBOARD_TOKEN` as Bearer token or que
 | POST | `/api/soul/reset` | Bearer | Reset all soul sections |
 | GET | `/api/todos` | Bearer | All todo items |
 | POST | `/api/todos/complete` | Bearer | Complete a todo by ID |
-| GET | `/api/messages` | Bearer | Recent owner DM messages |
+| GET | `/api/messages` | Bearer | Recent merged message feed across chat buffers |
 | GET | `/api/audit` | Bearer | Last 50 tool execution audit entries |
 | GET | `/api/quality` | Bearer | Interaction quality summary (evolution) |
 | GET | `/api/evo` | Bearer | EVO X2 llama-server health check |
@@ -30,9 +30,11 @@ All endpoints on Pi port 3000. Auth via `DASHBOARD_TOKEN` as Bearer token or que
 | POST | `/api/voice-command` | Bearer | Voice command from EVO (text + source) |
 | POST | `/api/voice-status` | Bearer | Voice status events from EVO |
 | POST | `/api/voice-local` | Bearer | Locally-routed voice command (action + params) |
-| POST | `/api/desktop-mode` | None | Kill kiosk Chromium to expose Pi desktop |
-| POST | `/api/send` | None | Proactive message send (jid + message) |
-| POST | `/api/evolution/task` | Token | Create evolution coding task |
+| POST | `/api/desktop-mode` | Bearer | Kill kiosk Chromium to expose Pi desktop |
+| POST | `/api/send` | Bearer | Proactive message send (jid + message) |
+| POST | `/api/evolution/task` | Token | Retired in Phase 5; returns 410 |
+| GET | `/api/morning-report/:date` | Bearer | Structured morning report for `YYYY-MM-DD` |
+| GET | `/api/overnight-events/:date` | Bearer | Overnight event log + shadow candidates for `YYYY-MM-DD` |
 | GET | `/api/system-health` | Bearer | Consolidated subsystem statuses |
 
 ## Tool Access Control
@@ -61,10 +63,7 @@ All endpoints on Pi port 3000. Auth via `DASHBOARD_TOKEN` as Bearer token or que
 | Router Telemetry | `src/router-telemetry.js` | Routing decision stats (JSONL) |
 | Interaction Log | `src/interaction-log.js` | Conversation-level logging + feedback |
 | System Knowledge | `src/system-knowledge.js` | Seeds architecture docs into EVO memory |
-| Self-Improve Cycle | `src/self-improve/cycle.js` | Overnight router keyword rule improvement |
-| Evolution Store | `src/evolution.js` | Task queue, approval flow, rate limiting |
-| Evolution Executor | `src/evolution-executor.js` | Claude Code CLI on EVO, git branches, deploy + rollback |
-| Evolution Gate | `src/evolution-gate.js` | Scope validation, manifest checking |
+| Overnight Pipeline | `src/overnight/` | CONSOLIDATE, PROBE, REPORT, IMPROVE, event log, report rendering |
 | Memory Client | `src/memory.js` | EVO memory service (store/search/list/delete) |
 | LQuorum Working Memory | `src/lquorum-rag.js` | Passive keyword scanning, topic warming, decay |
 | Weather | `src/weather.js` | Open-Meteo forecasts (free) |
@@ -75,7 +74,7 @@ All endpoints on Pi port 3000. Auth via `DASHBOARD_TOKEN` as Bearer token or que
 | Message Cache | `src/message-cache.js` | Message deduplication (last 200 IDs) |
 | Conversation Logger | `src/conversation-logger.js` | JSONL logging for all group messages |
 | Document Handler | `src/document-handler.js` | PDF/DOCX parsing + EVO summarisation |
-| HTTP Server | `src/http-server.js` | Express server setup |
+| HTTP Server | `src/http-server.js` | Plain `http.createServer` API router |
 | SSE | `src/sse.js` | Server-sent events for dashboard |
 | Usage Tracker | `src/usage-tracker.js` | Token cost tracking |
 | Quality Gate | `src/quality-gate.js` | Opus review of complex responses |

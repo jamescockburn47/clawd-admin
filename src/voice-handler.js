@@ -5,7 +5,7 @@ import config from './config.js';
 import logger from './logger.js';
 import { broadcastSSE } from './sse.js';
 import { pushMessage, buildContext } from './buffer.js';
-import { getClawdResponse, getLastToolsCalled } from './claude.js';
+import { getClawdResponseResult, getLastToolsCalled } from './claude.js';
 import { getWidgetData, forceRefresh } from './widgets.js';
 import { getAllTodos, getActiveTodos, todoComplete, todoAdd } from './tools/todo.js';
 import { storeNote } from './memory.js';
@@ -156,7 +156,8 @@ export async function handleVoiceLocal(rawBody, { sendProactiveMessage, getActiv
       broadcastSSE('voice', { event: 'command', text: cmdText });
 
       const context = buildContext(jid, cmdText);
-      const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
+      const responseResult = await getClawdResponseResult(context, 'direct', config.ownerJid, null, config.ownerJid);
+      const response = responseResult?.text ?? null;
 
       if (response) {
         pushMessage(jid, { senderName: 'Clint', text: response, hasImage: false, isBot: true });
@@ -199,7 +200,8 @@ export async function handleVoiceCommand(rawBody, { sendProactiveMessage, getAct
   broadcastSSE('voice', { event: 'command', text });
 
   const context = buildContext(jid, text);
-  const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
+  const responseResult = await getClawdResponseResult(context, 'direct', config.ownerJid, null, config.ownerJid);
+  const response = responseResult?.text ?? null;
 
   if (response) {
     pushMessage(jid, { senderName: 'Clint', text: response, hasImage: false, isBot: true });
@@ -211,7 +213,15 @@ export async function handleVoiceCommand(rawBody, { sendProactiveMessage, getAct
       sender: { name: 'James', jid },
       source: 'voice',
       input: { text, hadImage: false },
-      routing: { mode: 'direct', source: source || 'wake_word' },
+      routing: {
+        mode: 'direct',
+        source: source || 'wake_word',
+        category: responseResult?.meta?.category || null,
+        model: responseResult?.meta?.provider || null,
+        modelReason: responseResult?.meta?.providerReason || null,
+        classifySource: responseResult?.meta?.classifySource || null,
+        routeForceClaude: responseResult?.meta?.routeForceClaude || false,
+      },
       toolsCalled: getLastToolsCalled(),
       response: { text: response, chars: response.length },
       latencyMs: Date.now() - voiceStart,
@@ -247,7 +257,8 @@ export async function handleDashboardChat(rawBody, { sendProactiveMessage, getAc
   broadcastSSE('message', { sender: 'James', text: message, timestamp: Date.now() });
 
   const context = buildContext(jid, message);
-  const response = await getClawdResponse(context, 'direct', config.ownerJid, null, config.ownerJid);
+  const responseResult = await getClawdResponseResult(context, 'direct', config.ownerJid, null, config.ownerJid);
+  const response = responseResult?.text ?? null;
 
   if (response) {
     pushMessage(jid, { senderName: 'Clint', text: response, hasImage: false, isBot: true });

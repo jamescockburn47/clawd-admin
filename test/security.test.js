@@ -157,3 +157,27 @@ describe('URL construction safety', () => {
     assert.ok(content.includes('encodeURIComponent'), 'must encode user inputs in URL parameters');
   });
 });
+
+describe('dashboard API auth guards', () => {
+  it('protects status and proactive-send endpoints with dashboard auth', () => {
+    const content = readFileSync(join(SRC, 'http-server.js'), 'utf-8');
+
+    assert.ok(
+      /if \(req\.method === 'POST' && path === '\/api\/send'\) \{\s+if \(!checkAuth\(req\)\) return json\(res, 401, \{ error: 'Unauthorized' \}\);/m.test(content),
+      '/api/send must require dashboard auth',
+    );
+    assert.ok(
+      /if \(path === '\/api\/status'\) \{\s+if \(!checkAuth\(req\)\) return json\(res, 401, \{ error: 'Unauthorized' \}\);/m.test(content),
+      '/api/status must require dashboard auth',
+    );
+  });
+
+  it('pi dashboard status fetch sends the auth header', () => {
+    const content = readFileSync(join(ROOT, 'clawd-dashboard', 'src', 'api.rs'), 'utf-8');
+    assert.ok(
+      content.includes('.get(format!("{}/api/status", base))')
+      && content.includes('.header("Authorization", auth_header())'),
+      'clawd-dashboard status fetch must include Authorization header',
+    );
+  });
+});

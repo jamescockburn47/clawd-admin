@@ -3,13 +3,13 @@
 ## WhatsApp Message → Response
 
 1. Baileys receives message via WebSocket
-2. `trigger.js` decides: direct (prefix/mention/reply), passive (name in text → classifier), random (probability), or ignore
+2. `trigger.js` decides whether to respond: always in DMs; in groups only on direct triggers such as prefix, @mention, reply-to-bot, or explicit group-analysis modes
 3. If image: download via `downloadMediaMessage()`, base64 → EVO VL (Claude fallback). Follow-ups within 5 min reuse last image per chat
 4. If document (PDF/DOCX): parse on Pi (pdf-parse/mammoth) → summarise via EVO 30B → Claude receives summary (85% token reduction). Raw text cached
 5. `buffer.js` builds conversation context (last 10 messages, includes `[Current message]` section)
-6. `router.js` classifies activity category (keywords first → EVO classifier on 8081 → fallback)
-7. If EVO available and not forced to Claude: `evo-llm.js` sends to Qwen3-30B via OpenAI-compatible API with category-scoped tools
-8. If EVO unavailable, empty response, or must-use-Claude: `claude.js` sends to Claude API with full prompt + tools
+6. `router.js` classifies activity category (4B classifier first → keyword rules → 0.6B fallback → default)
+7. `claude.js` gathers intelligence, scopes tools by category, and sends the main chat/tool request to the default cloud model (MiniMax M2.7 when configured, otherwise Claude)
+8. Local EVO models support classification, image understanding, and document summarisation; they do not generate the main user-facing chat response
 9. Tool execution loop (up to 5 iterations) — `handler.js` dispatches, `audit.js` logs
 10. Final text response sent via Baileys
 11. `interaction-log.js` records request/response with routing metadata
@@ -18,50 +18,38 @@
 
 ## Message Routing Architecture
 
-```
-Message → Keywords → EVO classifier (port 8081) → Fallback
-              │              │                        │
-              ▼              ▼                        ▼
-        Category match  Category match          Default: Claude
-        (fast, free)    (Qwen3-0.6B, ~50ms)
-              │              │
-              ▼              ▼
-        ┌─────────────────────────────┐
-        │ Category → Tool set scoping │
-        │ calendar, task, travel,     │
-        │ email, recall, planning,    │
-        │ conversational, general,    │
-        │ system                      │
-        └──────────────┬──────────────┘
-                       │
-              ┌────────┴────────┐
-              ▼                 ▼
-        EVO X2 (8080)      Claude API
-        Category-scoped    Full tool access
-        tools              (fallback or forced)
+```text
+Message
+  → 4B classifier (primary)
+  → keywords / learned rules (fallback)
+  → 0.6B classifier (last classifier fallback)
+  → default planning fallback
+  → category-based tool scoping
+  → cloud response path (MiniMax by default, Claude on explicit request or fallback)
 ```
 
-Router telemetry logged to `data/router-stats.jsonl`. Self-improvement cycle (`self-improve/cycle.js`) probes for missed keyword rules overnight.
+Router telemetry logged to `data/router-stats.jsonl`. Learned rules can still be loaded from `data/learned-rules.json`, but the old self-improvement cycle has been retired in favor of the Phase 5 overnight pipeline.
 
 ## Response Pipeline — Model Allocation
 
 | Model | Location | Port | Role |
 |-------|----------|------|------|
-| **MiniMax M2.7** | Cloud API | — | Default for chat, tools, email, planning, evolution, quality gate |
+| **MiniMax M2.7** | Cloud API | — | Default for chat, tools, email, planning |
 | **Claude Opus 4.6** | Cloud API | — | Premium — explicit request only, or MiniMax fallback |
-| **Qwen3-0.6B** | EVO X2 | 8081 | Engagement gating + message classification |
+| **Qwen3-0.6B** | EVO X2 | 8081 | Fallback message classification |
 | **Qwen3-VL-30B-A3B** | EVO X2 | 8080 | Vision/image understanding, document summarisation |
 | **Memory Service** | EVO X2 | 5100 | Dream storage, memory search, context injection |
 | **SearXNG** | EVO X2 | 8888 | Self-hosted web search |
 
 ### Key Rules
 
-- **EVO VL 30B generates real user-facing responses** — not just classification
-- **Claude handles all writes** — email, calendar mutation, soul changes
+- **MiniMax M2.7 is the default chat/tool model** when configured
+- **Claude Opus is reserved for explicit request or premium-quality paths**
+- **Local EVO models do not generate the main user-facing chat response**
 - **Images → EVO VL first** — Claude is fallback only
 - **Documents summarised via EVO** before Claude — 85% token reduction
 - **Web search uses SearXNG** on EVO — free, self-hosted
-- **EVO offline → everything falls back to Claude** — more expensive but never broken
+- **If MiniMax is unavailable, cloud requests fall back to Claude** — more expensive but never broken
 
 ## Dashboard Data Flow
 
@@ -78,16 +66,18 @@ Runs every 60 seconds (lightweight in-process check):
 
 1. **Todo reminders** — finds items with past reminder times, sends WhatsApp, marks reminded
 2. **Side gig meeting alerts** — reads widget cache (no API call), 25-35 min warning
-3. **Morning briefing** at 07:00 London — weather + calendar + todos + Henry status + overnight insights
-4. **Self-improvement cycle** at 01:00 — probes classifier, proposes rules, validates against eval suite
-5. **Overnight extraction** at 02:00 — extracts facts from yesterday's logs into EVO memory
-6. **System knowledge refresh** at 02:00 — regenerates self-knowledge in EVO memory
-7. **Daily backup** at 03:00 — todos, soul, soul_history (7-day retention)
-8. **Project Deep Think** at 23:00 — multi-model strategic analysis on active projects
-9. **Weekly memory review** Sundays 20:00 — memory stats summary
-10. **Widget cache refresh** every 5 min
-11. **EVO model warm-keeping** every 10 min
-12. **Memory cache sync** every 30 min
+3. **Morning briefing** at 07:00 London — weather + calendar + todos + Henry status + overnight summary
+4. **CONSOLIDATE (shadow)** at 02:30 — evidence-chained overnight extraction to shadow candidates
+5. **PROBE** at 03:15 — weekly observations, drift checks, candidate proposals
+6. **REPORT** at 06:50 — structured morning report from the event log
+7. **IMPROVE** Saturday 22:00 London — weekly improvement/proposal pass
+8. **System knowledge refresh** — regenerates self-knowledge in EVO memory
+9. **Trace analysis** — operational analysis retained alongside the new overnight stages
+10. **Ground truth** — operational harvesting retained alongside the new overnight stages
+11. **Daily backup** — todos, soul, soul history, and related runtime artifacts
+12. **Widget cache refresh** every 5 min
+13. **EVO model warm-keeping** every 10 min
+14. **Memory cache sync** every 30 min
 
 Zero token cost for routine checks — no Claude API calls.
 
@@ -101,27 +91,22 @@ Zero token cost for routine checks — no Claude API calls.
 6. Rejects Whisper hallucinations ("thank you", single short words, etc.)
 7. Checks first 45 chars for wake phrase (clawd/claude/claud/clawed/klawd/cloud/claw)
 8. Strips wake phrase, classifies command via classifier (port 8081)
-9. Routes locally (EVO tools via Qwen3-30B) or to Pi `/api/voice-command` for Claude
+9. Routes locally or to the bot HTTP API `/api/voice-command` on EVO for cloud handling
 10. Response → Piper TTS → spoken output
 11. Dashboard voice overlay: Listening → Processing → Response → auto-dismiss
 
 **Tuning** (env vars, defaults in voice_listener.py): `MIC_GAIN=6.0`, `SPEECH_THRESHOLD=3000`, `SILENCE_DURATION=1.2`, `WHISPER_MODEL=distil-small.en`
 
-## Evolution Pipeline (Self-Coding)
+## Improve Pipeline (Phase 5)
 
 ```
-Trigger (WhatsApp or dream mode)
-    → Task queued in data/evolution-tasks.json
-    → Scheduler picks up (max 3/day, 1/hour, 1 concurrent)
-    → Pi SSHes to EVO, syncs codebase, creates git branch
-    → Pass 1: Claude Code outputs JSON manifest (files, lines, approach)
-    → Manifest rejected if >5 files or >150 lines
-    → Pass 2: executes within approved scope only
-    → PreToolUse hook enforces scope (evo-hooks/scope-guard.sh)
-    → Git diff captured, sent to James via WhatsApp DM
-    → "approve" → merge + rsync to Pi + restart + health check
-    → "reject" → branch deleted, logged
-    → Health check failure → auto-revert commit, re-rsync, restart
+Current-week observations
+    → Groom / dedupe / decay / drift surfacing
+    → EVO synthesis of evidence-backed candidates
+    → Opus selection (nullable)
+    → If selected, implement in fresh worktree via Claude Code CLI
+    → Rolling replay regression check
+    → Branch-first deploy via forge CI or proposal card output
 ```
 
-Safety: Owner-only, git branches (never main), DM approval, auto-rollback, scope guards, banned files list.
+Safety: event-log evidence, weekly budget caps, worktree isolation, replay regression checks, banned files list, and proposal-card fallback when auto-merge is not safe.

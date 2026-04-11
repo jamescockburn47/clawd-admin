@@ -1,36 +1,34 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Clint Console
 
-## Getting Started
+Next.js 16 console UI for Clint. This app runs on James's laptop and proxies requests to the bot HTTP API and EVO memory service.
 
-First, run the development server:
+## Development
+
+Install dependencies, then run:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The dev server runs on [http://localhost:3100](http://localhost:3100).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Required environment variables:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `PI_URL` or `PI_URL_LAN`: bot HTTP API base URL
+- `EVO_URL` or `EVO_URL_LAN`: EVO memory-service base URL
+- `DASHBOARD_TOKEN`: shared auth token for bot API requests
 
-## Learn More
+The browser talks only to the local Next app. Route handlers in `src/app/api/pi/` and `src/app/api/evo/` proxy requests to the real services.
 
-To learn more about Next.js, take a look at the following resources:
+## Main Surfaces
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `/`: overview cards and health
+- `/overnight`: structured morning report, event log, and shadow candidates
+- `/routing`: routing and trace analysis
+- `/memory`: EVO memory browser
+- `/logs`: live messages and traces
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Notes
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- This repo uses Next.js `16.2.2`.
+- The overnight page reads `morning-report` and `overnight-events`, not the retired `overnight-report` JSON endpoint.

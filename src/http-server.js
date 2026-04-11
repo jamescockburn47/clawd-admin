@@ -50,6 +50,7 @@ export function startHttpServer(port, deps) {
     const path = urlPath(req);
 
     if (req.method === 'POST' && path === '/api/send') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       try {
         const { jid, message } = JSON.parse(await readBody(req));
         if (!jid || !message) return json(res, 400, { error: 'jid and message required' });
@@ -60,6 +61,7 @@ export function startHttpServer(port, deps) {
     }
 
     if (path === '/api/status') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       const s = getActiveSock();
       return json(res, 200, { connected: !!s, name: s?.user?.name || null, jid: s?.user?.id || null, lastActivity: getLastActivity(), uptime: Math.round(process.uptime()), memoryMB: Math.round(process.memoryUsage().heapUsed / 1048576) });
     }
@@ -177,8 +179,6 @@ export function startHttpServer(port, deps) {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       try {
         const { checkImprove } = await import('./overnight/improve-task.js');
-        const { getLondonTime } = await import('./scheduler.js').catch(() => ({ getLondonTime: null }));
-        // getLondonTime is not exported from scheduler; compute inline
         const now = new Date();
         const parts = new Intl.DateTimeFormat('en-CA', {
           timeZone: 'Europe/London',
@@ -213,7 +213,8 @@ export function startHttpServer(port, deps) {
     if (path === '/api/plans') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       const { getRecentPlans } = await import('./task-planner.js');
-      return json(res, 200, { plans: getRecentPlans(20), count: getRecentPlans(20).length });
+      const plans = getRecentPlans(20);
+      return json(res, 200, { plans, count: plans.length });
     }
     if (path.startsWith('/api/plans/')) {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });

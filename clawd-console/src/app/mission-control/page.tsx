@@ -102,13 +102,18 @@ export default function MissionControlPage() {
     }
   }, []);
 
+  const refreshAll = useCallback(() => {
+    void fetchMessages();
+    void fetchEvo();
+    void fetchTodos();
+    void fetchHealth();
+  }, [fetchMessages, fetchEvo, fetchTodos, fetchHealth]);
+
   // Initial fetch
   useEffect(() => {
-    fetchMessages();
-    fetchEvo();
-    fetchTodos();
-    fetchHealth();
-  }, [fetchMessages, fetchEvo, fetchTodos, fetchHealth]);
+    const initialId = setTimeout(refreshAll, 0);
+    return () => clearTimeout(initialId);
+  }, [refreshAll]);
 
   // Poll messages every 10s
   useEffect(() => {
@@ -119,12 +124,10 @@ export default function MissionControlPage() {
   // Poll evo + todos + health every 60s
   useEffect(() => {
     const id = setInterval(() => {
-      fetchEvo();
-      fetchTodos();
-      fetchHealth();
+      refreshAll();
     }, 60_000);
     return () => clearInterval(id);
-  }, [fetchEvo, fetchTodos, fetchHealth]);
+  }, [refreshAll]);
 
   // Derive statuses from health
   const whatsappStatus: ServiceStatus =

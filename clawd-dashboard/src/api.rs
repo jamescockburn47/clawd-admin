@@ -7,9 +7,8 @@ fn base_url() -> String {
 }
 
 fn dashboard_token() -> String {
-    std::env::var("DASHBOARD_TOKEN").unwrap_or_else(|_| {
-        "VhPJmjOLM0A_t2idQrtfa3cHpSr_hBh0fgNxMr2TwUM".to_string()
-    })
+    std::env::var("DASHBOARD_TOKEN")
+        .unwrap_or_else(|_| "dev-token-change-me".to_string())
 }
 
 fn auth_header() -> String {
@@ -128,6 +127,7 @@ async fn fetch_usage(client: &Client, base: &str) -> Result<UsageResponse, Strin
 async fn fetch_status(client: &Client, base: &str) -> Result<StatusResponse, String> {
     client
         .get(format!("{}/api/status", base))
+        .header("Authorization", auth_header())
         .send()
         .await
         .map_err(|e| format!("status fetch: {}", e))?

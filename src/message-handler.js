@@ -6,10 +6,10 @@ import config from './config.js';
 import logger from './logger.js';
 import { shouldRespond } from './trigger.js';
 import { pushMessage, buildContext } from './buffer.js';
-import { getClawdResponse, getLastToolsCalled, getGroupModeResponse } from './claude.js';
+import { getClawdResponseResult, getLastToolsCalled, getGroupModeResponse } from './claude.js';
 import { broadcastSSE } from './sse.js';
 import { logInteraction, handleReaction, isCorrection, logFeedback } from './interaction-log.js';
-import { isMuteTrigger, activateMute, isMuted, shouldEngage, detectNegativeSignal, recordGroupResponse, isInCooldown } from './engagement.js';
+import { isMuteTrigger, activateMute, recordGroupResponse } from './engagement.js';
 import { scanMessage } from './lquorum-rag.js';
 import { logConversation } from './memory.js';
 import { getDocumentInfo, processDocument } from './document-handler.js';
@@ -103,42 +103,6 @@ const lastDocByChat = new Map();
 
 // Re-export for index.js wiring
 export { handleReaction };
-
-// --- Engagement gate (passive group messages) ---
-
-async function checkEngagementGate(sock, chatJid, senderName, text) {
-  const lowerForGate = (text || '').toLowerCase();
-  // Self-coding / evolution messages require @mention
-  if (/\b(self.?program|self.?cod|evolution|evolve|tweak.*classif|fix.*yourself|upgrade.*yourself|improve.*yourself|recode|reprogram|fix.*classif|change.*code|modify.*code|update.*code)\b/.test(lowerForGate)) {
-    logger.debug({ groupJid: chatJid, sender: senderName }, 'self-coding keyword in passive mode — requires @mention');
-    return 'block';
-  }
-  if (isMuteTrigger(text)) {
-    activateMute(chatJid);
-    try {
-      await sock.sendMessage(chatJid, { text: 'Going quiet.' });
-      pushMessage(chatJid, { senderName: 'Clint', text: 'Going quiet.', hasImage: false, isBot: true });
-    } catch { /* intentional: mute UI notification is best-effort */ }
-    return 'muted';
-  }
-  const negSignal = detectNegativeSignal(text);
-  if (negSignal) {
-    const ownerJid = config.ownerJid;
-    if (ownerJid) {
-      const proposal = `Negative reaction in group.\n\n*${negSignal.type}* from ${senderName}: "${text.slice(0, 200)}"\n\nReply with what I should learn from this and I'll propose a soul update. Or ignore to dismiss.`;
-      sock.sendMessage(ownerJid, { text: proposal }).catch(() => {});
-    }
-  }
-  if (isMuted(chatJid)) { logger.debug({ groupJid: chatJid }, 'muted — skipping'); return 'block'; }
-  if (isInCooldown(chatJid)) { logger.debug({ groupJid: chatJid, sender: senderName }, 'cooldown active'); return 'block'; }
-  if (config.engagementClassifierEnabled) {
-    const engage = await shouldEngage(chatJid, senderName, text);
-    if (!engage) { logger.debug({ groupJid: chatJid, sender: senderName }, 'classifier: silent'); return 'block'; }
-    logger.info({ groupJid: chatJid, sender: senderName }, 'classifier: respond');
-    return 'pass';
-  }
-  return 'block'; // Classifier disabled — default silent
-}
 
 // --- Image download ---
 
@@ -414,8 +378,9 @@ export async function handleIncomingMessage(sock, message, botJid) {
     // Generate response
     const context = buildContext(chatJid, messageText);
     const responseStart = Date.now();
-    const routingResult = null; // Populated inside getClawdResponse; not exposed here. Safe for optional chaining.
-    const response = await getClawdResponse(context, trigger.mode, senderJid, imageData, chatJid, { secretaryMode: !!trigger.secretaryMode });
+    const responseResult = await getClawdResponseResult(context, trigger.mode, senderJid, imageData, chatJid, { secretaryMode: !!trigger.secretaryMode });
+    const routingResult = responseResult?.meta ?? null;
+    const response = responseResult?.text ?? null;
     const responseLatency = Date.now() - responseStart;
     if (!response || !response.trim() || response.trim() === '[SILENT]') {
       if (response?.trim() === '[SILENT]') logger.debug({ chat: chatJid }, 'Claude chose silence');
@@ -476,12 +441,21 @@ export async function handleIncomingMessage(sock, message, botJid) {
       isBot: true,
       isGroup,
       category: routingResult?.category,
-      model: routingResult?.model,
+      model: routingResult?.provider,
+      modelName: routingResult?.modelName,
     });
 
     logInteraction({
       sender: { name: senderName, jid: senderJid }, source: 'whatsapp',
-      input: { text: messageText, hadImage: !!imageData }, routing: { mode: trigger.mode },
+      input: { text: messageText, hadImage: !!imageData },
+      routing: {
+        mode: trigger.mode,
+        category: routingResult?.category || null,
+        model: routingResult?.provider || null,
+        modelReason: routingResult?.providerReason || null,
+        classifySource: routingResult?.classifySource || null,
+        routeForceClaude: routingResult?.routeForceClaude || false,
+      },
       toolsCalled: getLastToolsCalled(), response: { text: finalResponse, chars: finalResponse.length, filtered: !filterResult.safe },
       latencyMs: responseLatency, messageIds: sentMsgIds,
     });

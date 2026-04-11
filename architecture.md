@@ -66,8 +66,8 @@
 │  └────────────────┘ └────────────────┘ └────────────────┘          │
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────┐           │
-│  │  The Forge (04:30) — autonomous self-improvement      │           │
-│  │  Skill registry, Claude Code CLI, overnight pipeline  │           │
+│  │  Overnight Pipeline                                   │           │
+│  │  CONSOLIDATE  PROBE  REPORT  weekly IMPROVE           │           │
 │  └──────────────────────────────────────────────────────┘           │
 └─────────────────────────────────────────────────────────────────────┘
          │ direct ethernet (10.0.0.1 ↔ 10.0.0.2, 0.4ms)
@@ -162,16 +162,11 @@ clawdbot/
 │   ├── document-handler.js  # PDF/DOCX parsing + EVO summarisation
 │   ├── scheduler.js         # 60s interval loop (delegates to src/tasks/)
 │   ├── widgets.js           # Widget cache, SSE, Henry/SideGig/Email/Calendar/Weather
-│   ├── http-server.js       # Express server setup
+│   ├── http-server.js       # Plain http.createServer API router
 │   ├── sse.js               # Server-sent events for dashboard
 │   ├── memory.js            # EVO memory service client
 │   ├── lquorum-rag.js       # LQuorum working memory (keyword scanning, decay)
-│   ├── evolution.js         # Evolution task store (queue, approval, rate limiting)
-│   ├── evolution-executor.js # Claude Code CLI orchestration on EVO
-│   ├── evolution-gate.js    # Scope validation, manifest checking
 │   ├── quality-gate.js      # Opus review of complex responses
-│   ├── overnight-report.js  # Dream + projects + self-improve report
-│   ├── project-thinker.js   # Nightly project deep think
 │   ├── usage-tracker.js     # Token cost tracking
 │   ├── voice-handler.js     # Voice command processing
 │   ├── session-repair.js    # WhatsApp session recovery
@@ -182,8 +177,7 @@ clawdbot/
 │   ├── weather.js           # Open-Meteo integration
 │   ├── audit.js             # Append-only tool execution audit log
 │   ├── circuit-breaker.js   # Generic circuit breaker
-│   ├── self-improve/
-│   │   └── cycle.js         # Overnight router keyword rule improvement
+│   ├── overnight/           # Phase 5 overnight pipeline + report rendering
 │   ├── tasks/               # Scheduled task modules
 │   └── tools/
 │       ├── definitions.js   # Tool JSON schemas (58 tools)

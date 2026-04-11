@@ -88,14 +88,14 @@ async function systemStatusHandler() {
 
   const routerStats = getRoutingStats();
   const routerLine = routerStats.total > 0
-    ? `${routerStats.local} local, ${routerStats.claude} Claude, ${routerStats.fallback} fallbacks (${routerStats.total} total today)`
+    ? `${routerStats.local} local, ${routerStats.cloud} cloud, ${routerStats.fallback} fallbacks (${routerStats.total} total today)`
     : 'no messages routed today';
   const forgeHistory = getForgeHistory();
   const skillsLine = forgeHistory.length > 0 ? forgeHistory.map(s => `${s.name} (v${s.version || '?'})`).join(', ') : 'none yet';
   const activeSkills = describeCapabilities();
 
   return [
-    `**Pi (clawdbot)**: Running ${hours}h ${mins}m, ${(mem.rss / 1048576).toFixed(0)}MB RSS`,
+    `**EVO X2 (clint runtime)**: Running ${hours}h ${mins}m, ${(mem.rss / 1048576).toFixed(0)}MB RSS`,
     `**WhatsApp**: ${waConnected ? 'Connected' : 'Disconnected'}`,
     `**EVO X2**: ${evoStatus}`,
     `**Voice listener**: ${voiceStatus}`,

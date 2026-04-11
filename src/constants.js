@@ -73,7 +73,8 @@ export const COOLDOWNS = Object.freeze({
   EVO_WARM_INTERVAL: 10,       // Minutes between keep-warm pings
 });
 
-// The Forge — overnight autonomous skill factory (runs LAST at 04:30)
+// Legacy Forge timing constants retained for older helpers.
+// Phase 5 moved the weekly IMPROVE run to Saturday 22:00 London.
 export const FORGE = Object.freeze({
   START_HOUR: 4,
   START_MINUTE: 30,
