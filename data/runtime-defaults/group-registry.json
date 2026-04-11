@@ -12,6 +12,22 @@
         "Shlomo",
         "Legal Quants"
       ]
+    },
+    "120363425230153097@g.us": {
+      "label": "SOVREN",
+      "mode": "project",
+      "blockedTopics": [
+        "LQCore",
+        "LQuorum",
+        "Legal Quants",
+        "Learned Hand",
+        "Shlomo"
+      ],
+      "allowedProjects": [
+        "sovren"
+      ],
+      "projectScopeMode": "single_project_only",
+      "offTopicPolicy": "soft_redirect"
     }
   }
 }

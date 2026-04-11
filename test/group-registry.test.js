@@ -30,6 +30,14 @@ describe('group-registry', () => {
           label: 'Project Group',
           mode: 'project',
         },
+        '120363425230153097@g.us': {
+          label: 'SOVREN',
+          mode: 'project',
+          blockedTopics: ['LQCore', 'LQuorum', 'Legal Quants'],
+          allowedProjects: ['sovren'],
+          projectScopeMode: 'single_project_only',
+          offTopicPolicy: 'soft_redirect',
+        },
       },
     };
     writeFileSync(REGISTRY_PATH, JSON.stringify(testRegistry, null, 2));
@@ -117,6 +125,16 @@ describe('group-registry', () => {
       assert.ok(restrictions.includes('ADDITIONAL BLOCKED TOPICS'));
     });
 
+    it('includes project access restrictions for project-scoped groups', () => {
+      const restrictions = registry.getGroupRestrictions('120363425230153097@g.us');
+      assert.ok(restrictions.includes('GROUP MODE: PROJECT'));
+      assert.ok(restrictions.includes('PROJECT ACCESS'));
+      assert.ok(restrictions.includes('This group can discuss ONLY these project(s):'));
+      assert.ok(restrictions.includes('sovren'));
+      assert.ok(restrictions.includes('single_project_only'));
+      assert.ok(restrictions.includes('soft_redirect'));
+    });
+
     it('returns colleague restrictions for unregistered groups', () => {
       const restrictions = registry.getGroupRestrictions('999999999999@g.us');
       assert.ok(restrictions.includes('GROUP MODE: COLLEAGUE'));
@@ -131,12 +149,18 @@ describe('group-registry', () => {
   describe('getRegisteredGroups', () => {
     it('returns all registered groups with modes', () => {
       const groups = registry.getRegisteredGroups();
-      assert.equal(groups.length, 3);
+      assert.equal(groups.length, 4);
 
       const alpha = groups.find(g => g.jid === '120363001234567890@g.us');
       assert.ok(alpha);
       assert.equal(alpha.mode, 'colleague');
       assert.deepEqual(alpha.blockedTopics, ['Project X', 'Secret Initiative']);
+
+      const sovren = groups.find(g => g.jid === '120363425230153097@g.us');
+      assert.ok(sovren);
+      assert.deepEqual(sovren.allowedProjects, ['sovren']);
+      assert.equal(sovren.projectScopeMode, 'single_project_only');
+      assert.equal(sovren.offTopicPolicy, 'soft_redirect');
     });
   });
 
