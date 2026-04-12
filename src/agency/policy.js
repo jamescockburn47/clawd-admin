@@ -1,10 +1,10 @@
 export const DEFAULT_AMBIENT_AGENCY_POLICY = Object.freeze({
   enabled: true,
   policyName: 'lqcore-default',
-  minHeuristicScore: 4,
-  minModelConfidence: 0.78,
-  cooldownMs: 180000,
-  maxInterventionsPerHour: 6,
+  minHeuristicScore: 6,
+  minModelConfidence: 0.85,
+  cooldownMs: 300000,
+  maxInterventionsPerHour: 3,
 });
 
 const DISABLED_POLICY = Object.freeze({
@@ -81,6 +81,51 @@ export function scoreAmbientOpportunity(input) {
   }
 
   return { total, signals };
+}
+
+/**
+ * Scan the transcript for signs that the triggering message has already been
+ * answered — either by a human or by Clint himself.
+ * Returns a negative weight to subtract from the heuristic score and a reason
+ * string for logging.
+ *
+ * @param {Array<{sender: string, text: string, isBot: boolean}>} recentMessages
+ *   Parsed transcript messages (most recent last).
+ * @param {string} triggerText — the message being evaluated for ambient response.
+ * @returns {{ penalty: number, reason: string | null }}
+ */
+export function detectAlreadyAnswered(recentMessages, triggerText) {
+  if (!recentMessages?.length || !triggerText) return { penalty: 0, reason: null };
+
+  // Walk backwards from the end (most recent). Look for the trigger message,
+  // then check what came after it.
+  const triggerNorm = triggerText.trim().toLowerCase().slice(0, 200);
+  let triggerIdx = -1;
+  for (let i = recentMessages.length - 1; i >= 0; i--) {
+    const msg = recentMessages[i];
+    if (!msg.isBot && msg.text?.trim().toLowerCase().slice(0, 200) === triggerNorm) {
+      triggerIdx = i;
+      break;
+    }
+  }
+  if (triggerIdx === -1) return { penalty: 0, reason: null };
+
+  // Check messages after the trigger
+  let humanReplied = false;
+  let clintReplied = false;
+  for (let i = triggerIdx + 1; i < recentMessages.length; i++) {
+    const msg = recentMessages[i];
+    if (!msg.text || msg.text.trim().length < 30) continue;
+    if (msg.isBot) {
+      clintReplied = true;
+    } else {
+      humanReplied = true;
+    }
+  }
+
+  if (clintReplied) return { penalty: 5, reason: 'clint_already_answered' };
+  if (humanReplied) return { penalty: 3, reason: 'human_already_answered' };
+  return { penalty: 0, reason: null };
 }
 
 export function finalizeAgencyDecision(input) {

@@ -16,6 +16,7 @@ import { appendParticipationDecision } from '../participation/log-store.js';
 import { getParticipationProfile } from '../participation/policy-service.js';
 import { planContribution } from '../participation/contribution-planner.js';
 import {
+  detectAlreadyAnswered,
   finalizeAgencyDecision,
   getAmbientAgencyConfig,
   isAmbientAgencyEligible,
@@ -26,6 +27,8 @@ import { logAgencyDecision } from './log.js';
 
 const interventionHistory = new Map();
 const DEFAULT_GROUP_LABEL = 'unknown';
+/** Reject messages older than this (seconds). Prevents responding to stale questions on reconnect. */
+const MAX_MESSAGE_AGE_S = 90;
 const SIGNALS = Object.freeze({
   question: 'question',
   researchGap: 'research_gap',
@@ -64,17 +67,19 @@ function buildAmbientPrompt(opts) {
 You are speaking because a separate intervention policy already decided your contribution is likely useful.
 
 Rules:
-- Be brief, direct, and high-signal.
+- Be brief, direct, and high-signal. One or two sentences max.
+- Only contribute if you can add information, synthesis, or a perspective that NOBODY in the conversation has offered yet.
+- If the conversation is handling itself fine, output exactly: [NO_CONTRIBUTION]
+- If someone (human OR you) has already answered the question being discussed, output exactly: [NO_CONTRIBUTION]
+- Do not repeat, rephrase, or elaborate on answers already given.
 - Do not say you were "not asked" or mention internal policy.
 - No emojis.
 - No tool calls or promises to take actions.
 - Ground yourself in the conversation and the context provided.
-- Prefer one useful intervention over a long answer.
 - If the highest-value move is a correction, be precise.
 - If the highest-value move is synthesis, compress the discussion.
 - If the highest-value move is issue spotting, point to the missing premise or tension.
 - If the highest-value move is action-item capture, state the action items and owners succinctly.
-- If the highest-value move is a research nudge, point to the question that likely needs checking.
 
 Group: ${opts.groupLabel || 'unknown'}
 Intervention type: ${opts.interventionType || 'unspecified'}
@@ -188,6 +193,26 @@ export async function maybeRunAmbientAgency(opts) {
     });
   }
 
+  // Message staleness guard — reject messages older than MAX_MESSAGE_AGE_S.
+  // Baileys messageTimestamp is Unix epoch in seconds.
+  if (opts.messageTimestamp) {
+    const msgEpochMs = typeof opts.messageTimestamp === 'number'
+      ? (opts.messageTimestamp < 1e12 ? opts.messageTimestamp * 1000 : opts.messageTimestamp)
+      : 0;
+    if (msgEpochMs > 0 && now - msgEpochMs > MAX_MESSAGE_AGE_S * 1000) {
+      return rejectAmbientDecision({
+        chatJid: opts.chatJid,
+        groupLabel,
+        senderName: opts.senderName,
+        text: opts.text,
+        reason: 'message_too_old',
+        profile,
+        participationContext,
+        plannedRole: null,
+      });
+    }
+  }
+
   if (inHourLimit(opts.chatJid, now, policy)) {
     return rejectAmbientDecision({
       chatJid: opts.chatJid,
@@ -203,10 +228,31 @@ export async function maybeRunAmbientAgency(opts) {
 
   const transcriptMessages = getRecentGroupMessages(opts.chatJid, 25);
   const transcript = formatTranscript(transcriptMessages);
+
+  // Duplicate/self-repeat guard: penalise if a human or Clint already answered.
+  const alreadyAnswered = detectAlreadyAnswered(transcriptMessages, opts.text);
+  if (alreadyAnswered.reason === 'clint_already_answered') {
+    return rejectAmbientDecision({
+      chatJid: opts.chatJid,
+      groupLabel,
+      senderName: opts.senderName,
+      text: opts.text,
+      reason: 'clint_already_answered',
+      profile,
+      participationContext,
+      plannedRole: null,
+    });
+  }
+
   const heuristic = scoreAmbientOpportunity({
     text: opts.text,
     recentTranscript: transcript,
   });
+  // Apply already-answered penalty (human replied = -3) to heuristic score
+  if (alreadyAnswered.penalty > 0) {
+    heuristic.total = Math.max(0, heuristic.total - alreadyAnswered.penalty);
+    heuristic.signals.push(alreadyAnswered.reason);
+  }
   const contributionPlan = planContribution({
     posture: profile.posture,
     inFollowUpExchange,
@@ -296,6 +342,10 @@ export async function maybeRunAmbientAgency(opts) {
 
   if (!decision.shouldIntervene) return false;
 
+  // Pre-lock the cooldown BEFORE async LLM calls to prevent race conditions
+  // where two fast messages both pass the cooldown check before either finishes.
+  noteIntervention(opts.chatJid, Date.now());
+
   const context = buildContext(opts.chatJid, opts.text);
   const { memoryFragment, route } = await gatherIntelligence(context, false, true, {
     disableWebPrefetch: true,
@@ -317,6 +367,12 @@ export async function maybeRunAmbientAgency(opts) {
 
   if (!rawResponse?.trim()) return false;
 
+  // LLM self-censored — it decided it had nothing novel to add.
+  if (rawResponse.includes('[NO_CONTRIBUTION]')) {
+    logger.info({ chatJid: opts.chatJid, groupLabel }, 'ambient LLM self-censored — no novel contribution');
+    return false;
+  }
+
   const filterResult = filterResponse(rawResponse, opts.chatJid);
   const finalResponse = filterResult.safe ? rawResponse : getBlockedResponse(filterResult.reason);
 
@@ -329,13 +385,18 @@ export async function maybeRunAmbientAgency(opts) {
   const sent = await opts.sock.sendMessage(opts.chatJid, { text: finalResponse });
   if (sent?.key?.id) {
     cacheSentMessage(sent.key.id, sent.message);
-    openFollowUpWindow({
-      chatJid: opts.chatJid,
-      sourceMessageId: sent.key.id,
-      replyTarget: opts.replyTarget ?? null,
-      lastRepliedSenderJid: opts.senderJid || null,
-      expiresAt: Date.now() + profile.followUpWindowMs,
-    });
+    // Only open a new follow-up window if one isn't already active.
+    // Re-opening resets turnIndex to 0, defeating the 3-turn cap.
+    const existingWindow = getConversationState(opts.chatJid).followUpWindow;
+    if (!existingWindow?.open) {
+      openFollowUpWindow({
+        chatJid: opts.chatJid,
+        sourceMessageId: sent.key.id,
+        replyTarget: opts.replyTarget ?? null,
+        lastRepliedSenderJid: opts.senderJid || null,
+        expiresAt: Date.now() + profile.followUpWindowMs,
+      });
+    }
   }
   const postSendParticipationContext = getParticipationContext(
     opts.chatJid,
@@ -380,7 +441,6 @@ export async function maybeRunAmbientAgency(opts) {
     messageIds: sent?.key?.id ? [sent.key.id] : [],
   });
   recordGroupResponse(opts.chatJid);
-  noteIntervention(opts.chatJid, Date.now());
   logger.info({
     chatJid: opts.chatJid,
     groupLabel,

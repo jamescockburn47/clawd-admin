@@ -26,7 +26,7 @@ import { queueGroupMessage } from './group-message-processor.js';
 import { runSkillPostProcessors } from './skill-registry.js';
 import { maybeRunAmbientAgency } from './agency/service.js';
 import { getDefaultFollowUpWindowMs } from './participation/engagement-service.js';
-import { openFollowUpWindow, recordParticipantTurn } from './participation/conversation-state.js';
+import { openFollowUpWindow, getConversationState, recordParticipantTurn } from './participation/conversation-state.js';
 import { applyProductionFollowUpTurn } from './participation/follow-up-runtime.js';
 import { quotedReplyTarget } from './participation/reply-target.js';
 
@@ -237,6 +237,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
             directlyRepliesToClint: repliedToBot,
             mentionsClint,
             triggerRespond: false,
+            messageTimestamp: message.messageTimestamp,
           });
         } catch (err) {
           logger.warn({ err: err.message, chatJid }, 'ambient agency failed');
@@ -524,13 +525,18 @@ export async function handleIncomingMessage(sock, message, botJid) {
       if (chunks.length > 1) await new Promise((r) => setTimeout(r, 300));
     }
     if (isGroup && sentMsgIds[0]) {
-      openFollowUpWindow({
-        chatJid,
-        sourceMessageId: sentMsgIds[0],
-        replyTarget,
-        lastRepliedSenderJid: senderJid || null,
-        expiresAt: Date.now() + getDefaultFollowUpWindowMs(),
-      });
+      // Only open a new follow-up window if one isn't already active.
+      // Re-opening resets turnIndex to 0, defeating the 3-turn cap.
+      const existingWindow = getConversationState(chatJid).followUpWindow;
+      if (!existingWindow?.open) {
+        openFollowUpWindow({
+          chatJid,
+          sourceMessageId: sentMsgIds[0],
+          replyTarget,
+          lastRepliedSenderJid: senderJid || null,
+          expiresAt: Date.now() + getDefaultFollowUpWindowMs(),
+        });
+      }
     }
 
     pushMessage(chatJid, { senderName: 'Clint', text: finalResponse, hasImage: false, isBot: true });
