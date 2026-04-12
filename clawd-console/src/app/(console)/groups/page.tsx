@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchParticipationDecisions, fetchParticipationGroups } from '@/lib/api';
 import type { ParticipationDecision, ParticipationGroupSummary } from '@/lib/types';
 import { buildGroupCardModel } from '@/lib/participation/view-models';
@@ -18,21 +18,22 @@ export default function GroupsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedJid, setSelectedJid] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = useCallback(() => {
     setLoading(true);
     setError(null);
     Promise.all([fetchParticipationGroups(), fetchParticipationDecisions(DECISION_SAMPLE)])
       .then(([g, d]) => {
         setGroups(g.groups ?? []);
         setDecisions(d.decisions ?? []);
-        const first = g.groups?.[0]?.chatJid ?? null;
-        setSelectedJid((prev) => prev ?? first);
+        setSelectedJid((prev) => prev ?? g.groups?.[0]?.chatJid ?? null);
       })
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : 'Failed to load participation data')
       )
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const cardModels = useMemo(
     () => groups.map((g) => buildGroupCardModel(g, decisions)),
@@ -79,7 +80,7 @@ export default function GroupsPage() {
               ))
             )}
           </div>
-          <GroupDetail group={selectedGroup} decisions={decisions} highlightLimit={HIGHLIGHT_LIMIT} />
+          <GroupDetail group={selectedGroup} decisions={decisions} highlightLimit={HIGHLIGHT_LIMIT} onGroupUpdated={loadData} />
         </div>
       )}
     </div>

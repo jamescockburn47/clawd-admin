@@ -416,3 +416,63 @@ export interface ParticipationGroupsResponse {
 export interface ParticipationDecisionsResponse {
   decisions: ParticipationDecision[];
 }
+
+// --- Participation config (combined read + write) ---
+
+export interface AgencyPolicyConfig {
+  enabled: boolean;
+  policyName: string;
+  minHeuristicScore: number;
+  minModelConfidence: number;
+  cooldownMs: number;
+  maxInterventionsPerHour: number;
+  maxFollowUpTurns: number;
+}
+
+export interface ParticipationGroupConfig {
+  chatJid: string;
+  label: string;
+  mode: ParticipationGroupMode;
+  participation: {
+    posture: ParticipationPosture;
+    researchEnabled: boolean;
+    memoryRecallEnabled: boolean;
+    maxUnsolicitedPerHour: number;
+    followUpWindowMs: number;
+    cooldownMs: number;
+  };
+  agency: AgencyPolicyConfig;
+}
+
+export interface ParticipationConfigResponse {
+  groups: ParticipationGroupConfig[];
+  defaults: {
+    participation: {
+      posture: ParticipationPosture;
+      researchEnabled: boolean;
+      memoryRecallEnabled: boolean;
+      maxUnsolicitedPerHour: number;
+      followUpWindowMs: number;
+      cooldownMs: number;
+    };
+    agency: Record<string, AgencyPolicyConfig>;
+  };
+}
+
+export interface ParticipationOverridePatch {
+  posture?: ParticipationPosture;
+  researchEnabled?: boolean;
+  memoryRecallEnabled?: boolean;
+  maxUnsolicitedPerHour?: number;
+  followUpWindowMs?: number;
+  cooldownMs?: number;
+}
+
+export interface AgencyPolicyPatch {
+  enabled?: boolean;
+  minHeuristicScore?: number;
+  minModelConfidence?: number;
+  cooldownMs?: number;
+  maxInterventionsPerHour?: number;
+  maxFollowUpTurns?: number;
+}

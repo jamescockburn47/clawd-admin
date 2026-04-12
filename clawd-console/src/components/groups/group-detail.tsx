@@ -1,20 +1,59 @@
 'use client';
 
-import type { ParticipationDecision, ParticipationGroupSummary } from '@/lib/types';
+import { useState, useCallback } from 'react';
+import type { ParticipationDecision, ParticipationGroupSummary, ParticipationPosture } from '@/lib/types';
 import { formatDecisionHighlights, formatDurationMs, formatGroupMode, formatPosture } from '@/lib/participation/view-models';
+import { patchParticipationGroup, patchAgencyPolicy } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+
+function SaveFlash({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return <span className="ml-2 text-xs text-green-500 animate-pulse">Saved</span>;
+}
 
 export function GroupDetail({
   group,
   decisions,
   highlightLimit,
+  onGroupUpdated,
 }: {
   group: ParticipationGroupSummary | null;
   decisions: ParticipationDecision[];
   highlightLimit: number;
+  onGroupUpdated?: () => void;
 }) {
+  const [saved, setSaved] = useState<string | null>(null);
+
+  const flash = useCallback((field: string) => {
+    setSaved(field);
+    setTimeout(() => setSaved(null), 1500);
+  }, []);
+
+  const handlePostureChange = useCallback(async (posture: ParticipationPosture) => {
+    if (!group) return;
+    await patchParticipationGroup(group.chatJid, { posture });
+    flash('posture');
+    onGroupUpdated?.();
+  }, [group, flash, onGroupUpdated]);
+
+  const handleAmbientToggle = useCallback(async (enabled: boolean) => {
+    if (!group) return;
+    await patchAgencyPolicy(group.groupLabel.toLowerCase(), { enabled });
+    flash('ambient');
+    onGroupUpdated?.();
+  }, [group, flash, onGroupUpdated]);
+
+  const handleMaxUnsolicited = useCallback(async (delta: number) => {
+    if (!group) return;
+    const next = Math.max(1, Math.min(20, group.maxUnsolicitedPerHour + delta));
+    if (next === group.maxUnsolicitedPerHour) return;
+    await patchParticipationGroup(group.chatJid, { maxUnsolicitedPerHour: next });
+    flash('maxUnsolicited');
+    onGroupUpdated?.();
+  }, [group, flash, onGroupUpdated]);
+
   if (!group) {
     return (
       <Card>
@@ -39,10 +78,34 @@ export function GroupDetail({
       <CardContent className="space-y-4">
         <div className="flex flex-wrap gap-2">
           <Badge variant="outline">mode: {formatGroupMode(group.groupMode)}</Badge>
-          <Badge variant="secondary">{formatPosture(group.posture)}</Badge>
           <Badge variant="outline">follow-up {formatDurationMs(group.followUpWindowMs)}</Badge>
           <Badge variant="outline">cooldown {formatDurationMs(group.cooldownMs)}</Badge>
         </div>
+
+        {/* Quick toggles */}
+        <div className="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <label className="text-muted-foreground block mb-1">Posture <SaveFlash visible={saved === 'posture'} /></label>
+            <select
+              className="w-full rounded border bg-background px-2 py-1 text-sm"
+              value={group.posture}
+              onChange={(e) => handlePostureChange(e.target.value as ParticipationPosture)}
+            >
+              <option value="direct_only">Direct only</option>
+              <option value="rare_high_confidence">Rare (high confidence)</option>
+              <option value="active_participant">Active participant</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-muted-foreground block mb-1">Max unsolicited/hr <SaveFlash visible={saved === 'maxUnsolicited'} /></label>
+            <div className="flex items-center gap-2">
+              <button className="rounded border px-2 py-1 hover:bg-accent" onClick={() => handleMaxUnsolicited(-1)}>-</button>
+              <span className="tabular-nums font-medium w-6 text-center">{group.maxUnsolicitedPerHour}</span>
+              <button className="rounded border px-2 py-1 hover:bg-accent" onClick={() => handleMaxUnsolicited(1)}>+</button>
+            </div>
+          </div>
+        </div>
+
         <div className="grid gap-2 text-sm sm:grid-cols-2">
           <div>
             <p className="text-muted-foreground">Research</p>
@@ -51,10 +114,6 @@ export function GroupDetail({
           <div>
             <p className="text-muted-foreground">Memory recall</p>
             <p className="font-medium">{group.memoryRecallEnabled ? 'enabled' : 'disabled'}</p>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Max unsolicited / hour</p>
-            <p className="font-medium tabular-nums">{group.maxUnsolicitedPerHour}</p>
           </div>
         </div>
         <Separator />

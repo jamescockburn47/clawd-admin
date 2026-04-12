@@ -1,4 +1,10 @@
-import type { ParticipationDecisionsResponse, ParticipationGroupsResponse } from './types';
+import type {
+  ParticipationDecisionsResponse,
+  ParticipationGroupsResponse,
+  ParticipationConfigResponse,
+  ParticipationOverridePatch,
+  AgencyPolicyPatch,
+} from './types';
 
 type FetchOpts = Omit<RequestInit, 'headers'> & { headers?: Record<string, string> };
 
@@ -41,6 +47,13 @@ export function postEvo<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+export function patchPi<T>(path: string, body: unknown): Promise<T> {
+  return fetchJson<T>(`/api/pi/${path}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+
 /** Registered groups with merged participation posture (dashboard token on Pi proxy). */
 export function fetchParticipationGroups(): Promise<ParticipationGroupsResponse> {
   return fetchPi<ParticipationGroupsResponse>('participation/groups');
@@ -53,4 +66,19 @@ export function fetchParticipationDecisions(limit?: number): Promise<Participati
       ? `?limit=${encodeURIComponent(String(Math.trunc(limit)))}`
       : '';
   return fetchPi<ParticipationDecisionsResponse>(`participation/decisions${q}`);
+}
+
+/** Full participation + agency config for all groups, with defaults. */
+export function fetchParticipationConfig(): Promise<ParticipationConfigResponse> {
+  return fetchPi<ParticipationConfigResponse>('participation/config');
+}
+
+/** Update participation profile for a group (posture, cooldown, etc). */
+export function patchParticipationGroup(jid: string, patch: ParticipationOverridePatch): Promise<{ ok: boolean }> {
+  return patchPi(`participation/groups/${encodeURIComponent(jid)}`, patch);
+}
+
+/** Update agency policy for a group label (thresholds, limits, etc). */
+export function patchAgencyPolicy(label: string, patch: AgencyPolicyPatch): Promise<{ ok: boolean }> {
+  return patchPi(`participation/agency/${encodeURIComponent(label)}`, patch);
 }

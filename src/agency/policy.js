@@ -1,41 +1,71 @@
-export const DEFAULT_AMBIENT_AGENCY_POLICY = Object.freeze({
+import { getAgencyPolicyOverride } from '../participation/policy-service.js';
+
+/** Hardcoded defaults — runtime overrides from group-participation.json merge on top. */
+const DEFAULT_LQCORE_POLICY = {
   enabled: true,
   policyName: 'lqcore-default',
   minHeuristicScore: 6,
   minModelConfidence: 0.85,
   cooldownMs: 300000,
   maxInterventionsPerHour: 3,
-});
+  maxFollowUpTurns: 3,
+};
 
 const DISABLED_POLICY = Object.freeze({
   enabled: false,
   policyName: 'disabled',
-  minHeuristicScore: DEFAULT_AMBIENT_AGENCY_POLICY.minHeuristicScore,
-  minModelConfidence: DEFAULT_AMBIENT_AGENCY_POLICY.minModelConfidence,
-  cooldownMs: DEFAULT_AMBIENT_AGENCY_POLICY.cooldownMs,
-  maxInterventionsPerHour: DEFAULT_AMBIENT_AGENCY_POLICY.maxInterventionsPerHour,
+  minHeuristicScore: DEFAULT_LQCORE_POLICY.minHeuristicScore,
+  minModelConfidence: DEFAULT_LQCORE_POLICY.minModelConfidence,
+  cooldownMs: DEFAULT_LQCORE_POLICY.cooldownMs,
+  maxInterventionsPerHour: DEFAULT_LQCORE_POLICY.maxInterventionsPerHour,
+  maxFollowUpTurns: DEFAULT_LQCORE_POLICY.maxFollowUpTurns,
 });
 
 const LQCORE_LABELS = new Set(['lqcore', 'lq core']);
 const SOVREN_LABELS = new Set(['sovren']);
-const SOVREN_AMBIENT_POLICY = Object.freeze({
+const DEFAULT_SOVREN_POLICY = {
   enabled: true,
   policyName: 'sovren-default',
   minHeuristicScore: 2,
   minModelConfidence: 0.65,
   cooldownMs: 120000,
   maxInterventionsPerHour: 14,
+  maxFollowUpTurns: 3,
+};
+
+/** Exported for the console GET /api/participation/config endpoint. */
+export const AGENCY_DEFAULTS = Object.freeze({
+  lqcore: { ...DEFAULT_LQCORE_POLICY },
+  sovren: { ...DEFAULT_SOVREN_POLICY },
 });
 
+/**
+ * Returns the resolved agency policy for a group label, merging hardcoded
+ * defaults with any runtime overrides from the persisted store.
+ * Reads fresh from disk on every call — no restart needed.
+ */
 export function getAmbientAgencyConfig(opts) {
   const label = (opts.groupLabel || '').trim().toLowerCase();
+  let base;
   if (LQCORE_LABELS.has(label)) {
-    return DEFAULT_AMBIENT_AGENCY_POLICY;
+    base = { ...DEFAULT_LQCORE_POLICY };
+  } else if (SOVREN_LABELS.has(label)) {
+    base = { ...DEFAULT_SOVREN_POLICY };
+  } else {
+    return DISABLED_POLICY;
   }
-  if (SOVREN_LABELS.has(label)) {
-    return SOVREN_AMBIENT_POLICY;
+
+  // Merge runtime overrides from persisted store
+  const override = getAgencyPolicyOverride(label);
+  if (override) {
+    if (typeof override.enabled === 'boolean') base.enabled = override.enabled;
+    if (typeof override.minHeuristicScore === 'number') base.minHeuristicScore = override.minHeuristicScore;
+    if (typeof override.minModelConfidence === 'number') base.minModelConfidence = override.minModelConfidence;
+    if (typeof override.cooldownMs === 'number') base.cooldownMs = override.cooldownMs;
+    if (typeof override.maxInterventionsPerHour === 'number') base.maxInterventionsPerHour = override.maxInterventionsPerHour;
+    if (typeof override.maxFollowUpTurns === 'number') base.maxFollowUpTurns = override.maxFollowUpTurns;
   }
-  return DISABLED_POLICY;
+  return base;
 }
 
 export function isAmbientAgencyEligible(input) {
@@ -97,8 +127,6 @@ export function scoreAmbientOpportunity(input) {
 export function detectAlreadyAnswered(recentMessages, triggerText) {
   if (!recentMessages?.length || !triggerText) return { penalty: 0, reason: null };
 
-  // Walk backwards from the end (most recent). Look for the trigger message,
-  // then check what came after it.
   const triggerNorm = triggerText.trim().toLowerCase().slice(0, 200);
   let triggerIdx = -1;
   for (let i = recentMessages.length - 1; i >= 0; i--) {
@@ -110,7 +138,6 @@ export function detectAlreadyAnswered(recentMessages, triggerText) {
   }
   if (triggerIdx === -1) return { penalty: 0, reason: null };
 
-  // Check messages after the trigger
   let humanReplied = false;
   let clintReplied = false;
   for (let i = triggerIdx + 1; i < recentMessages.length; i++) {

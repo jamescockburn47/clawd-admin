@@ -159,13 +159,14 @@ export async function maybeRunAmbientAgency(opts) {
     groupMode,
   });
   const now = Date.now();
+  const policy = getAmbientAgencyConfig({ groupLabel });
   const inFollowUpExchange = shouldContinueFollowUp({
     chatJid: opts.chatJid,
     now,
     directlyRepliesToClint: !!opts.directlyRepliesToClint,
     mentionsClint: !!opts.mentionsClint,
+    maxFollowUpTurns: policy.maxFollowUpTurns,
   });
-  const policy = getAmbientAgencyConfig({ groupLabel });
   const eligibleVerdict = isAmbientAgencyEligible({
     isGroup: true,
     triggerRespond: opts.triggerRespond,

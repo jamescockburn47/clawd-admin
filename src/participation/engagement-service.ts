@@ -9,13 +9,15 @@ import {
   incrementFollowUpTurn,
 } from './conversation-state.js';
 
-/** Whether the chat may continue an open follow-up (bounded window + signal). */
+/** Whether the chat may continue an open follow-up (bounded window + signal).
+ *  maxFollowUpTurns allows runtime override of the hard cap (defaults to MAX_FOLLOW_UP_TURNS_PER_WINDOW). */
 export function shouldContinueFollowUp(input: {
   chatJid: string;
   now: number;
   directlyRepliesToClint: boolean;
   mentionsClint: boolean;
   senderJid?: string | null;
+  maxFollowUpTurns?: number;
 }): boolean {
   const current = getConversationState(input.chatJid);
   const window = current.followUpWindow;
@@ -24,7 +26,8 @@ export function shouldContinueFollowUp(input: {
     closeFollowUpWindow(input.chatJid);
     return false;
   }
-  if (window.turnIndex >= MAX_FOLLOW_UP_TURNS_PER_WINDOW) {
+  const turnCap = input.maxFollowUpTurns ?? MAX_FOLLOW_UP_TURNS_PER_WINDOW;
+  if (window.turnIndex >= turnCap) {
     closeFollowUpWindow(input.chatJid);
     return false;
   }

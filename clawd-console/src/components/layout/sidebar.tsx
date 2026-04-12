@@ -11,6 +11,7 @@ import {
   Radio,
   Users,
   BookOpen,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/memory', label: 'Memory Browser', icon: Brain },
       { href: '/groups', label: 'Groups', icon: Users },
       { href: '/playbook', label: 'Playbook', icon: BookOpen },
+      { href: '/settings', label: 'Settings', icon: SlidersHorizontal },
     ],
   },
   {

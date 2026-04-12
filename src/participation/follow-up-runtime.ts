@@ -10,6 +10,7 @@ export interface FollowUpRuntimeInput {
   directlyRepliesToClint: boolean;
   mentionsClint: boolean;
   senderJid?: string | null;
+  maxFollowUpTurns?: number;
 }
 
 export interface FollowUpRuntimeResult {
@@ -44,6 +45,7 @@ export function applyProductionFollowUpTurn(
     directlyRepliesToClint: input.directlyRepliesToClint,
     mentionsClint: input.mentionsClint,
     senderJid: input.senderJid ?? null,
+    maxFollowUpTurns: input.maxFollowUpTurns,
   });
 
   if (inFollowUpExchange) {
