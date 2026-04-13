@@ -13,7 +13,7 @@ const MODE_PATTERNS = {
   // Project mode: block personal life leaking into responses
   project: [
     /\b(henry|henry'?s)\b/i,
-    /\byork(shire)?\b/i,
+    /\byorkshire\b/i,  // was york(shire)? — false-positived on New York
     /\bkings?\s*cross\b/i,
     /\blner\b/i,
     /\b(helmsley|pickering|kirkbymoorside|hutton.le.hole|malton|hovingham)\b/i,
@@ -129,10 +129,26 @@ export function filterResponse(responseText, chatJid) {
 
 /**
  * Safe replacement message when a response is blocked.
+ * Includes the triggering terms so the owner can diagnose false positives.
  */
-export function getBlockedResponse(reason) {
+export function getBlockedResponse(reason, blocked = []) {
   if (reason === 'system_prompt_leak') {
     return "I can't share that information.";
   }
+  if (blocked.length > 0) {
+    const terms = blocked.slice(0, 3).map(b => cleanPattern(b)).filter(Boolean).join(', ');
+    return `My response was blocked by the output filter (matched: ${terms}). I need to rephrase without those terms — ask me again and I'll avoid them.`;
+  }
   return "I can't discuss that in this context.";
+}
+
+/** Strip regex syntax from a pattern source to produce a human-readable term. */
+function cleanPattern(src) {
+  return src
+    .replace(/\\b/g, '')
+    .replace(/\\s/g, ' ')
+    .replace(/[^a-zA-Z0-9 |'\-]/g, '')
+    .replace(/\|/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

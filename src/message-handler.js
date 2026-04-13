@@ -320,7 +320,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
         // Apply output filter
         const filterResult = filterResponse(finalText, chatJid);
-        const safeText = filterResult.safe ? finalText : getBlockedResponse(filterResult.reason);
+        const safeText = filterResult.safe ? finalText : getBlockedResponse(filterResult.reason, filterResult.blocked);
 
         // Log before send — see main response path comment
         if (config.evoMemoryEnabled) {
@@ -366,7 +366,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
         // Apply output filter
         const filterResult = filterResponse(finalText, chatJid);
-        const safeText = filterResult.safe ? finalText : getBlockedResponse(filterResult.reason);
+        const safeText = filterResult.safe ? finalText : getBlockedResponse(filterResult.reason, filterResult.blocked);
 
         await simulateTyping(sock, chatJid, safeText.length);
         const chunks = splitMessage(safeText);
@@ -392,7 +392,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
         // Apply output filter to the topic list too
         const filterResult = filterResponse(segResponse, chatJid);
-        const safeText = filterResult.safe ? segResponse : getBlockedResponse(filterResult.reason);
+        const safeText = filterResult.safe ? segResponse : getBlockedResponse(filterResult.reason, filterResult.blocked);
 
         await simulateTyping(sock, chatJid, safeText.length);
         const sent = await sock.sendMessage(chatJid, { text: safeText });
@@ -501,7 +501,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
     let finalResponse = processedResponse;
     if (!filterResult.safe) {
       logger.warn({ chatJid, reason: filterResult.reason, blocked: filterResult.blocked }, 'output filter blocked response');
-      finalResponse = getBlockedResponse(filterResult.reason);
+      finalResponse = getBlockedResponse(filterResult.reason, filterResult.blocked);
     }
 
     // Log response BEFORE sending — if process dies between send and log, the response
