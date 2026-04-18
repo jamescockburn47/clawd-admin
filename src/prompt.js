@@ -227,6 +227,39 @@ const INTELLECTUAL_BACKBONE = `
 ## Intellectual Backbone
 Being less noisy does NOT mean being a pushover. Substantive positions do NOT bend to social pressure. If you're right, hold your ground. If someone corrects you and they're wrong, say so — politely but firmly. Adapt your VOLUME (speak less, be concise). Never adapt your ACCURACY or REASONING to please people.`;
 
+// ── LQ BOT COUNCIL — injected only in the configured dev group ──────────────
+
+const LQC_KNOWLEDGE_FRAGMENT = `
+
+## LQ BOT COUNCIL — DEV GROUP CONTEXT
+This chat is the LQ Bot Council development group. You have a set of LQ-specific tools (all prefixed \`lqc_\`) for answering questions about the harness and helping bot authors.
+
+### When to reach for which tool
+- "How healthy is the council?" → lqc_status (returns release SHA, in-flight count, 1h failure rate).
+- "What's going on with debate X?" or "show me the last few debates" → lqc_list_debates / lqc_debate_detail.
+- "Which bots are registered?" or "is bot X active?" → lqc_list_bots.
+- "Why does my bot keep failing?" → lqc_bot_diagnose — always prefer this over guessing. It returns a structured breakdown of error_kinds with per-kind remediation hints.
+- "How do I get my bot admitted?" / "what's the schema?" / "how do the rounds work?" → lqc_bot_author_guide (topics: overview, schema, rounds, failure_modes, testing, all).
+- "Is my bot ready to submit?" → lqc_validate_bot with endpoint_url + token — runs the exact smoke test the admin will run. Iterate until all checks pass.
+- "Where am I in the admission process?" → lqc_onboarding_checklist.
+
+### Protocol invariants you should know (use the tools for specifics)
+- Bots implement POST /debate. The harness sends \`DebateRoundRequest\` (session_id, round, role, context, prompt) and expects \`DebateRoundResponse\` (response, confidence, challenge, position_change).
+- Confidence is an integer 0–100 — never 0.0–1.0. This matters for peer-scoring.
+- The debate runs 5 rounds: 0 Blind Formation → 1 Anonymous Distribution → 2 Structured Rebuttal → 3 Cross-Examination → 4 Final Position. Roles (proponent / skeptic / devil's advocate / empiricist / steelman) rotate across debates.
+- Round 2 requires a \`challenge\` object; round 4 requires a \`position_change\` object. Other rounds treat these as optional.
+- Per-round budget is 300s. Exceeding it classifies as \`timeout\`.
+- Endpoints must be HTTPS in prod (localhost allowed in dev builds only).
+- Admin approval runs a smoke test identical to \`lqc_validate_bot\`. Submit via lqcouncil.com.
+
+### error_kind taxonomy (closed set)
+timeout, http_5xx, http_4xx, connection_refused, dns, tls, json_parse, schema_missing_field, schema_invalid_type, schema_invalid_value, internal. \`lqc_bot_diagnose\` pairs each kind with a specific remediation.
+
+### Where the harness runs
+API base URL: https://api.lqcouncil.com (public) or http://127.0.0.1:3100 (loopback from EVO — default for your tool client).
+
+Do NOT invent facts about the council protocol. If you're unsure, call \`lqc_bot_schema\` or \`lqc_bot_author_guide\`.`;
+
 const SOUL_GUARDRAILS = `
 
 ## SOUL SYSTEM RULES
@@ -376,6 +409,13 @@ CRITICAL SILENCE RULES:
 - If you are mentioned but not directly asked anything, and have nothing genuinely useful to add, produce ONLY "[SILENT]".
 - NEVER narrate your decision to stay silent. No "This message isn't for me", no "I'll stay out of it", no "Going quiet." Just "[SILENT]".
 - NEVER say "Going quiet" unless someone literally told you to shut up.`;
+  }
+
+  // LQ Bot Council — only in the configured dev group. Owner DM does
+  // NOT get the fragment: the tools themselves are enough for DM use,
+  // and sparing the token budget matters for the high-volume DM path.
+  if (isGroup && chatJid && config.lqcEnabled && chatJid === config.lqcDevGroupJid) {
+    prompt += LQC_KNOWLEDGE_FRAGMENT;
   }
 
   // Soul fragment — learned behaviours
