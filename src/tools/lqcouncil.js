@@ -1,0 +1,365 @@
+// src/tools/lqcouncil.js — tool handlers for the LQ Council integration.
+//
+// Implements the read-only Clint tools Phase 2 ships. Each handler
+// returns a human-readable string so Clint's LLM can quote it directly,
+// or formatted data for further reasoning. Gating to the dev group is
+// enforced in group-tool-policy.js — these handlers assume they're
+// being called from an authorised context.
+
+import * as lqc from '../lqcouncil/client.js';
+import logger from '../logger.js';
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+function pct(x) {
+  if (x === null || x === undefined) return 'n/a';
+  return `${Math.round(x * 100)}%`;
+}
+
+function timeAgo(iso) {
+  if (!iso) return 'never';
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return 'unknown';
+  const seconds = Math.floor((Date.now() - then) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function truncate(s, n = 200) {
+  if (!s) return '';
+  return s.length <= n ? s : `${s.slice(0, n)}...`;
+}
+
+// ── Status / overview ────────────────────────────────────────────────
+
+export async function lqcStatus() {
+  try {
+    const [health, debates] = await Promise.all([
+      lqc.getDiagHealth(),
+      lqc.listDebates({ limit: 5 }),
+    ]);
+    const lines = [
+      `*LQ Council status*`,
+      `Release: ${health.release}`,
+      `In flight: ${health.debates_in_flight}`,
+      `Last completion: ${timeAgo(health.last_completion_ts)} (${health.last_completion_ts || 'never'})`,
+      `Failure rate (1h): ${pct(health.failure_rate_1h)} over ${health.terminal_1h} terminal (${health.failures_1h} failed)`,
+    ];
+    if (debates && debates.length > 0) {
+      lines.push('', '*Recent debates:*');
+      for (const d of debates) {
+        lines.push(`  - [${d.status}] ${truncate(d.topic, 80)} (${d.id.slice(0, 8)})`);
+      }
+    }
+    return lines.join('\n');
+  } catch (err) {
+    return `LQ Council status check failed: ${err.message}`;
+  }
+}
+
+// ── Debate listing / detail ──────────────────────────────────────────
+
+export async function lqcListDebates(input = {}) {
+  try {
+    const limit = Math.min(Math.max(parseInt(input.limit, 10) || 10, 1), 50);
+    const status = input.status || null;
+    const debates = await lqc.listDebates({ limit, status });
+    if (!debates || debates.length === 0) return 'No debates match that query.';
+    return debates.map((d) => {
+      const completed = d.completed_at ? ` → ${d.completed_at}` : '';
+      return `*${d.id.slice(0, 8)}* [${d.status}] ${d.topic}\n  ${d.bots.length} bots, created ${d.created_at}${completed}`;
+    }).join('\n\n');
+  } catch (err) {
+    return `Failed to list debates: ${err.message}`;
+  }
+}
+
+export async function lqcDebateDetail(input) {
+  try {
+    if (!input.debate_id) return 'debate_id is required.';
+    const detail = await lqc.getDebate(input.debate_id);
+    const lines = [
+      `*Debate ${detail.id}*`,
+      `Topic: ${detail.topic}`,
+      `Status: ${detail.status}`,
+      `Created: ${detail.created_at}${detail.completed_at ? ` → ${detail.completed_at}` : ''}`,
+      `Bots (${detail.bots.length}):`,
+      ...detail.bots.map((b) => `  - ${b.pseudonym} [${b.role || 'unassigned'}] = ${b.bot_name}`),
+    ];
+    if (detail.results) {
+      lines.push('', '*Rankings (0-10 peer-scored):*');
+      for (const r of detail.results.rankings) {
+        lines.push(
+          `  ${r.pseudonym}: overall ${r.avg_overall.toFixed(2)} (reasoning ${r.avg_reasoning_quality.toFixed(1)}, factual ${r.avg_factual_grounding.toFixed(1)}, ${r.total_scores} scores)`,
+        );
+      }
+    }
+    return lines.join('\n');
+  } catch (err) {
+    return `Failed to fetch debate detail: ${err.message}`;
+  }
+}
+
+// ── Bots ─────────────────────────────────────────────────────────────
+
+export async function lqcListBots(input = {}) {
+  try {
+    const bots = await lqc.listBots();
+    const filter = input.status ? String(input.status).toLowerCase() : null;
+    const filtered = filter ? bots.filter((b) => (b.status || '').toLowerCase() === filter) : bots;
+    if (filtered.length === 0) return filter ? `No bots with status '${filter}'.` : 'No bots registered.';
+    return filtered.map((b) =>
+      `*${b.name}* [${b.status}] — ${b.id.slice(0, 8)}\n  ${b.endpoint_url}${b.model_family ? ` (${b.model_family})` : ''}${b.submitted_by ? `\n  Submitted by: ${b.submitted_by}` : ''}`,
+    ).join('\n\n');
+  } catch (err) {
+    return `Failed to list bots: ${err.message}`;
+  }
+}
+
+export async function lqcBotSchema() {
+  try {
+    const schema = await lqc.getBotSchema();
+    const lines = [
+      `*Bot wire schema* (${schema.dialect}, harness v${schema.version})`,
+      '',
+      '*DebateRoundRequest* (sent by the harness to your /debate endpoint):',
+      describeSchema(schema.request),
+      '',
+      '*DebateRoundResponse* (your bot returns):',
+      describeSchema(schema.response),
+    ];
+    return lines.join('\n');
+  } catch (err) {
+    return `Failed to fetch bot schema: ${err.message}`;
+  }
+}
+
+function describeSchema(node) {
+  if (!node || typeof node !== 'object') return '(empty schema)';
+  const props = node.properties || {};
+  const required = new Set(node.required || []);
+  const lines = [];
+  for (const [name, field] of Object.entries(props)) {
+    const isRequired = required.has(name) ? 'required' : 'optional';
+    const type = Array.isArray(field.type) ? field.type.filter((t) => t !== 'null').join('|') : (field.type || 'object');
+    const desc = field.description ? ` — ${field.description}` : '';
+    lines.push(`  • ${name} (${type}, ${isRequired})${desc}`);
+  }
+  return lines.join('\n');
+}
+
+// ── Validation ───────────────────────────────────────────────────────
+
+export async function lqcValidateBot(input) {
+  try {
+    if (!input.endpoint_url) return 'endpoint_url is required.';
+    if (!input.token) return 'token is required (your bot\'s bearer token, not an LQC credential).';
+    const result = await lqc.validateBot({ endpoint_url: input.endpoint_url, token: input.token });
+    const head = result.ok ? '*Validation passed*' : '*Validation FAILED*';
+    const lines = [head, ''];
+    for (const c of result.checks) {
+      lines.push(`${c.passed ? '[PASS]' : '[FAIL]'} ${c.name}: ${c.detail}`);
+    }
+    if (!result.ok) {
+      lines.push('', 'Fix the failing check(s) and run `lqc_validate_bot` again before submitting for admin approval.');
+    }
+    return lines.join('\n');
+  } catch (err) {
+    return `Validation call failed: ${err.message}`;
+  }
+}
+
+// ── Diagnosis ────────────────────────────────────────────────────────
+
+const ERROR_KIND_HINTS = {
+  timeout: 'Your /debate endpoint is exceeding the 300s round budget. Investigate internal LLM latency and consider parallelising or shortening prompts.',
+  http_5xx: 'Your bot returned a 5xx. Check server logs for unhandled exceptions; add request-level error handling to return a graceful abstention body.',
+  http_4xx: 'Harness call rejected as 4xx. Verify the bearer token matches the one you registered; check your route accepts POST.',
+  connection_refused: 'Harness could not open a connection. If self-hosting, confirm the process is running and the port is publicly reachable (firewall / Cloudflare tunnel / ngrok).',
+  dns: 'Hostname did not resolve. Double-check the endpoint URL and that the domain has an A/AAAA record.',
+  tls: 'TLS handshake failed. Endpoint must be HTTPS with a valid (non-self-signed in prod) certificate.',
+  json_parse: 'Your bot\'s response body is not valid JSON. Ensure Content-Type: application/json and a single JSON object (no wrapping text).',
+  schema_missing_field: 'Your response JSON is missing a required field. `response` is required every round; `challenge` is required round 2; `position_change` is required round 4.',
+  schema_invalid_type: 'A required field has the wrong type. `response` must be a string; `confidence` must be an integer 0-100.',
+  schema_invalid_value: 'A field value is out of range or malformed. Typical culprit: confidence outside 0-100, or oversized response body (>512 KB).',
+  internal: 'Unclassified failure. Share the raw detail with James and ask for a closer look.',
+};
+
+export async function lqcBotDiagnose(input) {
+  try {
+    if (!input.bot_id) return 'bot_id is required. Use lqc_list_bots to find it.';
+    const limit = Math.min(Math.max(parseInt(input.limit, 10) || 20, 5), 100);
+    const history = await lqc.getBotHistory(input.bot_id, { limit });
+    if (!history || history.length === 0) {
+      return `No debate history for bot ${input.bot_id}. Either the bot has never been called, or the bot_id is wrong.`;
+    }
+    const total = history.length;
+    const failed = history.filter((r) => r.abstained || !r.valid).length;
+    const byKind = new Map();
+    for (const r of history) {
+      if (!r.error_kind) continue;
+      const entry = byKind.get(r.error_kind) || { count: 0, latest: null, details: new Set() };
+      entry.count += 1;
+      entry.latest = entry.latest || r.created_at;
+      if (r.error_detail) entry.details.add(r.error_detail);
+      byKind.set(r.error_kind, entry);
+    }
+
+    const lines = [
+      `*Bot diagnosis — ${input.bot_id.slice(0, 12)}*`,
+      `Recent rounds: ${total}  |  failed/abstained: ${failed}  |  failure rate: ${pct(failed / total)}`,
+    ];
+
+    if (byKind.size === 0) {
+      lines.push(
+        '',
+        failed === 0
+          ? 'No errors recorded in the last ' + total + ' rounds. Bot is healthy.'
+          : 'Abstentions present but none are classified yet. Older rounds pre-date the error_kind taxonomy — ask the bot author for server logs.',
+      );
+      return lines.join('\n');
+    }
+
+    lines.push('', '*Failure breakdown (last ' + total + ' rounds):*');
+    const sorted = Array.from(byKind.entries()).sort((a, b) => b[1].count - a[1].count);
+    for (const [kind, entry] of sorted) {
+      const details = Array.from(entry.details).slice(0, 3).join('; ');
+      lines.push(`  • ${kind} ×${entry.count} (latest ${timeAgo(entry.latest)})${details ? ` — ${truncate(details, 200)}` : ''}`);
+    }
+
+    lines.push('', '*Suggested remediations:*');
+    for (const [kind] of sorted.slice(0, 3)) {
+      const hint = ERROR_KIND_HINTS[kind] || 'See /bots/schema for field contract.';
+      lines.push(`  • ${kind}: ${hint}`);
+    }
+
+    return lines.join('\n');
+  } catch (err) {
+    return `Diagnosis failed: ${err.message}`;
+  }
+}
+
+// ── Static guides ────────────────────────────────────────────────────
+
+export async function lqcSelfDescribe() {
+  return [
+    '*Clint ↔ LQ Council tools (dev group / owner DM only):*',
+    '',
+    '  • `lqc_status` — harness health + recent debates',
+    '  • `lqc_list_debates` — list debates (optional status filter)',
+    '  • `lqc_debate_detail` — single-debate summary (topic, bots, rankings)',
+    '  • `lqc_list_bots` — list registered bots (optional status filter)',
+    '  • `lqc_bot_schema` — wire schema for /debate requests and responses',
+    '  • `lqc_validate_bot` — dry-run smoke test against a candidate endpoint',
+    '  • `lqc_bot_diagnose` — aggregate per-bot failure patterns and suggest fixes',
+    '  • `lqc_bot_author_guide` — onboarding explainer (by topic)',
+    '  • `lqc_onboarding_checklist` — step-by-step admission status',
+    '  • `lqc_self_describe` — this list',
+    '',
+    'All tools are read-only. Write actions (approve/reject/deactivate bots, create debates) are not exposed yet.',
+  ].join('\n');
+}
+
+const GUIDE_TOPICS = {
+  overview: `**Getting a bot admitted** — end-to-end flow:
+
+1. Write a /debate HTTP endpoint that accepts POST with JSON body matching DebateRoundRequest.
+2. Return JSON matching DebateRoundResponse.
+3. Host on HTTPS (prod) or http://localhost (dev) with a bearer token you keep secret.
+4. Run \`lqc_validate_bot\` in this chat — iterates until all checks pass.
+5. Submit via the LQC web UI (lqcouncil.com) — the harness stores your endpoint + encrypts the token.
+6. Admin runs the approval smoke test. If it passes, status → \`active\` and your bot joins debates.
+7. Monitor with \`lqc_bot_diagnose\` — if failures accumulate, the tool tells you which error_kind dominates and how to fix it.`,
+
+  schema: `**Wire schema** — see \`lqc_bot_schema\` for the full derivation. Key points:
+
+• Request: \`session_id\`, \`round\` (0–4), \`role\`, \`context\` (prior round responses, anonymised), \`prompt\`.
+• Response MUST include \`response\` (string).
+• \`confidence\` is 0–100 integer — used by peer-scoring, not 0.0–1.0. Your bot must know its own confidence.
+• Round 2 MUST include \`challenge\`: {claim_targeted, counter_evidence, type}.
+• Round 4 MUST include \`position_change\`: {changed, from_summary, to_summary, reason}.
+• Other rounds: these fields are optional; omit them rather than filling with nulls.
+• Oversized responses (>512 KB) are rejected — keep \`response\` focused.`,
+
+  rounds: `**The 5 rounds** (see debate protocol spec for full detail):
+
+• Round 0 — Blind Formation. You see only topic + your assigned role. Write your strongest argument.
+• Round 1 — Anonymous Distribution. You see all round-0 responses (by pseudonym). React, extend, or defend.
+• Round 2 — Structured Rebuttal. Pick one opponent's claim and challenge it with counter-evidence.
+• Round 3 — Cross-Examination. Respond to challenges against your own claims, pose follow-ups.
+• Round 4 — Final Position. Summarise where you landed and whether you changed position.
+
+Your \`role\` (proponent / skeptic / devil's advocate / empiricist / steelman) is rotated across debates.`,
+
+  failure_modes: `**Common failures and what to do about them** — see \`lqc_bot_diagnose <bot_id>\` for specific data:
+
+• \`timeout\` — exceeded 300s per round. Check internal LLM latency. Cache where possible.
+• \`http_5xx\` — your server threw. Add try/catch that returns a graceful abstention body.
+• \`http_4xx\` — usually auth. Your /debate must accept \`Authorization: Bearer <token>\` where <token> is what you submitted.
+• \`schema_missing_field\` — one of the required fields was absent. The detail names the field.
+• \`schema_invalid_type\` — usually \`confidence\` as float instead of int, or \`response\` as non-string.
+• \`schema_invalid_value\` — typical culprit: confidence outside 0–100, or a challenge object with the wrong shape.
+• \`json_parse\` — your response isn't valid JSON. Check Content-Type is application/json and body is one object.
+
+For any of these, \`lqc_validate_bot\` will reproduce the failure without needing a real debate.`,
+
+  testing: `**How to test your bot before submitting:**
+
+1. \`lqc_validate_bot endpoint_url=... token=...\` — runs the exact smoke test the admin will run.
+2. Register your bot via the web UI while iterating — every debate the harness runs your bot in logs a row you can inspect via \`lqc_bot_diagnose\`.
+3. Use \`lqc_bot_schema\` to compare your implementation to the derived JSON Schema. Any tool (e.g. AJV) can validate your responses against it.
+4. Expect at least 3 debates of soak time before claiming stability — transient network issues happen.`,
+};
+
+export async function lqcBotAuthorGuide(input = {}) {
+  const topic = String(input.topic || 'overview').toLowerCase();
+  if (topic === 'all') {
+    return Object.entries(GUIDE_TOPICS).map(([k, v]) => `${v}\n`).join('\n---\n\n');
+  }
+  const guide = GUIDE_TOPICS[topic];
+  if (!guide) {
+    return `Unknown topic "${topic}". Available: ${Object.keys(GUIDE_TOPICS).join(', ')}, or "all" for everything.`;
+  }
+  return guide;
+}
+
+export async function lqcOnboardingChecklist(input = {}) {
+  const botId = input.bot_id ? String(input.bot_id) : null;
+  const steps = [
+    { id: 'endpoint', label: 'Endpoint declared (HTTPS or http://localhost)', done: !!input.endpoint_url, suggest: 'Provide your /debate URL and bearer token.' },
+    { id: 'validate', label: '`lqc_validate_bot` passed', done: false, suggest: 'Run `lqc_validate_bot` with your endpoint + token; fix any failing check.' },
+    { id: 'submit', label: 'Submitted via the web UI', done: !!botId, suggest: 'Visit lqcouncil.com → Submit Bot. Record the bot_id you receive.' },
+    { id: 'approve', label: 'Admin smoke test passed (status = active)', done: false, suggest: 'Ask James (or another admin) to approve. They will run the smoke test — if it fails, check `lqc_bot_diagnose` for specifics.' },
+    { id: 'soak', label: 'Passed ≥3 real debates', done: false, suggest: 'Use `lqc_bot_diagnose` after a few debates. Aim for failure_rate < 10%.' },
+  ];
+
+  if (botId) {
+    try {
+      const bot = (await lqc.listBots()).find((b) => b.id === botId);
+      if (bot) {
+        if (bot.status === 'active' || bot.status === 'inactive') {
+          steps[3].done = true;
+        }
+        const history = await lqc.getBotHistory(botId, { limit: 20 });
+        if (history.length >= 3) {
+          const failed = history.filter((r) => r.abstained || !r.valid).length;
+          steps[4].done = failed / history.length < 0.1;
+          steps[4].label += ` (observed: ${history.length} rounds, ${failed} failed = ${pct(failed / history.length)})`;
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'onboarding checklist: context fetch failed');
+    }
+  }
+
+  const lines = ['*Bot admission checklist:*', ''];
+  for (const s of steps) {
+    lines.push(`  ${s.done ? '[x]' : '[ ]'} ${s.label}`);
+    if (!s.done) lines.push(`      → ${s.suggest}`);
+  }
+  return lines.join('\n');
+}

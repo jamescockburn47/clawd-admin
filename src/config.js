@@ -110,6 +110,22 @@ const ConfigSchema = z.object({
   //   Set to 'false' only if you want to use API key billing instead.
   FORGE_CLAUDE_MODEL: z.string().optional().default('claude-opus-4-6'),
   FORGE_USE_SUBSCRIPTION: boolFromEnv.default('true'),
+
+  // LQ Council integration — Clint co-runs with bot-council on EVO and
+  // talks to it via loopback (skipping Vercel proxy + Tailscale Funnel).
+  // Tools are gated to LQC_DEV_GROUP_JID and owner DMs only. Disabled by
+  // default so environments without the council don't see the tools.
+  LQC_ENABLED: boolFromEnv.default('false'),
+  LQC_API_URL: z.string().url().optional().default('http://127.0.0.1:3100'),
+  LQC_ADMIN_TOKEN: z.string().optional().default(''),
+  LQC_DEV_GROUP_JID: z.string().optional().default(''),
+  // Sentry API access (for Phase 4 lqc_recent_errors / webhook). Unused
+  // while tools are in their Phase 2 scope but defined here so it's ready.
+  LQC_SENTRY_API_TOKEN: z.string().optional().default(''),
+  LQC_SENTRY_ORG: z.string().optional().default(''),
+  LQC_SENTRY_PROJECT_BACKEND: z.string().optional().default(''),
+  LQC_SENTRY_PROJECT_FRONTEND: z.string().optional().default(''),
+  LQC_SENTRY_WEBHOOK_SECRET: z.string().optional().default(''),
 });
 
 // --- Parse & validate ---
@@ -202,6 +218,17 @@ const config = {
   forgeHardStopHour: env.FORGE_HARD_STOP_HOUR,
   forgeClaudeModel: env.FORGE_CLAUDE_MODEL,
   forgeUseSubscription: env.FORGE_USE_SUBSCRIPTION,
+
+  // LQ Council integration
+  lqcEnabled: env.LQC_ENABLED,
+  lqcApiUrl: env.LQC_API_URL,
+  lqcAdminToken: env.LQC_ADMIN_TOKEN,
+  lqcDevGroupJid: env.LQC_DEV_GROUP_JID,
+  lqcSentryApiToken: env.LQC_SENTRY_API_TOKEN,
+  lqcSentryOrg: env.LQC_SENTRY_ORG,
+  lqcSentryProjectBackend: env.LQC_SENTRY_PROJECT_BACKEND,
+  lqcSentryProjectFrontend: env.LQC_SENTRY_PROJECT_FRONTEND,
+  lqcSentryWebhookSecret: env.LQC_SENTRY_WEBHOOK_SECRET,
 };
 
 Object.freeze(config);

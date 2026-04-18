@@ -903,4 +903,102 @@ export const TOOL_DEFINITIONS = [
       required: ['project_id'],
     },
   },
+
+  // === LQ COUNCIL (dev group / owner DM only) ===
+  {
+    name: 'lqc_status',
+    description: 'Report LQ Bot Council harness health: release SHA, in-flight debates, recent completions, failure rate over the last hour.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'lqc_list_debates',
+    description: 'List recent debates in the LQ Bot Council, optionally filtered by status (created/round_0/round_1/round_2/round_3/round_4/analysing/synthesising/complete/failed/cancelled).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'number', description: 'Max debates to list (1-50). Default 10.' },
+        status: { type: 'string', description: 'Optional status filter.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'lqc_debate_detail',
+    description: 'Get one LQ Council debate: topic, bots + roles, status, rankings if complete.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        debate_id: { type: 'string', description: 'The debate UUID.' },
+      },
+      required: ['debate_id'],
+    },
+  },
+  {
+    name: 'lqc_list_bots',
+    description: 'List registered LQ Council bots with status (active/pending/smoke_test_failed/inactive/rejected) and endpoint URL.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'Optional status filter.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'lqc_bot_schema',
+    description: 'Return the JSON Schema for the wire protocol a bot must implement (DebateRoundRequest + DebateRoundResponse).',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'lqc_validate_bot',
+    description: 'Dry-run smoke test against a candidate LQ Council bot endpoint + bearer token, without persisting anything. Returns a list of checks and whether they passed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        endpoint_url: { type: 'string', description: 'Full HTTPS URL of the bot\'s /debate endpoint.' },
+        token: { type: 'string', description: 'Bearer token the bot expects.' },
+      },
+      required: ['endpoint_url', 'token'],
+    },
+  },
+  {
+    name: 'lqc_bot_diagnose',
+    description: 'Aggregate recent per-round outcomes for one LQ Council bot, surface dominant error_kinds, and suggest fixes. Use when an author asks why their bot is failing.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        bot_id: { type: 'string', description: 'The bot UUID (use lqc_list_bots to find it).' },
+        limit: { type: 'number', description: 'How many recent rounds to aggregate. 5-100. Default 20.' },
+      },
+      required: ['bot_id'],
+    },
+  },
+  {
+    name: 'lqc_bot_author_guide',
+    description: 'Return a structured onboarding guide for LQ Council bot authors. Topics: overview (default), schema, rounds, failure_modes, testing, or "all".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        topic: { type: 'string', description: 'Which section: overview, schema, rounds, failure_modes, testing, all.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'lqc_onboarding_checklist',
+    description: 'Return the bot-admission checklist with state inferred from the harness (if bot_id is known). Helps an author answer "where am I in the process?"',
+    input_schema: {
+      type: 'object',
+      properties: {
+        bot_id: { type: 'string', description: 'Optional bot UUID to check status against.' },
+        endpoint_url: { type: 'string', description: 'Optional declared endpoint URL (marks step 1 complete).' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'lqc_self_describe',
+    description: 'List Clint\'s LQ Council tools and briefly describe what each does. Use when James asks what Clint can do with the council.',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
 ];
