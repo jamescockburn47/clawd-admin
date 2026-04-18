@@ -24,6 +24,8 @@ import { checkProbe } from './overnight/probe-task.js';
 import { checkReport } from './overnight/report-task.js';
 import { checkImprove } from './overnight/improve-task.js';
 import { tickLqcMonitor } from './tasks/lqc-monitor.js';
+import { checkWeeklyDigest } from './tasks/lqc-weekly-digest.js';
+import { checkFailureNudge } from './tasks/lqc-bot-failure-nudge.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -42,7 +44,12 @@ function getLondonTime() {
   const todayStr = `${parts.year}-${parts.month}-${parts.day}`;
   const hours = parseInt(parts.hour, 10);
   const minutes = parseInt(parts.minute, 10);
-  return { todayStr, hours, minutes, now };
+  // Derive day-of-week from the London date string to avoid TZ skew on
+  // the server (new Date(todayStr).getDay() treats the string as UTC
+  // midnight, which is fine because the local date is what we care
+  // about — Sunday-in-London).
+  const dayOfWeek = new Date(`${todayStr}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+  return { todayStr, hours, minutes, dayOfWeek, now };
 }
 
 let sendFn = null;
@@ -86,7 +93,7 @@ async function runTask(name, fn) {
 }
 
 async function runScheduler() {
-  const { todayStr, hours, minutes } = getLondonTime();
+  const { todayStr, hours, minutes, dayOfWeek } = getLondonTime();
 
   // Check EVO health first -- briefing and other tasks read cached status
   if (config.evoMemoryEnabled) {
@@ -116,6 +123,10 @@ async function runScheduler() {
   // LQ Bot Council — polls failure/stuck/health-threshold signals, posts
   // edge-triggered alerts to LQC_DEV_GROUP_JID (no-op if that JID is empty).
   await runTask('lqcMonitor', () => tickLqcMonitor());
+  // Sunday 09:00 London — weekly digest.
+  await runTask('lqcWeeklyDigest', () => checkWeeklyDigest(todayStr, hours, minutes, dayOfWeek));
+  // Daily 10:00 London — nudge for bots failing > LQC_NUDGE_FAILURE_THRESHOLD.
+  await runTask('lqcFailureNudge', () => checkFailureNudge(todayStr, hours, minutes));
 
   // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
   if (config.evoMemoryEnabled && isEvoOnline()) {

@@ -165,7 +165,11 @@ async function startBot() {
         // target LQC_DEV_GROUP_JID rather than always the owner.
         try {
           const { initLqcMonitor } = await import('./tasks/lqc-monitor.js');
+          const { initWeeklyDigest } = await import('./tasks/lqc-weekly-digest.js');
+          const { initFailureNudge } = await import('./tasks/lqc-bot-failure-nudge.js');
           initLqcMonitor(sendProactiveMessage);
+          initWeeklyDigest(sendProactiveMessage);
+          initFailureNudge(sendProactiveMessage);
         } catch (err) {
           logger.warn({ err: err.message }, 'LQC monitor init failed');
         }
