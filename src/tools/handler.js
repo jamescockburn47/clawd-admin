@@ -14,6 +14,7 @@ import { projectList, projectRead, projectPitch, projectUpdate, projectListFiles
 import { liveBriefing } from './briefing.js';
 import { groupDecisions } from './group-decisions.js';
 import { overnightStatus } from './overnight-status.js';
+import * as lqcTools from './lqcouncil.js';
 // Phase 5: overnight-report.js retired. The overnight_report tool now
 // reads from the new morning-report.ts in src/overnight/.
 // Phase 5: evolution.js retired. The evolution_task tool now writes
@@ -191,6 +192,20 @@ const TOOL_MAP = new Map([
   }],
   ['send_file', sendFileHandler],
   ['evolution_task', async () => 'Evolution tasks require DM confirmation. This should not have been called directly.'],
+
+  // LQ Bot Council — read-only tools gated to LQC_DEV_GROUP_JID / owner DM
+  // in group-tool-policy.js. Wiring live here so the dispatch table is
+  // a single source of truth for all tools.
+  ['lqc_status', lqcTools.lqcStatus],
+  ['lqc_list_debates', lqcTools.lqcListDebates],
+  ['lqc_debate_detail', lqcTools.lqcDebateDetail],
+  ['lqc_list_bots', lqcTools.lqcListBots],
+  ['lqc_bot_schema', lqcTools.lqcBotSchema],
+  ['lqc_validate_bot', lqcTools.lqcValidateBot],
+  ['lqc_bot_diagnose', lqcTools.lqcBotDiagnose],
+  ['lqc_bot_author_guide', lqcTools.lqcBotAuthorGuide],
+  ['lqc_onboarding_checklist', lqcTools.lqcOnboardingChecklist],
+  ['lqc_self_describe', lqcTools.lqcSelfDescribe],
 ]);
 
 const TODO_MUTATION_TOOLS = new Set(['todo_add', 'todo_complete', 'todo_remove', 'todo_update']);
