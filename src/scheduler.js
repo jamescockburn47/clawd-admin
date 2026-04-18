@@ -23,6 +23,7 @@ import { checkConsolidateShadow } from './overnight/consolidate-shadow-task.js';
 import { checkProbe } from './overnight/probe-task.js';
 import { checkReport } from './overnight/report-task.js';
 import { checkImprove } from './overnight/improve-task.js';
+import { tickLqcMonitor } from './tasks/lqc-monitor.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -111,6 +112,10 @@ async function runScheduler() {
   await runTask('sovrenCrossReference', () => checkSovrenCrossReference(todayStr, hours, minutes));
   await runTask('groundTruth', () => checkGroundTruth(sendFn, todayStr, hours, minutes));
   await runTask('dailyBackup', () => checkDailyBackup(todayStr, hours));
+
+  // LQ Bot Council — polls failure/stuck/health-threshold signals, posts
+  // edge-triggered alerts to LQC_DEV_GROUP_JID (no-op if that JID is empty).
+  await runTask('lqcMonitor', () => tickLqcMonitor());
 
   // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
   if (config.evoMemoryEnabled && isEvoOnline()) {

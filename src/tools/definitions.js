@@ -1001,4 +1001,27 @@ export const TOOL_DEFINITIONS = [
     description: 'List Clint\'s LQ Council tools and briefly describe what each does. Use when James asks what Clint can do with the council.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
+  {
+    name: 'lqc_why_failed',
+    description: 'Explain why a specific LQ Council debate failed. Combines the debate transcript (which bots abstained in which rounds, with reasons) with Sentry issues tagged with the debate_id when Sentry is configured.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        debate_id: { type: 'string', description: 'The debate UUID.' },
+      },
+      required: ['debate_id'],
+    },
+  },
+  {
+    name: 'lqc_recent_errors',
+    description: 'Query Sentry for recent issues in the LQ Council backend. Requires LQC_SENTRY_* env vars; gracefully degrades otherwise.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        since_minutes: { type: 'number', description: 'Lookback window in minutes (5-1440). Default 60.' },
+        tag: { type: 'string', description: 'Optional Sentry search query (e.g. "bot_id:abc" or "release:<sha>").' },
+      },
+      required: [],
+    },
+  },
 ];
