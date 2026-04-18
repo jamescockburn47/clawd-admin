@@ -7,6 +7,7 @@
 // being called from an authorised context.
 
 import * as lqc from '../lqcouncil/client.js';
+import * as sentry from '../lqcouncil/sentry-client.js';
 import logger from '../logger.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -325,6 +326,96 @@ export async function lqcBotAuthorGuide(input = {}) {
     return `Unknown topic "${topic}". Available: ${Object.keys(GUIDE_TOPICS).join(', ')}, or "all" for everything.`;
   }
   return guide;
+}
+
+// ── Correlation / Sentry ─────────────────────────────────────────────
+
+export async function lqcWhyFailed(input) {
+  try {
+    if (!input.debate_id) return 'debate_id is required.';
+    const [detail, transcript] = await Promise.all([
+      lqc.getDebate(input.debate_id).catch((e) => ({ error: e.message })),
+      lqc.getTranscript(input.debate_id).catch((e) => ({ error: e.message })),
+    ]);
+    if (detail.error) return `Could not fetch debate: ${detail.error}`;
+
+    const lines = [
+      `*Why debate ${input.debate_id} failed*`,
+      `Topic: ${detail.topic}`,
+      `Status: ${detail.status}`,
+      `Started: ${detail.created_at}${detail.completed_at ? ` → ${detail.completed_at}` : ''}`,
+    ];
+
+    if (transcript && !transcript.error && Array.isArray(transcript.rounds)) {
+      const abstentions = [];
+      for (const round of transcript.rounds) {
+        for (const entry of round.responses || []) {
+          if (entry.abstained || !entry.valid) {
+            abstentions.push({
+              round: round.round_number,
+              pseudonym: entry.pseudonym,
+              reason: entry.validation_reasoning || '(no validation detail)',
+            });
+          }
+        }
+      }
+      if (abstentions.length > 0) {
+        lines.push('', '*Abstentions / invalid responses:*');
+        for (const a of abstentions.slice(0, 10)) {
+          lines.push(`  • Round ${a.round} — ${a.pseudonym}: ${truncate(a.reason, 160)}`);
+        }
+        if (abstentions.length > 10) lines.push(`  … plus ${abstentions.length - 10} more`);
+      } else {
+        lines.push('', 'No per-round abstentions recorded — failure may be from the analyser or synthesiser step.');
+      }
+    }
+
+    if (sentry.isSentryConfigured()) {
+      try {
+        const issues = await sentry.searchIssues({
+          query: `debate_id:${input.debate_id}`,
+          limit: 5,
+          age: '-24h',
+        });
+        lines.push('', '*Sentry issues tagged with this debate_id:*');
+        lines.push(sentry.formatIssues(issues, { maxItems: 5 }));
+      } catch (err) {
+        lines.push('', `(Sentry lookup failed: ${err.message})`);
+      }
+    } else {
+      lines.push('', '(Sentry not configured — set LQC_SENTRY_* env vars to correlate against upstream issues.)');
+    }
+
+    return lines.join('\n');
+  } catch (err) {
+    return `lqc_why_failed error: ${err.message}`;
+  }
+}
+
+export async function lqcRecentErrors(input = {}) {
+  if (!sentry.isSentryConfigured()) {
+    return 'Sentry is not configured (set LQC_SENTRY_API_TOKEN, LQC_SENTRY_ORG, LQC_SENTRY_PROJECT_BACKEND). Use `lqc_bot_diagnose` for per-bot failure aggregation from the harness DB.';
+  }
+  const minutes = Math.min(Math.max(parseInt(input.since_minutes, 10) || 60, 5), 60 * 24);
+  const age = `-${minutes}m`;
+  const tagQuery = input.tag
+    ? String(input.tag).trim()
+    : '';
+  try {
+    const issues = await sentry.searchIssues({
+      query: tagQuery,
+      limit: 10,
+      age,
+    });
+    const lines = [
+      `*Recent Sentry issues (last ${minutes}m${tagQuery ? `, query "${tagQuery}"` : ''}):*`,
+      '',
+      sentry.formatIssues(issues, { maxItems: 10 }),
+    ];
+    return lines.join('\n');
+  } catch (err) {
+    return `lqc_recent_errors error: ${err.message}`;
+  }
 }
 
 export async function lqcOnboardingChecklist(input = {}) {

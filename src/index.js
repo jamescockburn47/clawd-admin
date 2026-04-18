@@ -161,6 +161,14 @@ async function startBot() {
       if (config.ownerJid && !schedulerStarted) {
         schedulerStarted = true;
         initScheduler(async (text) => sendProactiveMessage(config.ownerJid, text));
+        // LQ Council monitor needs the raw proactive sender so it can
+        // target LQC_DEV_GROUP_JID rather than always the owner.
+        try {
+          const { initLqcMonitor } = await import('./tasks/lqc-monitor.js');
+          initLqcMonitor(sendProactiveMessage);
+        } catch (err) {
+          logger.warn({ err: err.message }, 'LQC monitor init failed');
+        }
       }
 
       // Startup notification (version change only)
