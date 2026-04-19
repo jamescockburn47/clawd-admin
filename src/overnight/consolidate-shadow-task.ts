@@ -17,7 +17,9 @@ import logger from '../logger.js';
 import { OvernightRunner } from './runner.js';
 import { makeConsolidateStage } from './consolidate.js';
 import { ShadowSink } from './consolidate-shadow-sink.js';
+import { PromotedSink, type PromotedSinkDeps } from './consolidate-promoted-sink.js';
 import { synthesizeSources } from './consolidate-source-synthesizer.js';
+import type { StoreClient } from './consolidate-store.js';
 import type { ExtractClient } from './consolidate-extract.js';
 import type { MaintenanceClient, TopicIndexClient } from './consolidate-maintenance.js';
 import type { MemoryCandidate } from './consolidate-validate.js';
@@ -110,6 +112,38 @@ export interface ShadowTaskDeps {
   extractClient: ExtractClient;
   memoryClient: MaintenanceClient;
   topicClient: TopicIndexClient;
+  /**
+   * Optional PromotedSink deps. When supplied AND CONSOLIDATE_MODE !=
+   * 'shadow', the promoted sink is used instead of ShadowSink so
+   * validated candidates are written to EVO memory directly.
+   */
+  promotedSinkDeps?: PromotedSinkDeps;
+}
+
+/**
+ * Select the store client for a given task invocation based on the
+ * CONSOLIDATE_MODE env var. Exposed for tests.
+ *   - `shadow` (legacy): ShadowSink → shadow-candidates-<date>.jsonl.
+ *   - `promoted` (default): PromotedSink → EVO memory.
+ * Falls back to ShadowSink if promoted is requested but promotedSinkDeps
+ * is missing, so a misconfigured environment does not break the task.
+ */
+export function selectStoreClient(
+  deps: ShadowTaskDeps,
+  todayStr: string,
+): StoreClient {
+  const mode = (process.env.CONSOLIDATE_MODE || 'promoted').toLowerCase();
+  if (mode === 'shadow') {
+    return new ShadowSink({ overnightDir: deps.overnightDir, todayStr });
+  }
+  if (!deps.promotedSinkDeps) {
+    logger.warn(
+      { mode },
+      'consolidate: CONSOLIDATE_MODE=promoted but promotedSinkDeps missing — falling back to ShadowSink',
+    );
+    return new ShadowSink({ overnightDir: deps.overnightDir, todayStr });
+  }
+  return new PromotedSink({ deps: deps.promotedSinkDeps });
 }
 
 /**
@@ -141,7 +175,7 @@ function withSynthesizedSources(inner: ExtractClient): ExtractClient {
  * loading them (and don't trip config validation on missing env vars).
  */
 async function buildDefaultDeps(): Promise<ShadowTaskDeps> {
-  const { extractWithoutStoring, triggerMaintenance } = await import('../memory.js');
+  const { extractWithoutStoring, triggerMaintenance, storeMemory } = await import('../memory.js');
   const { indexDayTopics, pruneTopicIndex } = await import('../topic-index.js');
 
   // Raw extract client — just forwards to EVO. Source synthesis is applied
@@ -177,6 +211,14 @@ async function buildDefaultDeps(): Promise<ShadowTaskDeps> {
     },
   };
 
+  const promotedSinkDeps: PromotedSinkDeps = {
+    storeMemory: async (fact, category, tags, confidence, source) => {
+      const result = await storeMemory(fact, category, tags, confidence, source);
+      // `storeMemory` returns undefined on some offline paths — normalise.
+      return result ?? { queued: true };
+    },
+  };
+
   return {
     overnightDir: DEFAULT_OVERNIGHT_DIR,
     logDir: DEFAULT_LOG_DIR,
@@ -184,6 +226,7 @@ async function buildDefaultDeps(): Promise<ShadowTaskDeps> {
     extractClient,
     memoryClient,
     topicClient,
+    promotedSinkDeps,
   };
 }
 
@@ -212,10 +255,7 @@ export async function checkConsolidateShadow(
 
   const resolvedDeps = deps ?? (await buildDefaultDeps());
 
-  const shadowSink = new ShadowSink({
-    overnightDir: resolvedDeps.overnightDir,
-    todayStr,
-  });
+  const storeClient = selectStoreClient(resolvedDeps, todayStr);
 
   // Wrap extract client with debug layer (outermost) → source synthesis (inner).
   // Debug observes the raw zero-candidate result before synthesis attaches sources,
@@ -229,7 +269,7 @@ export async function checkConsolidateShadow(
   const stage = makeConsolidateStage({
     logDir: resolvedDeps.logDir,
     extractClient: withSynthesizedSources(debugWrapped),
-    storeClient: shadowSink,
+    storeClient,
     memoryClient: resolvedDeps.memoryClient,
     topicClient: resolvedDeps.topicClient,
     yesterdayFor,
