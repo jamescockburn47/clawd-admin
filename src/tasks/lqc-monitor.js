@@ -142,7 +142,9 @@ export async function tickLqcMonitor() {
           `Bots: ${d.bots.length}`,
           `Check \`lqc_debate_detail ${d.id}\` for specifics.`,
         ].join('\n'),
-        'author',
+        // Owner DM, not the LQcouncil group — James doesn't want the group
+        // spammed with debate-fail alerts (2026-04-19).
+        'ops',
       );
     }
 
