@@ -21,12 +21,23 @@ import { join } from 'node:path';
 import * as lqc from '../lqcouncil/client.js';
 import config from '../config.js';
 import { findGroupJidByProject } from '../group-registry.js';
+import {
+  lastCompletedRound,
+  buildRoundSummary,
+  buildFinalCommentary,
+  buildDebateMemoryText,
+} from '../lqcouncil/debate-progress.js';
+import { storeNote } from '../memory.js';
 import logger from '../logger.js';
 
 // ── State ────────────────────────────────────────────────────────────
 
 /** debate_id → seen status (so transitions to 'failed' are edge-triggered) */
 const debateStatusSeen = new Map();
+/** debate_id → index of last round already announced in the LQcouncil group */
+const debateLastRound = new Map();
+/** debate_ids already ingested into Clint's memory (independent of status transitions — backfills old completes on first tick) */
+const memoryIngested = new Set();
 /** bot_id → dominant error_kind last observed (fire nudge on new dominant kind) */
 const botDominantErrorKind = new Map();
 /** signal name → last-fired timestamp for cooldown (ms) */
@@ -37,6 +48,7 @@ const STUCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;    // per-debate stuck alert: one
 const FAILURE_RATE_THRESHOLD = 0.25;
 const STUCK_DEBATE_MINUTES = 30;
 const STUCK_MAX_AGE_MINUTES = 240;                // past 4h in 'created' = orchestrator-abandoned, don't alert
+const MEMORY_INGEST_PER_TICK = 3;                 // throttle backfill so the 14-debate history doesn't burst-hit memory API
 
 const STATE_DIR = join('data', 'runtime');
 const STATE_PATH = join(STATE_DIR, 'lqc-monitor-state.json');
@@ -74,6 +86,16 @@ function loadState() {
     if (raw.debateStatus && typeof raw.debateStatus === 'object') {
       for (const [k, v] of Object.entries(raw.debateStatus)) debateStatusSeen.set(k, v);
     }
+    if (raw.debateLastRound && typeof raw.debateLastRound === 'object') {
+      for (const [k, v] of Object.entries(raw.debateLastRound)) {
+        if (typeof v === 'number') debateLastRound.set(k, v);
+      }
+    }
+    if (Array.isArray(raw.memoryIngested)) {
+      for (const id of raw.memoryIngested) {
+        if (typeof id === 'string') memoryIngested.add(id);
+      }
+    }
     if (raw.botKinds && typeof raw.botKinds === 'object') {
       for (const [k, v] of Object.entries(raw.botKinds)) botDominantErrorKind.set(k, v);
     }
@@ -91,9 +113,13 @@ function persistState() {
     mkdirSync(STATE_DIR, { recursive: true });
     // Cap debate-status entries to prevent unbounded growth over months.
     const entries = [...debateStatusSeen.entries()].slice(-STATE_STATUS_CAP);
+    const roundEntries = [...debateLastRound.entries()].slice(-STATE_STATUS_CAP);
+    const ingestedList = [...memoryIngested].slice(-STATE_STATUS_CAP);
     const payload = {
       cooldowns: Object.fromEntries(signalCooldowns),
       debateStatus: Object.fromEntries(entries),
+      debateLastRound: Object.fromEntries(roundEntries),
+      memoryIngested: ingestedList,
       botKinds: Object.fromEntries(botDominantErrorKind),
     };
     writeFileSync(STATE_PATH, JSON.stringify(payload), 'utf8');
@@ -118,19 +144,25 @@ function markFired(signal) {
  * Resolve an alert destination by severity.
  *   - `ops`:    owner DM. Used for stuck debates, provider-health alerts,
  *               things that don't need to be visible to bot authors.
- *   - `author`: the LQcouncil-bound group (via allowedProjects lookup).
- *               Used for per-debate failure and per-bot pattern shifts —
- *               the authors benefit from seeing these.
- * Falls back to the legacy LQC_DEV_GROUP_JID env var for back-compat,
- * then to owner DM, to ensure alerts never silently drop.
+ *   - `author`: the LQcouncil-bound group. Used for per-debate failure,
+ *               per-bot pattern shifts, round-progress summaries, and
+ *               final synthesis commentary — everyone in the group
+ *               benefits from seeing these.
+ *
+ * `author` priority is env-var-first. `LQC_DEV_GROUP_JID` is the
+ * operator-set override and should beat the registry-derived
+ * `allowedProjects` lookup when both exist. Current setup: the env
+ * points at LQCore (the instruction channel), while `allowedProjects`
+ * points at the separate LQcouncil group — without this order,
+ * progress updates would land in LQcouncil instead of LQCore.
  */
 function resolveDestination(severity) {
   const legacy = (config.lqcDevGroupJid || '').trim();
   const ownerJid = (config.ownerJid || '').trim();
   if (severity === 'author') {
+    if (legacy) return { jid: legacy, source: 'legacy_env' };
     const bound = findGroupJidByProject('lqcouncil');
     if (bound) return { jid: bound, source: 'allowedProjects' };
-    if (legacy) return { jid: legacy, source: 'legacy_env' };
     if (ownerJid) return { jid: ownerJid, source: 'owner_fallback' };
     return null;
   }
@@ -181,6 +213,10 @@ export async function tickLqcMonitor() {
       const existing = await lqc.listDebates({ limit: 50 });
       for (const d of existing || []) {
         if (!debateStatusSeen.has(d.id)) debateStatusSeen.set(d.id, d.status);
+        if (!debateLastRound.has(d.id)) {
+          const r = lastCompletedRound(d.status);
+          if (r != null) debateLastRound.set(d.id, r);
+        }
       }
       _seeded = true;
       persistState();
@@ -196,23 +232,100 @@ export async function tickLqcMonitor() {
       lqc.getDiagHealth().catch(() => null),
     ]);
 
-    // ── Newly-failed debates ────────────────────────────────────────
+    // ── Status transitions: failed, complete, round progress ────────
+    // One loop so `prev` and `d.status` are only compared once per
+    // debate per tick. Order of side-effects matters — round
+    // announcements first, then complete (which implies all rounds
+    // done + final synthesis), then failed (owner-only alert).
     for (const d of debates || []) {
       const prev = debateStatusSeen.get(d.id);
       debateStatusSeen.set(d.id, d.status);
-      if (prev === 'failed' || d.status !== 'failed') continue;
-      await send(
-        [
-          `*LQ Council: debate failed*`,
-          `ID: ${d.id}`,
-          `Topic: ${d.topic}`,
-          `Bots: ${d.bots.length}`,
-          `Check \`lqc_debate_detail ${d.id}\` for specifics.`,
-        ].join('\n'),
-        // Owner DM, not the LQcouncil group — James doesn't want the group
-        // spammed with debate-fail alerts (2026-04-19).
-        'ops',
-      );
+
+      // Round progress: announce each round that has completed since
+      // last sighting. On first sighting we seed silently — don't
+      // retroactively post summaries for rounds that completed before
+      // the monitor started tracking.
+      const currentRound = lastCompletedRound(d.status);
+      const seenRound = debateLastRound.get(d.id);
+      if (seenRound === undefined) {
+        if (currentRound != null) debateLastRound.set(d.id, currentRound);
+      } else if (currentRound != null && currentRound > seenRound) {
+        // Update state before posting so a transient WA failure won't
+        // duplicate the announcement on the next tick.
+        debateLastRound.set(d.id, currentRound);
+        for (let r = seenRound + 1; r <= currentRound; r++) {
+          const summary = await buildRoundSummary(d.id, r);
+          if (summary) await send(summary, 'author');
+        }
+      }
+
+      // Complete-transition commentary: once per debate. Separate
+      // from memory ingestion below because commentary is about
+      // surfacing the result to the group *now*, whereas memory
+      // ingestion needs to backfill old completes too.
+      if (prev !== 'complete' && d.status === 'complete') {
+        try {
+          const commentary = await buildFinalCommentary(d.id);
+          if (commentary) await send(commentary, 'author');
+        } catch (err) {
+          logger.warn({ err: err.message, debateId: d.id }, 'LQC monitor: final commentary post failed');
+        }
+      }
+
+      // Failed transition: owner DM only, never the group — decided
+      // 2026-04-19 per PR #14 to keep group noise low.
+      if (prev !== 'failed' && d.status === 'failed') {
+        await send(
+          [
+            `*LQ Council: debate failed*`,
+            `ID: ${d.id}`,
+            `Topic: ${d.topic}`,
+            `Bots: ${d.bots.length}`,
+            `Check \`lqc_debate_detail ${d.id}\` for specifics.`,
+          ].join('\n'),
+          'ops',
+        );
+      }
+    }
+
+    // ── Memory ingestion for completed debates ──────────────────────
+    // Ingest up to MEMORY_INGEST_PER_TICK completed debates per tick so
+    // the backfill of historical debates doesn't burst the memory API
+    // on first run. The `memoryIngested` Set persists across restarts,
+    // so each debate is ingested exactly once. listBots top-20 always
+    // contains the most recent completes first; we extend with a
+    // broader list on the first tick (when the Set is empty) so old
+    // completes aren't missed on the initial backfill.
+    const needsBackfill = memoryIngested.size === 0;
+    const ingestionCandidates = needsBackfill
+      ? await lqc.listDebates({ limit: 50 }).catch((err) => {
+          logger.warn({ err: err.message }, 'LQC monitor: backfill listDebates failed');
+          return debates;
+        })
+      : debates;
+    let ingestedThisTick = 0;
+    for (const d of ingestionCandidates || []) {
+      if (ingestedThisTick >= MEMORY_INGEST_PER_TICK) break;
+      if (d.status !== 'complete') continue;
+      if (memoryIngested.has(d.id)) continue;
+      try {
+        const memoryText = await buildDebateMemoryText(d.id);
+        if (memoryText) {
+          await storeNote(memoryText, `lqc-debate:${d.id}`);
+          memoryIngested.add(d.id);
+          ingestedThisTick++;
+          logger.info({ debateId: d.id, chars: memoryText.length }, 'LQC monitor: debate ingested into memory');
+        } else {
+          // Don't keep retrying if the build returned null (missing synth etc).
+          // Mark as ingested to avoid infinite retries.
+          memoryIngested.add(d.id);
+          logger.warn({ debateId: d.id }, 'LQC monitor: memory text was empty — marked ingested to skip');
+        }
+      } catch (err) {
+        logger.warn({ err: err.message, debateId: d.id }, 'LQC monitor: memory ingestion failed');
+        // Leave out of the Set so next tick retries.
+        break;
+      }
     }
 
     // ── Stuck-in-flight debates ─────────────────────────────────────
