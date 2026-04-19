@@ -8,6 +8,7 @@
 
 import * as lqc from '../lqcouncil/client.js';
 import * as sentry from '../lqcouncil/sentry-client.js';
+import * as knowledge from '../lqcouncil/knowledge.js';
 import logger from '../logger.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -248,7 +249,7 @@ export async function lqcBotDiagnose(input) {
 
 export async function lqcSelfDescribe() {
   return [
-    '*Clint ↔ LQ Council tools (dev group / owner DM only):*',
+    '*Clint ↔ LQ Council tools (LQcouncil-bound groups / owner DM only):*',
     '',
     '  • `lqc_status` — harness health + recent debates',
     '  • `lqc_list_debates` — list debates (optional status filter)',
@@ -259,10 +260,47 @@ export async function lqcSelfDescribe() {
     '  • `lqc_bot_diagnose` — aggregate per-bot failure patterns and suggest fixes',
     '  • `lqc_bot_author_guide` — onboarding explainer (by topic)',
     '  • `lqc_onboarding_checklist` — step-by-step admission status',
+    '  • `lqc_knowledge` — curated LQcouncil reference (topic ids: overview, onboarding, request-schema, response-schema, rounds, roles, confidence-and-scoring, endpoint-contract, test-before-submit, error-taxonomy, llm-wrapping, abstention, operational-facts)',
     '  • `lqc_self_describe` — this list',
     '',
     'All tools are read-only. Write actions (approve/reject/deactivate bots, create debates) are not exposed yet.',
   ].join('\n');
+}
+
+/**
+ * Return curated LQcouncil knowledge. Two modes:
+ *   - `topic_id`: return one specific chunk verbatim.
+ *   - `query`: find the top matching chunks within a 1500-token budget.
+ * Source: data/lqcouncil-knowledge.json, curated and regenerated from the
+ * bot-council repo (not live state — for live state use the other lqc_* tools).
+ */
+export async function lqcKnowledge({ topic_id = null, query = null } = {}) {
+  if (topic_id) {
+    const chunk = knowledge.getChunkById(topic_id);
+    if (!chunk) {
+      const all = knowledge.getAllChunks().map((c) => c.id);
+      return `No topic with id \`${topic_id}\`. Available: ${all.join(', ')}.`;
+    }
+    return `*${chunk.title}* (topic: \`${chunk.id}\`)\n\n${chunk.content}`;
+  }
+  if (query) {
+    const hits = knowledge.findRelevantChunks(query);
+    if (hits.length === 0) {
+      const all = knowledge.getAllChunks().map((c) => c.id);
+      return `No knowledge topics matched \`${query}\`. Available topics: ${all.join(', ')}. Try \`lqc_knowledge\` with an explicit \`topic_id\`.`;
+    }
+    return hits
+      .map((h) => `*${h.title}* (topic: \`${h.id}\`, keywords matched: ${h.matchedKeywords.join(', ')})\n\n${h.content}`)
+      .join('\n\n---\n\n');
+  }
+  const all = knowledge.getAllChunks();
+  const lines = ['*LQcouncil knowledge topics (curated reference):*', ''];
+  for (const c of all) {
+    lines.push(`  • \`${c.id}\` — ${c.title}`);
+  }
+  lines.push('');
+  lines.push('Call `lqc_knowledge` again with `topic_id` (exact id) or `query` (natural-language phrase).');
+  return lines.join('\n');
 }
 
 const GUIDE_TOPICS = {

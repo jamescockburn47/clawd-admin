@@ -350,6 +350,7 @@ export async function maybeRunAmbientAgency(opts) {
   const context = buildContext(opts.chatJid, opts.text);
   const { memoryFragment, route } = await gatherIntelligence(context, false, true, {
     disableWebPrefetch: true,
+    chatJid: opts.chatJid,
   });
   const systemPrompt = buildAmbientPrompt({
     transcript,
