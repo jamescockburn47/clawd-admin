@@ -56,4 +56,32 @@ describe('parseModelResponse', () => {
     const out = parseModelResponse(raw, 1);
     assert.equal(out.response, 'Second attempt');
   });
+
+  it('tolerates MiniMax-style \\\' escapes inside JSON strings', () => {
+    // Real failure from debate 90faeeb0 on 2026-04-16 — MiniMax emitted
+    // `"Agent C\'s claim"` inside an otherwise-valid JSON payload, which
+    // strict JSON.parse rejects, so challenge/position fields were silently
+    // replaced with the parser stub.
+    const raw = '{"response": "Agent C\\\'s claim is weak", "confidence": 35, "challenge": {"claim_targeted": "the \\\'null round\\\' argument", "counter_evidence": "fallacy", "type": "logical"}}';
+    const out = parseModelResponse(raw, 2);
+    assert.equal(out.response, "Agent C's claim is weak");
+    assert.equal(out.confidence, 35);
+    assert.equal(out.challenge.claim_targeted, "the 'null round' argument");
+    assert.equal(out.challenge.type, 'logical');
+  });
+
+  it('tolerates the same \\\' escapes inside embedded JSON after preamble', () => {
+    const raw = 'Based on my research...\n\n{"response": "Agent C\\\'s position", "confidence": 40}';
+    const out = parseModelResponse(raw, 1);
+    assert.equal(out.response, "Agent C's position");
+    assert.equal(out.confidence, 40);
+  });
+
+  it('tolerates trailing commas before closing braces/brackets', () => {
+    const raw = '{"response": "ok", "confidence": 50, "tags": ["a", "b",],}';
+    const out = parseModelResponse(raw, 1);
+    assert.equal(out.response, 'ok');
+    assert.equal(out.confidence, 50);
+    assert.deepEqual(out.tags, ['a', 'b']);
+  });
 });
