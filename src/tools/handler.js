@@ -210,6 +210,8 @@ const TOOL_MAP = new Map([
   ['lqc_dry_run_debate', lqcTools.lqcDryRunDebate],
   ['lqc_why_failed', lqcTools.lqcWhyFailed],
   ['lqc_recent_errors', lqcTools.lqcRecentErrors],
+  ['lqc_start_debate', lqcTools.lqcStartDebate],
+  ['lqc_confirm_debate', lqcTools.lqcConfirmDebate],
 ]);
 
 const TODO_MUTATION_TOOLS = new Set(['todo_add', 'todo_complete', 'todo_remove', 'todo_update']);

@@ -98,6 +98,24 @@ export async function getSynthesis(debateId) {
   return request('GET', `/debates/${encodeURIComponent(debateId)}/synthesis`);
 }
 
+// ── Writes ────────────────────────────────────────────────────────────
+
+/**
+ * Start a new debate. POST /debates accepts at minimum `{topic}` — the
+ * server picks defaults for bot selection, rounds, etc. Pass `bot_ids`
+ * to constrain participants. Returns the server-allocated debate id in
+ * the response body.
+ *
+ * The orchestrator kicks off round 0 synchronously on submit (our
+ * probes saw the request block for ~10s). Caller should expect
+ * request-level latency proportional to the first-round bot calls.
+ */
+export async function createDebate({ topic, bot_ids = null } = {}) {
+  const body = { topic };
+  if (Array.isArray(bot_ids) && bot_ids.length > 0) body.bot_ids = bot_ids;
+  return request('POST', '/debates', { body, timeoutMs: 60_000 });
+}
+
 export async function listBots() {
   return request('GET', '/bots');
 }

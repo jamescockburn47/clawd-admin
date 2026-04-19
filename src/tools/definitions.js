@@ -1056,4 +1056,37 @@ export const TOOL_DEFINITIONS = [
       required: [],
     },
   },
+  {
+    name: 'lqc_start_debate',
+    description: 'Propose a new LQ Council debate. Returns a confirm_id and a summary (topic, auto-picked active bots, estimated cost). DOES NOT fire the debate — caller must pass the confirm_id back through lqc_confirm_debate within 10 minutes to actually start it. Use when a user in the LQcouncil-bound chat says something like "start a debate on X" or "let\'s debate X".',
+    input_schema: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          description: 'The debate proposition, phrased as a substantive sentence the bots can argue for or against. Maximum 300 characters.',
+        },
+        bot_ids: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional explicit list of bot ids to include. If omitted, all active bots are auto-selected.',
+        },
+      },
+      required: ['topic'],
+    },
+  },
+  {
+    name: 'lqc_confirm_debate',
+    description: 'Confirm and fire a previously-proposed debate. Takes the confirm_id returned by lqc_start_debate. Single-use — a successful confirm consumes the proposal so it cannot be replayed. Returns the server-assigned debate_id on success.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        confirm_id: {
+          type: 'string',
+          description: 'The 8-character hex id returned by lqc_start_debate.',
+        },
+      },
+      required: ['confirm_id'],
+    },
+  },
 ];

@@ -9,6 +9,11 @@
 import * as lqc from '../lqcouncil/client.js';
 import * as sentry from '../lqcouncil/sentry-client.js';
 import * as knowledge from '../lqcouncil/knowledge.js';
+import {
+  storeProposal,
+  consumeProposal,
+  PENDING_DEBATE_EXPIRY_MS,
+} from '../lqcouncil/pending-debates.js';
 import logger from '../logger.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -503,6 +508,122 @@ export async function lqcBotAuthorGuide(input = {}) {
     return `Unknown topic "${topic}". Available: ${Object.keys(GUIDE_TOPICS).join(', ')}, or "all" for everything.`;
   }
   return guide;
+}
+
+// ── Start / confirm debate ───────────────────────────────────────────
+// Two-step flow: `lqc_start_debate` builds a proposal and returns a
+// confirm_id; `lqc_confirm_debate` fires POST /debates against that id.
+// Debates are charged against the MiniMax quota (roughly 3-5 bots × 4
+// rounds of tool-looping), so the confirm step is deliberate — one
+// accidental tool call must not silently burn $0.05-0.15.
+
+const DEFAULT_ROUND_COST_USD = 0.015; // rough — MiniMax M2.7 at 4 rounds, 5-8 tool calls
+const MAX_DEBATE_TOPIC_CHARS = 300;
+
+function estimateCost(botCount, rounds = 5) {
+  return (botCount * rounds * DEFAULT_ROUND_COST_USD).toFixed(2);
+}
+
+/**
+ * Propose a debate. Fetches currently-active bots from the harness,
+ * generates a confirm_id, and returns the proposal as text for Clint
+ * to relay to the user. The actual POST /debates call happens only
+ * after `lqc_confirm_debate`.
+ *
+ * Inputs:
+ *   - topic (required): the debate proposition. Trimmed, capped at 300 chars.
+ *   - bot_ids (optional): explicit bot id list (bypasses auto-pick).
+ *
+ * Sender/chat attribution is captured separately by the audit log in
+ * the main tool dispatcher; no need to thread it through here.
+ */
+export async function lqcStartDebate(input = {}) {
+  const topicRaw = typeof input.topic === 'string' ? input.topic.trim() : '';
+  if (!topicRaw) return 'topic is required (the debate proposition as a sentence).';
+  if (topicRaw.length > MAX_DEBATE_TOPIC_CHARS) {
+    return `Topic too long (${topicRaw.length} chars; cap ${MAX_DEBATE_TOPIC_CHARS}). Shorten it and try again.`;
+  }
+
+  let botIds = Array.isArray(input.bot_ids) ? input.bot_ids.filter((b) => typeof b === 'string' && b.length > 0) : [];
+  let selectedBots = [];
+
+  try {
+    const bots = await lqc.listBots();
+    if (botIds.length > 0) {
+      selectedBots = bots.filter((b) => botIds.includes(b.id));
+      const missing = botIds.filter((id) => !selectedBots.some((b) => b.id === id));
+      if (missing.length > 0) {
+        return `Unknown bot id(s): ${missing.join(', ')}. Use lqc_list_bots to find valid ids.`;
+      }
+    } else {
+      selectedBots = (bots || []).filter((b) => (b.status || '').toLowerCase() === 'active');
+      botIds = selectedBots.map((b) => b.id);
+    }
+  } catch (err) {
+    return `Could not fetch bot roster: ${err.message}`;
+  }
+
+  if (selectedBots.length < 2) {
+    return `Need at least 2 active bots to start a debate; found ${selectedBots.length}. Activate more bots first.`;
+  }
+
+  const confirmId = storeProposal({
+    topic: topicRaw,
+    botIds,
+    sourceJid: null,
+    senderJid: null,
+  });
+
+  const expiryMinutes = Math.round(PENDING_DEBATE_EXPIRY_MS / 60000);
+  const costEstimate = estimateCost(selectedBots.length);
+
+  return [
+    '*Debate proposal — confirm to start*',
+    '',
+    `Topic: ${topicRaw}`,
+    `Bots (${selectedBots.length}): ${selectedBots.map((b) => b.name).join(', ')}`,
+    `Estimated cost: ~$${costEstimate} (MiniMax, 4 rounds × ${selectedBots.length} bots)`,
+    '',
+    `Reply \`lqc_confirm_debate ${confirmId}\` to fire it.`,
+    `Expires in ${expiryMinutes} min if no confirmation.`,
+  ].join('\n');
+}
+
+/**
+ * Confirm a pending debate proposal and actually POST /debates.
+ * Single-use — a successful confirm consumes the entry so repeat calls
+ * with the same id return an "expired/unknown" message rather than
+ * firing a second debate.
+ */
+export async function lqcConfirmDebate(input = {}) {
+  const confirmId = typeof input.confirm_id === 'string' ? input.confirm_id.trim() : '';
+  if (!confirmId) return 'confirm_id is required. Use `lqc_start_debate` first to generate one.';
+
+  const proposal = consumeProposal(confirmId);
+  if (!proposal) {
+    return `No pending debate with id \`${confirmId}\` (expired, already used, or never existed). Run \`lqc_start_debate\` again if you still want to fire it.`;
+  }
+
+  logger.info(
+    { confirmId, topic: proposal.topic.slice(0, 80), botCount: proposal.botIds.length },
+    'lqc_confirm_debate: firing',
+  );
+
+  try {
+    const result = await lqc.createDebate({ topic: proposal.topic, bot_ids: proposal.botIds });
+    const debateId = result?.id || result?.debate_id || 'unknown';
+    return [
+      '*Debate started*',
+      `ID: ${debateId}`,
+      `Topic: ${proposal.topic}`,
+      `Bots: ${proposal.botIds.length}`,
+      '',
+      `Follow progress with \`lqc_debate_detail ${debateId}\` or wait for the completion alert.`,
+    ].join('\n');
+  } catch (err) {
+    logger.warn({ err: err.message, confirmId }, 'lqc_confirm_debate: createDebate failed');
+    return `Failed to start debate: ${err.message}`;
+  }
 }
 
 // ── Correlation / Sentry ─────────────────────────────────────────────
