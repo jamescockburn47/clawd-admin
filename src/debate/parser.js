@@ -6,6 +6,35 @@
 import logger from '../logger.js';
 
 /**
+ * Try JSON.parse; if it rejects, normalise common LLM quirks and retry:
+ *   - `\'` → `'` inside strings. MiniMax M2.7 emits JavaScript-style
+ *     single-quote escapes inside JSON string values, e.g.
+ *     `"Agent C\'s claim"`. JSON has no such escape, so strict parse
+ *     rejects the whole object — and the challenge/position_change
+ *     fields silently fall back to the parser stub. Stripping is safe:
+ *     `\'` is never a valid JSON escape, so replacing it with `'`
+ *     can only fix a malformed string, never corrupt a well-formed one.
+ *   - Trailing commas before `}` or `]`. Another frequent LLM slip.
+ *
+ * Returns the parsed object on success, null otherwise.
+ */
+function tryParseLenient(candidate) {
+  try {
+    return JSON.parse(candidate);
+  } catch { /* try normalised form */ }
+
+  const normalised = candidate
+    .replace(/\\'/g, "'")
+    .replace(/,(\s*[}\]])/g, '$1');
+
+  try {
+    return JSON.parse(normalised);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Scan text for `{"response"` openings and count braces to find the
  * matching close. Handles multiple candidates and string-escape tracking.
  */
@@ -27,10 +56,8 @@ function extractEmbeddedJson(text) {
       if (ch === '{') depth++;
       if (ch === '}') depth--;
       if (depth === 0) {
-        try {
-          const parsed = JSON.parse(text.slice(idx, i + 1));
-          if (typeof parsed.response === 'string') return parsed;
-        } catch { /* try next occurrence */ }
+        const parsed = tryParseLenient(text.slice(idx, i + 1));
+        if (parsed && typeof parsed.response === 'string') return parsed;
         break;
       }
     }
@@ -58,10 +85,8 @@ export function parseModelResponse(text, round) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
   }
 
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (typeof parsed.response === 'string') return parsed;
-  } catch { /* fall through */ }
+  const direct = tryParseLenient(cleaned);
+  if (direct && typeof direct.response === 'string') return direct;
 
   const extracted = extractEmbeddedJson(cleaned);
   if (extracted) {
