@@ -38,6 +38,49 @@ export interface FinalCandidate {
   predicted_benefit: string;
 }
 
+/**
+ * Per-candidate rejection reason captured during parse. Lets the caller
+ * distinguish "EVO returned nothing parseable" from "EVO returned 8 candidates
+ * but all had <2 evidence_refs" — the two have very different fixes.
+ */
+export type SynthesisRejectionReason =
+  | 'not-object'
+  | 'missing-title-or-scope'
+  | 'insufficient-evidence-refs'
+  | 'mission-regression';
+
+export interface SynthesisRejection {
+  index: number;
+  reason: SynthesisRejectionReason;
+  title: string | null;
+}
+
+export interface SynthesisDiagnostics {
+  /** Null if the raw response from EVO was null/empty or source was empty. */
+  rawResponseBytes: number | null;
+  /** Truncated raw response for debugging. Null if response was null/empty. */
+  rawResponseSample: string | null;
+  /** Number of items in the parsed JSON array. -1 if JSON extraction failed. */
+  parsedCount: number;
+  rejections: SynthesisRejection[];
+  keptCount: number;
+}
+
+export interface SynthesisResult {
+  candidates: FinalCandidate[];
+  diagnostics: SynthesisDiagnostics;
+}
+
+const EMPTY_DIAGNOSTICS: SynthesisDiagnostics = {
+  rawResponseBytes: null,
+  rawResponseSample: null,
+  parsedCount: 0,
+  rejections: [],
+  keptCount: 0,
+};
+
+const RAW_SAMPLE_MAX_CHARS = 2000;
+
 const SYSTEM_PROMPT = `You are synthesising a short list of improvement
 candidates for a WhatsApp assistant bot called Clint, based on a week of
 automated observations. You output 5-8 final candidates. Each candidate MUST:
@@ -115,34 +158,53 @@ function extractJsonArray(response: string): unknown[] | null {
 }
 
 /**
- * Parse an EVO response into FinalCandidate records. Applies:
- *   - Schema validation (title, scope, ≥2 evidence_refs required)
- *   - Mission-regression filter (spec §9)
- *   - Auto-id assignment when missing
+ * Parse an EVO response and return candidates plus a rejection log so callers
+ * can distinguish "EVO returned nothing" from "EVO returned 8 items and all
+ * failed the ≥2 evidence_refs rule".
  */
-export function parseSynthesisResponse(response: string): FinalCandidate[] {
+export function parseSynthesisResponseWithRejections(response: string): {
+  candidates: FinalCandidate[];
+  rejections: SynthesisRejection[];
+  parsedCount: number;
+} {
   const array = extractJsonArray(response);
-  if (!array) return [];
+  if (!array) {
+    return { candidates: [], rejections: [], parsedCount: -1 };
+  }
 
   const candidates: FinalCandidate[] = [];
+  const rejections: SynthesisRejection[] = [];
   let autoIdCounter = 1;
 
-  for (const entry of array) {
-    if (typeof entry !== 'object' || entry === null) continue;
+  for (let i = 0; i < array.length; i++) {
+    const entry = array[i];
+    if (typeof entry !== 'object' || entry === null) {
+      rejections.push({ index: i, reason: 'not-object', title: null });
+      continue;
+    }
     const e = entry as Record<string, unknown>;
+    const entryTitle = typeof e.title === 'string' ? e.title : null;
 
-    const title = typeof e.title === 'string' ? e.title : null;
     const scope = typeof e.scope === 'string' ? e.scope : null;
-    if (!title || !scope) continue;
+    if (!entryTitle || !scope) {
+      rejections.push({ index: i, reason: 'missing-title-or-scope', title: entryTitle });
+      continue;
+    }
 
     // ≥2 evidence refs required (ATLAS invariant strict form)
     const rawRefs = Array.isArray(e.evidence_refs) ? e.evidence_refs : [];
     const evidence_refs = rawRefs.filter((x): x is string => typeof x === 'string');
-    if (evidence_refs.length < 2) continue;
+    if (evidence_refs.length < 2) {
+      rejections.push({ index: i, reason: 'insufficient-evidence-refs', title: entryTitle });
+      continue;
+    }
 
     // Mission-alignment
-    const combined = `${title} ${scope}`;
-    if (isMissionRegression(combined)) continue;
+    const combined = `${entryTitle} ${scope}`;
+    if (isMissionRegression(combined)) {
+      rejections.push({ index: i, reason: 'mission-regression', title: entryTitle });
+      continue;
+    }
 
     const id = typeof e.id === 'string' && e.id.length > 0 ? e.id : `auto-${autoIdCounter++}`;
     const category = typeof e.category === 'string' ? e.category : 'uncategorised';
@@ -150,7 +212,7 @@ export function parseSynthesisResponse(response: string): FinalCandidate[] {
 
     candidates.push({
       id,
-      title,
+      title: entryTitle,
       category,
       scope,
       evidence_refs,
@@ -158,7 +220,20 @@ export function parseSynthesisResponse(response: string): FinalCandidate[] {
     });
   }
 
-  return candidates;
+  return { candidates, rejections, parsedCount: array.length };
+}
+
+/**
+ * Parse an EVO response into FinalCandidate records. Applies:
+ *   - Schema validation (title, scope, ≥2 evidence_refs required)
+ *   - Mission-regression filter (spec §9)
+ *   - Auto-id assignment when missing
+ *
+ * Backward-compatible shape. Callers that want the rejection log should use
+ * parseSynthesisResponseWithRejections instead.
+ */
+export function parseSynthesisResponse(response: string): FinalCandidate[] {
+  return parseSynthesisResponseWithRejections(response).candidates;
 }
 
 function sourceHasContent(source: SynthesisSource): boolean {
@@ -171,17 +246,33 @@ function sourceHasContent(source: SynthesisSource): boolean {
 
 /**
  * Call EVO 30B with the synthesis prompt and return parsed FinalCandidate
- * records. Returns an empty array if the source is empty, the LLM returns
- * null, or parsing produces zero valid candidates.
+ * records alongside diagnostics. Diagnostics let the caller distinguish the
+ * three zero-candidate failure modes (empty source, null/empty EVO response,
+ * all-rejected parse). Production wiring in improve.ts persists diagnostics
+ * to data/overnight/synthesis-debug-<date>.jsonl when keptCount === 0.
  */
 export async function synthesiseFinalCandidates(
   opts: SynthesiseOptions,
-): Promise<FinalCandidate[]> {
-  if (!sourceHasContent(opts.source)) return [];
+): Promise<SynthesisResult> {
+  if (!sourceHasContent(opts.source)) {
+    return { candidates: [], diagnostics: { ...EMPTY_DIAGNOSTICS } };
+  }
 
   const userMessage = buildUserMessage(opts.source);
   const response = await opts.client.chat(SYSTEM_PROMPT, userMessage);
-  if (!response) return [];
+  if (!response) {
+    return { candidates: [], diagnostics: { ...EMPTY_DIAGNOSTICS } };
+  }
 
-  return parseSynthesisResponse(response);
+  const parsed = parseSynthesisResponseWithRejections(response);
+  return {
+    candidates: parsed.candidates,
+    diagnostics: {
+      rawResponseBytes: response.length,
+      rawResponseSample: response.slice(0, RAW_SAMPLE_MAX_CHARS),
+      parsedCount: parsed.parsedCount,
+      rejections: parsed.rejections,
+      keptCount: parsed.candidates.length,
+    },
+  };
 }

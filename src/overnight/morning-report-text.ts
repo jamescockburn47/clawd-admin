@@ -80,6 +80,9 @@ function renderOperationsSection(report: MorningReport): string {
   }
 
   for (const [phase, event] of byPhase) {
+    // Some writers (e.g. SOVREN cross-reference) emit ops events without phase/reason.
+    // Skip them rather than rendering "undefined: undefined".
+    if (!phase || !event.reason) continue;
     if (KNOWN_OPS_PHASES.has(phase)) continue;
     lines.push(`${phase}:\n  ${event.reason}`);
   }
