@@ -130,6 +130,11 @@ const ConfigSchema = z.object({
   // Action in bot-council repo uses this to trigger Clint's drift check
   // out-of-band when the source changes. HMAC-SHA256 over the body.
   LQCOUNCIL_REFRESH_SECRET: z.string().optional().default(''),
+  // Consolidate store mode: 'promoted' writes validated candidates to EVO
+  // memory (post-cutover default); 'shadow' writes to shadow-candidates-*
+  // for review without touching memory. Flag exists so a regression can
+  // be flipped back to shadow without a code change.
+  CONSOLIDATE_MODE: z.enum(['shadow', 'promoted']).optional().default('promoted'),
 });
 
 // --- Parse & validate ---
@@ -234,6 +239,7 @@ const config = {
   lqcSentryProjectFrontend: env.LQC_SENTRY_PROJECT_FRONTEND,
   lqcSentryWebhookSecret: env.LQC_SENTRY_WEBHOOK_SECRET,
   lqcouncilRefreshSecret: env.LQCOUNCIL_REFRESH_SECRET,
+  consolidateMode: env.CONSOLIDATE_MODE,
 };
 
 Object.freeze(config);

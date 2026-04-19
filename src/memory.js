@@ -312,7 +312,20 @@ class MemoryClient {
     const tokens = messageText.toLowerCase().split(/\W+/).filter(t => t.length > 2);
     if (tokens.length === 0) return [];
 
-    const results = await this.search(messageText, null, 8);
+    // Project-scoped recall pulls more candidates (20 vs 8) AND drops the
+    // relevance floor to near-zero (0.02 vs 0.12). Rationale: in a group
+    // bound to a specific project, the user wants Clint to remember
+    // everything said in that context — not just the top-8 hottest hits.
+    // Recency decay + the project boost below re-rank; showing a broader
+    // set to the LLM beats over-filtering and missing a weak-signal
+    // memory that was actually relevant.
+    const projectBoostKeys = Array.isArray(opts.projectBoostKeys)
+      ? new Set(opts.projectBoostKeys.filter(Boolean))
+      : null;
+    const searchLimit = projectBoostKeys ? 20 : 8;
+    const scoreFloor = projectBoostKeys ? 0.02 : 0.12;
+
+    const results = await this.search(messageText, null, searchLimit);
 
     const docPattern = /\b(document|doc|file|pdf|report|analysis|the\s+\w+\.(?:md|pdf|docx|csv))\b/i;
     if (docPattern.test(messageText)) {
@@ -336,14 +349,11 @@ class MemoryClient {
     // outrank generic memories. Applied here rather than as a filter so
     // un-scoped recall still works; the bias just surfaces the right
     // content first.
-    const projectBoostKeys = Array.isArray(opts.projectBoostKeys)
-      ? new Set(opts.projectBoostKeys.filter(Boolean))
-      : null;
     const PROJECT_BOOST = 0.25;
 
     const now = Date.now();
     return results
-      .filter(r => (r.score ?? 0) >= 0.12)
+      .filter(r => (r.score ?? 0) >= scoreFloor)
       .map(r => {
         const mem = r.memory || r;
         let recencyBoost = 0;
