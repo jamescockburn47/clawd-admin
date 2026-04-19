@@ -96,41 +96,129 @@ export async function webFetch({ url }) {
   }
 }
 
-export async function webSearch({ query, count }) {
-  // SearXNG on EVO (self-hosted, no API key, no limits)
-  const searxngUrl = config.evoSearxngUrl;
+const SEARCH_TIMEOUT_MS = 10_000;
+const MAX_CONTENT_CHARS = 1200;
 
-  // Default to 5, clamp between 1 and 10
+function clampCount(count) {
   const raw = count == null ? 5 : Number(count);
-  const n = Math.max(1, Math.min(10, Number.isNaN(raw) ? 5 : raw));
+  return Math.max(1, Math.min(10, Number.isNaN(raw) ? 5 : raw));
+}
 
-  const url = `${searxngUrl}/search?q=${encodeURIComponent(query)}&format=json&pageno=1`;
+function formatResults(results, query) {
+  if (results.length === 0) return `No results found for "${query}".`;
+  return results
+    .map((r, i) => {
+      const snippet = (r.content || '').slice(0, MAX_CONTENT_CHARS);
+      return `${i + 1}. ${r.title}\n   ${r.url}\n   ${snippet}`;
+    })
+    .join('\n\n');
+}
 
+/**
+ * Tavily — LLM-native search. Returns extracted page content in `content`
+ * rather than a short SERP snippet, which means one call usually yields
+ * citable evidence instead of a stub the caller has to follow up with
+ * web_fetch. Returns null on any failure so the caller can fall back.
+ */
+async function searchTavily(query, n) {
+  if (!config.tavilyApiKey) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
+    const res = await fetch(`${config.tavilyBaseUrl}/search`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${config.tavilyApiKey}`,
+      },
+      body: JSON.stringify({
+        query,
+        search_depth: config.tavilySearchDepth,
+        max_results: n,
+        include_answer: false,
+      }),
+    });
 
     if (!res.ok) {
-      return `Web search failed (HTTP ${res.status}).`;
+      const bodyText = await res.text().catch(() => '');
+      logger.warn({ status: res.status, body: bodyText.slice(0, 200) }, 'tavily search non-2xx');
+      return null;
     }
 
     const data = await res.json();
     const results = (data?.results || []).slice(0, n);
+    if (results.length === 0) return null;
 
+    logger.info({ query, count: results.length }, 'web search via Tavily');
+    return formatResults(results, query);
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      logger.warn({ query }, 'tavily search timed out');
+    } else {
+      logger.warn({ err: err.message, query }, 'tavily search error');
+    }
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * SearXNG — self-hosted on EVO. Fallback when Tavily is not configured,
+ * fails, or returns zero results. Degrades when upstream engines are
+ * rate-limited (Brave / DuckDuckGo / Google regularly suspend or CAPTCHA
+ * SearXNG IP ranges); in practice the fallback returns `null` to signal
+ * the caller should surface a "No results" string rather than pretend.
+ */
+async function searchSearxng(query, n) {
+  const searxngUrl = config.evoSearxngUrl;
+  const url = `${searxngUrl}/search?q=${encodeURIComponent(query)}&format=json&pageno=1`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) {
+      logger.warn({ status: res.status }, 'searxng non-2xx');
+      return null;
+    }
+
+    const data = await res.json();
+    const results = (data?.results || []).slice(0, n);
     if (results.length === 0) {
-      return `No results found for "${query}".`;
+      logger.warn({
+        query,
+        unresponsive: data?.unresponsive_engines?.length || 0,
+      }, 'searxng returned zero results');
+      return null;
     }
 
     logger.info({ query, count: results.length }, 'web search via SearXNG');
-
-    return results
-      .map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.content || ''}`)
-      .join('\n\n');
+    return formatResults(results, query);
   } catch (err) {
-    if (err.name === 'AbortError') return 'Web search timed out (10s).';
-    return `Web search error: ${err.message}`;
+    if (err.name === 'AbortError') {
+      logger.warn({ query }, 'searxng timed out');
+    } else {
+      logger.warn({ err: err.message, query }, 'searxng error');
+    }
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
+}
+
+export async function webSearch({ query, count }) {
+  const n = clampCount(count);
+
+  // Tavily primary — LLM-native content extraction, one call = usable evidence.
+  const tavilyResult = await searchTavily(query, n);
+  if (tavilyResult) return tavilyResult;
+
+  // SearXNG fallback.
+  const searxngResult = await searchSearxng(query, n);
+  if (searxngResult) return searxngResult;
+
+  return `No results found for "${query}".`;
 }

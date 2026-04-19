@@ -31,6 +31,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.2",
+    "esmock": "^2.7.3",
     "typescript": "^6.0.2"
   }
 }
