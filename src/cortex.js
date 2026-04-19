@@ -111,9 +111,17 @@ export async function gatherIntelligence(context, hasImage, isGroup, options = {
   // LQuorum — synchronous, near-instant, always worth doing
   warmFromQuery(context);
 
-  // Relevant memories — only for categories that use them
-  if (config.evoMemoryEnabled && needsMemories(category)) {
-    streams.relevant = getRelevantMemories(context).catch(err => {
+  // Relevant memories — always fetched when in a project-bound group so
+  // that group-specific docs + prior-conversation insights surface on
+  // every message, regardless of category. In non-project-bound chats
+  // the existing category gate applies.
+  const projectBoostKeys = [];
+  if (groupProject) projectBoostKeys.push(`project:${groupProject}`);
+  if (isGroup && options.chatJid) projectBoostKeys.push(options.chatJid);
+
+  if (config.evoMemoryEnabled && (needsMemories(category) || groupProject)) {
+    const memOpts = projectBoostKeys.length > 0 ? { projectBoostKeys } : undefined;
+    streams.relevant = getRelevantMemories(context, memOpts).catch(err => {
       logger.warn({ err: err.message }, 'cortex: relevant memories failed');
       return [];
     });
