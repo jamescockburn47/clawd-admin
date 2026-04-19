@@ -178,6 +178,22 @@ export function getRegisteredGroups() {
 }
 
 /**
+ * Find the first group bound to a specific project id via allowedProjects.
+ * Returns the JID or null. Used by the LQC monitor to resolve alert
+ * destinations without relying on a hardcoded env var.
+ */
+export function findGroupJidByProject(projectId) {
+  ensureLoaded();
+  if (!projectId || !registry.groups) return null;
+  for (const [jid, cfg] of Object.entries(registry.groups)) {
+    if (Array.isArray(cfg.allowedProjects) && cfg.allowedProjects.includes(projectId)) {
+      return jid;
+    }
+  }
+  return null;
+}
+
+/**
  * Find a group by label (case-insensitive partial match).
  * Returns { jid, config } or null.
  */

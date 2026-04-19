@@ -18,6 +18,7 @@
 
 import * as lqc from '../lqcouncil/client.js';
 import config from '../config.js';
+import { findGroupJidByProject } from '../group-registry.js';
 import logger from '../logger.js';
 
 // ── State ────────────────────────────────────────────────────────────
@@ -53,10 +54,36 @@ function markFired(signal) {
   signalCooldowns.set(signal, Date.now());
 }
 
-async function send(text) {
-  const jid = (config.lqcDevGroupJid || '').trim();
-  if (!jid) {
-    logger.info({ preview: text.slice(0, 120) }, 'LQC monitor: no LQC_DEV_GROUP_JID set — alert not sent');
+/**
+ * Resolve an alert destination by severity.
+ *   - `ops`:    owner DM. Used for stuck debates, provider-health alerts,
+ *               things that don't need to be visible to bot authors.
+ *   - `author`: the LQcouncil-bound group (via allowedProjects lookup).
+ *               Used for per-debate failure and per-bot pattern shifts —
+ *               the authors benefit from seeing these.
+ * Falls back to the legacy LQC_DEV_GROUP_JID env var for back-compat,
+ * then to owner DM, to ensure alerts never silently drop.
+ */
+function resolveDestination(severity) {
+  const legacy = (config.lqcDevGroupJid || '').trim();
+  const ownerJid = (config.ownerJid || '').trim();
+  if (severity === 'author') {
+    const bound = findGroupJidByProject('lqcouncil');
+    if (bound) return { jid: bound, source: 'allowedProjects' };
+    if (legacy) return { jid: legacy, source: 'legacy_env' };
+    if (ownerJid) return { jid: ownerJid, source: 'owner_fallback' };
+    return null;
+  }
+  // severity === 'ops'
+  if (ownerJid) return { jid: ownerJid, source: 'owner_dm' };
+  if (legacy) return { jid: legacy, source: 'legacy_env' };
+  return null;
+}
+
+async function send(text, severity = 'author') {
+  const dest = resolveDestination(severity);
+  if (!dest) {
+    logger.info({ severity, preview: text.slice(0, 120) }, 'LQC monitor: no destination resolved — alert not sent');
     return;
   }
   if (!_sendProactive) {
@@ -64,9 +91,10 @@ async function send(text) {
     return;
   }
   try {
-    await _sendProactive(jid, text);
+    await _sendProactive(dest.jid, text);
+    logger.info({ severity, jid: dest.jid, source: dest.source, preview: text.slice(0, 100) }, 'LQC monitor: alert sent');
   } catch (err) {
-    logger.error({ err: err.message }, 'LQC monitor: send failed');
+    logger.error({ err: err.message, severity, jid: dest.jid }, 'LQC monitor: send failed');
   }
 }
 
@@ -114,6 +142,7 @@ export async function tickLqcMonitor() {
           `Bots: ${d.bots.length}`,
           `Check \`lqc_debate_detail ${d.id}\` for specifics.`,
         ].join('\n'),
+        'author',
       );
     }
 
@@ -133,6 +162,7 @@ export async function tickLqcMonitor() {
           `Status: ${d.status} — ${mins}m in flight (threshold ${STUCK_DEBATE_MINUTES}m)`,
           `Topic: ${d.topic}`,
         ].join('\n'),
+        'ops',
       );
       markFired(sig);
     }
@@ -148,6 +178,7 @@ export async function tickLqcMonitor() {
             `Release: ${health.release}`,
             `Use \`lqc_recent_errors\` or \`lqc_bot_diagnose\` to investigate.`,
           ].join('\n'),
+          'ops',
         );
         markFired(sig);
       }
@@ -188,6 +219,7 @@ export async function tickLqcMonitor() {
               `Dominant failure kind: ${kind} (${count}/${rows.length} of recent rounds).`,
               `Run \`lqc_bot_diagnose ${bot.id}\` for specifics.`,
             ].join('\n'),
+            'author',
           );
           markFired(sig);
         }
