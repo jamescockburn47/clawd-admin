@@ -81,6 +81,43 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
+# Sync the tracked systemd unit file into /etc/systemd/system/ if it drifted
+# from the repo copy. Keeps the live unit (which includes the ExecStartPre
+# port-3000 reclaim) in step with evo-system/clawdbot.service.
+tracked_unit="$REPO_DIR/evo-system/clawdbot.service"
+live_unit="/etc/systemd/system/${UNIT}.service"
+if [ -f "$tracked_unit" ] && ! sudo cmp -s "$tracked_unit" "$live_unit"; then
+  echo "Installing updated $live_unit from $tracked_unit..."
+  sudo cp "$tracked_unit" "$live_unit"
+  sudo systemctl daemon-reload
+fi
+
+# Pre-flight: surface any non-systemd process holding :3000. The unit's
+# ExecStartPre reclaims the port automatically, but we want operators to
+# see when that happens so the source of the orphan can be diagnosed.
+# Orphans typically arise when something starts the bot via `nohup node ...`
+# over SSH — the tsx process is reparented to init after the SSH session
+# closes and outlives any systemctl-driven restart.
+port_pid=$(sudo ss -tlnpH sport = :3000 2>/dev/null | awk -F 'pid=' 'NR==1 {split($2, a, ","); print a[1]}')
+if [ -n "${port_pid:-}" ] && [ -r "/proc/$port_pid/cgroup" ]; then
+  cg=$(awk 'NR==1' "/proc/$port_pid/cgroup" 2>/dev/null || true)
+  case "$cg" in
+    *"system.slice/${UNIT}.service"*) ;;  # expected: systemd-managed
+    *)
+      cmd=$(tr '\0' ' ' < "/proc/$port_pid/cmdline" 2>/dev/null || true)
+      etime=$(ps -p "$port_pid" -o etime= 2>/dev/null | tr -d ' ' || true)
+      cat <<EOF >&2
+WARN: non-systemd process holds :3000 before restart — will be reclaimed
+  by ExecStartPre. Investigate how it started (see feedback_no_nohup_for_clawdbot.md).
+    pid:    $port_pid
+    etime:  ${etime:-unknown}
+    cmd:    ${cmd:-<unreadable>}
+    cgroup: $cg
+EOF
+      ;;
+  esac
+fi
+
 echo "Restarting $UNIT..."
 sudo systemctl restart "$UNIT"
 sleep 3
