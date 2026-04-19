@@ -16,6 +16,8 @@
 // State is in-memory (Map). On service restart we re-seed from the
 // current state so an already-failed debate isn't re-announced.
 
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import * as lqc from '../lqcouncil/client.js';
 import config from '../config.js';
 import { findGroupJidByProject } from '../group-registry.js';
@@ -29,12 +31,20 @@ const debateStatusSeen = new Map();
 const botDominantErrorKind = new Map();
 /** signal name → last-fired timestamp for cooldown (ms) */
 const signalCooldowns = new Map();
-const COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes per signal
+
+const COOLDOWN_MS = 15 * 60 * 1000;               // default per-signal cooldown
+const STUCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;    // per-debate stuck alert: one a day
 const FAILURE_RATE_THRESHOLD = 0.25;
 const STUCK_DEBATE_MINUTES = 30;
+const STUCK_MAX_AGE_MINUTES = 240;                // past 4h in 'created' = orchestrator-abandoned, don't alert
+
+const STATE_DIR = join('data', 'runtime');
+const STATE_PATH = join(STATE_DIR, 'lqc-monitor-state.json');
+const STATE_STATUS_CAP = 200; // trim persisted status map beyond this many entries
 
 let _sendProactive = null;
 let _seeded = false;
+let _stateLoaded = false;
 
 // ── Injection ───────────────────────────────────────────────────────
 
@@ -43,15 +53,65 @@ export function initLqcMonitor(sendProactiveMessage) {
   _sendProactive = sendProactiveMessage;
 }
 
+// ── Persistence ──────────────────────────────────────────────────────
+// Cooldowns were in-memory only. On every service restart they reset,
+// which meant every stuck-debate alert re-fired in a burst seconds after
+// startup — and there was no cap per debate, so even without restarts a
+// single stuck debate would page James every 15 minutes for hours.
+// Persisting cooldowns + status-seen to disk kills both problems.
+
+function loadState() {
+  if (_stateLoaded) return;
+  _stateLoaded = true;
+  try {
+    if (!existsSync(STATE_PATH)) return;
+    const raw = JSON.parse(readFileSync(STATE_PATH, 'utf8'));
+    if (raw.cooldowns && typeof raw.cooldowns === 'object') {
+      for (const [k, v] of Object.entries(raw.cooldowns)) {
+        if (typeof v === 'number') signalCooldowns.set(k, v);
+      }
+    }
+    if (raw.debateStatus && typeof raw.debateStatus === 'object') {
+      for (const [k, v] of Object.entries(raw.debateStatus)) debateStatusSeen.set(k, v);
+    }
+    if (raw.botKinds && typeof raw.botKinds === 'object') {
+      for (const [k, v] of Object.entries(raw.botKinds)) botDominantErrorKind.set(k, v);
+    }
+    logger.info(
+      { cooldowns: signalCooldowns.size, debates: debateStatusSeen.size, bots: botDominantErrorKind.size },
+      'LQC monitor: state loaded from disk',
+    );
+  } catch (err) {
+    logger.warn({ err: err.message }, 'LQC monitor: state load failed');
+  }
+}
+
+function persistState() {
+  try {
+    mkdirSync(STATE_DIR, { recursive: true });
+    // Cap debate-status entries to prevent unbounded growth over months.
+    const entries = [...debateStatusSeen.entries()].slice(-STATE_STATUS_CAP);
+    const payload = {
+      cooldowns: Object.fromEntries(signalCooldowns),
+      debateStatus: Object.fromEntries(entries),
+      botKinds: Object.fromEntries(botDominantErrorKind),
+    };
+    writeFileSync(STATE_PATH, JSON.stringify(payload), 'utf8');
+  } catch (err) {
+    logger.warn({ err: err.message }, 'LQC monitor: state persist failed');
+  }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function canFire(signal) {
+function canFire(signal, cooldownMs = COOLDOWN_MS) {
   const last = signalCooldowns.get(signal) || 0;
-  return Date.now() - last >= COOLDOWN_MS;
+  return Date.now() - last >= cooldownMs;
 }
 
 function markFired(signal) {
   signalCooldowns.set(signal, Date.now());
+  persistState();
 }
 
 /**
@@ -110,13 +170,20 @@ function minutesSince(isoOrNull) {
 export async function tickLqcMonitor() {
   if (!lqc.isEnabled()) return;
 
+  loadState();
+
   // Seed state on first run: treat whatever is currently failed as
-  // already-announced so restarts don't re-announce.
+  // already-announced so restarts don't re-announce. Persisted state
+  // (loaded above) already covers cross-restart dedup, but a fresh
+  // install or a rotated state file still needs this initial pass.
   if (!_seeded) {
     try {
       const existing = await lqc.listDebates({ limit: 50 });
-      for (const d of existing || []) debateStatusSeen.set(d.id, d.status);
+      for (const d of existing || []) {
+        if (!debateStatusSeen.has(d.id)) debateStatusSeen.set(d.id, d.status);
+      }
       _seeded = true;
+      persistState();
     } catch (err) {
       logger.warn({ err: err.message }, 'LQC monitor: seed failed');
       return;
@@ -149,14 +216,23 @@ export async function tickLqcMonitor() {
     }
 
     // ── Stuck-in-flight debates ─────────────────────────────────────
+    // A debate in a non-terminal status past 30m is flagged, but only
+    // once per STUCK_COOLDOWN_MS (24h) per debate — 'stuck is stuck',
+    // re-paging James every 15 min gives him no new information. A
+    // debate stuck in status 'created' past STUCK_MAX_AGE_MINUTES is
+    // treated as orchestrator-abandoned (rounds never began) and
+    // skipped entirely; those accumulate when the bot-council
+    // orchestrator crashes mid-create and can't be cleaned up from
+    // Clint's side anyway.
     const nonTerminal = (debates || []).filter(
       (d) => !['complete', 'failed', 'cancelled'].includes(d.status),
     );
     for (const d of nonTerminal) {
       const mins = minutesSince(d.created_at);
       if (mins == null || mins < STUCK_DEBATE_MINUTES) continue;
+      if (d.status === 'created' && mins > STUCK_MAX_AGE_MINUTES) continue;
       const sig = `stuck:${d.id}`;
-      if (!canFire(sig)) continue;
+      if (!canFire(sig, STUCK_COOLDOWN_MS)) continue;
       await send(
         [
           `*LQ Council: debate stuck*`,
@@ -231,6 +307,10 @@ export async function tickLqcMonitor() {
       // failed/stuck detection above
       logger.warn({ err: err.message }, 'LQC monitor: per-bot aggregation failed');
     }
+
+    // Persist at end of tick so a quiet cycle (status transitions with
+    // no alert fired) still snapshots debateStatusSeen and botKinds.
+    persistState();
   } catch (err) {
     logger.warn({ err: err.message }, 'LQC monitor: tick failed');
   }
