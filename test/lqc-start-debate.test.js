@@ -4,12 +4,17 @@ import esmock from 'esmock';
 
 process.env.ANTHROPIC_API_KEY = 'test-key-not-real';
 
+// Mirrors the DEFAULT_DEBATE_BOT_NAMES roster in src/tools/lqcouncil.js.
+// An "off-roster" active bot (Xeno) is present to verify it is NOT
+// auto-picked; an inactive "Clint-B" is present to verify status is
+// still honoured for bots whose names match the default roster.
 const ACTIVE_BOTS = [
   { id: 'bot-clint', name: 'Clint', status: 'active' },
   { id: 'bot-alice', name: 'Alice', status: 'active' },
   { id: 'bot-oscar', name: 'Oscar', status: 'active' },
+  { id: 'bot-lqclaw', name: 'Jamie-LQClaw', status: 'active' },
   { id: 'bot-xeno', name: 'Xeno', status: 'active' },
-  { id: 'bot-dormant', name: 'Dormant', status: 'inactive' },
+  { id: 'bot-clint-b', name: 'Clint-B', status: 'inactive' },
 ];
 
 async function loadTools({ lqcMock, clearPending = true } = {}) {
@@ -33,14 +38,32 @@ describe('lqc_start_debate proposal flow', () => {
     };
   });
 
-  it('auto-picks only active bots', async () => {
+  it('auto-picks the default roster, not just any active bot', async () => {
     const tools = await loadTools({ lqcMock });
     const out = await tools.lqcStartDebate({ topic: 'Should AI replace lawyers?' });
-    assert.ok(out.includes('Bots (4):'), `expected 4 active bots, got: ${out}`);
-    assert.ok(out.includes('Clint, Alice, Oscar, Xeno'));
-    assert.ok(!out.includes('Dormant'), 'inactive bots must be excluded');
+    assert.ok(out.includes('Bots (4):'), `expected 4 default-roster bots, got: ${out}`);
+    assert.ok(out.includes('Jamie-LQClaw, Alice, Oscar, Clint'), `roster order should match DEFAULT_DEBATE_BOT_NAMES: ${out}`);
+    assert.ok(!out.includes('Xeno'), 'off-roster active bots must NOT be auto-picked');
+    assert.ok(!out.includes('Clint-B'), 'inactive bots must not appear');
     assert.ok(out.includes('Should AI replace lawyers?'));
     assert.ok(/lqc_confirm_debate [a-f0-9]{8}/.test(out), 'must include confirm_id');
+  });
+
+  it('refuses to run if a default-roster bot is missing or inactive', async () => {
+    const incompleteLqc = {
+      listBots: async () => [
+        { id: 'bot-clint', name: 'Clint', status: 'active' },
+        { id: 'bot-alice', name: 'Alice', status: 'active' },
+        { id: 'bot-oscar', name: 'Oscar', status: 'inactive' }, // demoted
+        // Jamie-LQClaw missing entirely
+      ],
+      createDebate: async () => ({ id: 'x' }),
+    };
+    const tools = await loadTools({ lqcMock: incompleteLqc });
+    const out = await tools.lqcStartDebate({ topic: 'T' });
+    assert.ok(out.includes('Default roster incomplete'));
+    assert.ok(out.includes('Oscar'));
+    assert.ok(out.includes('Jamie-LQClaw'));
   });
 
   it('rejects missing or blank topic', async () => {
@@ -68,14 +91,10 @@ describe('lqc_start_debate proposal flow', () => {
     assert.ok(bad.includes('Unknown bot id'));
   });
 
-  it('refuses when fewer than 2 active bots', async () => {
-    const loneLqc = {
-      listBots: async () => [{ id: 'solo', name: 'Solo', status: 'active' }],
-      createDebate: async () => ({ id: 'x' }),
-    };
-    const tools = await loadTools({ lqcMock: loneLqc });
-    const out = await tools.lqcStartDebate({ topic: 'T' });
-    assert.ok(out.includes('at least 2 active bots'));
+  it('refuses when an explicit bot_ids list has fewer than 2 bots', async () => {
+    const tools = await loadTools({ lqcMock });
+    const out = await tools.lqcStartDebate({ topic: 'T', bot_ids: ['bot-clint'] });
+    assert.ok(out.includes('at least 2 active bots'), `unexpected: ${out}`);
   });
 
   it('surfaces listBots failure cleanly', async () => {

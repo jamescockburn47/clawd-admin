@@ -520,6 +520,15 @@ export async function lqcBotAuthorGuide(input = {}) {
 const DEFAULT_ROUND_COST_USD = 0.015; // rough — MiniMax M2.7 at 4 rounds, 5-8 tool calls
 const MAX_DEBATE_TOPIC_CHARS = 300;
 
+/**
+ * Default roster picked when no explicit `bot_ids` are supplied. Matched
+ * against `bot.name` (case-sensitive) rather than IDs so re-registrations
+ * don't break the default. Update this list when a bot joins or leaves
+ * the standing debate line-up. Per-call override via `bot_ids` still
+ * works for ad-hoc matchups.
+ */
+const DEFAULT_DEBATE_BOT_NAMES = ['Jamie-LQClaw', 'Alice', 'Oscar', 'Clint'];
+
 function estimateCost(botCount, rounds = 5) {
   return (botCount * rounds * DEFAULT_ROUND_COST_USD).toFixed(2);
 }
@@ -556,7 +565,32 @@ export async function lqcStartDebate(input = {}) {
         return `Unknown bot id(s): ${missing.join(', ')}. Use lqc_list_bots to find valid ids.`;
       }
     } else {
-      selectedBots = (bots || []).filter((b) => (b.status || '').toLowerCase() === 'active');
+      // Default roster: the named bots from DEFAULT_DEBATE_BOT_NAMES that
+      // are currently active. Pinning by name (not status=active) keeps
+      // the line-up deterministic even when other bots get re-activated
+      // for experiments. Name collisions: if two bots share a name (e.g.
+      // a rejected retry plus the live one), only the active one is
+      // picked; if multiple actives share a name, the first wins — a
+      // warning-only case because that shouldn't happen in practice.
+      const activeByName = new Map();
+      for (const b of bots || []) {
+        if ((b.status || '').toLowerCase() !== 'active') continue;
+        if (!activeByName.has(b.name)) activeByName.set(b.name, b);
+      }
+      selectedBots = [];
+      const missingNames = [];
+      for (const name of DEFAULT_DEBATE_BOT_NAMES) {
+        const bot = activeByName.get(name);
+        if (bot) selectedBots.push(bot);
+        else missingNames.push(name);
+      }
+      if (missingNames.length > 0) {
+        return (
+          `Default roster incomplete — these bots are missing or not active: ${missingNames.join(', ')}. ` +
+          `Either re-activate them, update DEFAULT_DEBATE_BOT_NAMES in src/tools/lqcouncil.js, ` +
+          `or pass an explicit bot_ids list.`
+        );
+      }
       botIds = selectedBots.map((b) => b.id);
     }
   } catch (err) {
