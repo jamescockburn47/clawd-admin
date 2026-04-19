@@ -26,9 +26,56 @@ For deploy commands and SSH patterns, see [Deployment](docs/deployment.md).
 ## Session Protocol — MANDATORY
 
 1. **Read `CLAUDE.md` and `architecture.md`** at start of every session.
-2. **Deploy target is EVO.** `git push` then `ssh james@100.90.66.54 'cd ~/clawdbot && git pull && sudo systemctl restart clawdbot'`. Pi is backup/screen only.
-3. **After deploying Node.js files**, restart: `sudo systemctl restart clawdbot` (on EVO).
-4. **Never use `-uall` flag** with `git status` (can OOM).
+2. **Deploy target is EVO.** See "Deploying — BINDING" below. **James does not deploy manually.** Any change that lands on `main` must be deployed by the agent in the same session.
+3. **Never use `-uall` flag** with `git status` (can OOM).
+
+## Deploying — BINDING
+
+The canonical deploy flow, set up 2026-04-19 (deploy key id 149013361 on `jamescockburn47/clawd-admin`, EVO remote is SSH form):
+
+```bash
+# from Windows, after the PR has merged to main:
+ssh james@100.90.66.54 '~/clawdbot/scripts/deploy-clawdbot.sh'
+```
+
+That script:
+- Auto-stashes tracked-file modifications on EVO (James sometimes edits directly there; the stash keeps WIP safe and is popped after the pull).
+- Does **not** stash untracked files — `data/overnight/*.jsonl` and similar are written live by the service; snapshotting them mid-write risks corruption on pop.
+- `git fetch` + `git pull --ff-only origin main`.
+- `git stash pop` — if it hits conflicts, WIP stays in `git stash list` and the script exits non-zero. Investigate manually, do not `--force`.
+- `sudo systemctl restart clawdbot`.
+- Verifies `systemctl is-active clawdbot` and prints the last few journal lines.
+
+Variants:
+
+- `ssh james@100.90.66.54 'DRY_RUN=1 ~/clawdbot/scripts/deploy-clawdbot.sh'` — pull only, skip restart. Use when you want to confirm a pull will succeed without disturbing the service.
+- The script is idempotent — running it when main is already at tip is a no-op except for the service restart. If you only want the restart, `ssh james@100.90.66.54 'sudo systemctl restart clawdbot'`.
+
+**When to deploy:**
+
+- Immediately after any PR is squash-merged to `main`.
+- After `gh pr merge --squash --delete-branch` succeeds.
+- Do **not** deploy half-merged work, unmerged branches, or scp'd files. The flow is: commit → push → PR → merge → deploy. Nothing else.
+
+**Emergency fallback (only when SSH pull is broken):**
+
+- The `scp` pattern used before 2026-04-19 still works for emergencies. Example:
+  ```bash
+  scp src/tools/handler.js james@100.90.66.54:~/clawdbot/src/tools/
+  ssh james@100.90.66.54 'sudo systemctl restart clawdbot'
+  ```
+  This leaves EVO's git tree dirty and requires a follow-up cleanup. Only use when you've exhausted normal options; document in the PR why.
+
+**If the deploy script itself is the change:** bootstrap with one manual SSH pull:
+```bash
+ssh james@100.90.66.54 'cd ~/clawdbot && git stash && git pull --ff-only origin main && git stash pop'
+```
+then subsequent deploys use the script.
+
+**Known EVO WIP to preserve** (as of 2026-04-19):
+- `src/http-server.js` — modified, adds `/debate` endpoint pending formalisation.
+- `src/debate-handler.js` — untracked new file, ~12 KB, companion to the above.
+Neither is committed yet; the auto-stash handles them transparently on every pull.
 
 ## Research Protocol — MANDATORY
 
