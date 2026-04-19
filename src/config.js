@@ -47,6 +47,12 @@ const ConfigSchema = z.object({
 
   // Web search
   BRAVE_API_KEY: z.string().optional().default(''),
+  // Tavily — LLM-native search API (1k free calls/month). Primary provider
+  // when set; SearXNG remains the fallback when Tavily is missing, errors,
+  // or returns no results.
+  TAVILY_API_KEY: z.string().optional().default(''),
+  TAVILY_BASE_URL: z.string().url().optional().default('https://api.tavily.com'),
+  TAVILY_SEARCH_DEPTH: z.enum(['basic', 'advanced']).optional().default('basic'),
 
   // Perplexity Sonar (grounded research — Search API + Agent API)
   PERPLEXITY_API_KEY: z.string().optional().default(''),
@@ -181,6 +187,10 @@ const config = {
   googleRefreshToken: env.GOOGLE_REFRESH_TOKEN,
 
   braveApiKey: env.BRAVE_API_KEY,
+
+  tavilyApiKey: env.TAVILY_API_KEY,
+  tavilyBaseUrl: env.TAVILY_BASE_URL,
+  tavilySearchDepth: env.TAVILY_SEARCH_DEPTH,
 
   perplexityApiKey: env.PERPLEXITY_API_KEY,
   perplexityEnabled: env.PERPLEXITY_ENABLED,
