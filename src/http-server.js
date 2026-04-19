@@ -32,6 +32,7 @@ import {
 import { AGENCY_DEFAULTS, getAmbientAgencyConfig } from './agency/policy.js';
 import { PARTICIPATION_DEFAULTS } from './participation/constants.js';
 import { handleVoiceLocal, handleVoiceCommand, handleDashboardChat } from './voice-handler.js';
+import { handleDebate } from './debate-handler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -59,6 +60,22 @@ export function startHttpServer(port, deps) {
 
   createServer(async (req, res) => {
     const path = urlPath(req);
+
+    // --- Bot Council debate endpoint (no dashboard-token auth — council sends
+    // its own bearer token; verification of that belongs in a future phase
+    // once LQC exposes a registration secret. For now the endpoint is
+    // idempotent and side-effect-free beyond tool calls, which are themselves
+    // read-only in this context). ---
+    if (req.method === 'POST' && path === '/debate') {
+      try {
+        const body = JSON.parse(await readBody(req));
+        const result = await handleDebate(body);
+        return json(res, 200, result);
+      } catch (err) {
+        logger.error({ err: err.message }, 'debate endpoint error');
+        return json(res, 500, { response: 'Internal error processing debate request.', confidence: 50 });
+      }
+    }
 
     if (req.method === 'POST' && path === '/api/send') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
