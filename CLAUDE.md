@@ -43,8 +43,12 @@ That script:
 - Does **not** stash untracked files — `data/overnight/*.jsonl` and similar are written live by the service; snapshotting them mid-write risks corruption on pop.
 - `git fetch` + `git pull --ff-only origin main`.
 - `git stash pop` — if it hits conflicts, WIP stays in `git stash list` and the script exits non-zero. Investigate manually, do not `--force`.
+- Syncs `evo-system/clawdbot.service` → `/etc/systemd/system/clawdbot.service` (copy + `daemon-reload`) if the tracked file differs from live. The tracked unit is the source of truth — edit it there, not in `/etc/systemd/`.
+- Pre-flight-warns if a non-systemd process holds `:3000` (PID / etime / cgroup logged). The unit's `ExecStartPre=fuser -k -TERM 3000/tcp` reclaims the port automatically, but the warning still fires so the orphan's origin can be diagnosed.
 - `sudo systemctl restart clawdbot`.
 - Verifies `systemctl is-active clawdbot` and prints the last few journal lines.
+
+**Never start clawdbot outside systemd.** Use only `sudo systemctl restart clawdbot` or this script. Do **not** run `ssh james@... 'nohup node ... src/index.js &'` or any equivalent manual-background start. Orphans reparent to init, survive SSH session close, and block the next deploy with `EADDRINUSE :::3000` (2026-04-19 incident). The `ExecStartPre` is a safety net, not a licence.
 
 Variants:
 

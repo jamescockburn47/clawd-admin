@@ -1,0 +1,22 @@
+[Unit]
+Description=Clawdbot WhatsApp Admin Assistant
+After=network-online.target clawdbot-memory.service llama-server-main.service
+Wants=network-online.target
+Wants=clawdbot-memory.service
+
+[Service]
+Type=simple
+User=james
+WorkingDirectory=/home/james/clawdbot
+# Reclaim :3000 from any non-systemd leftover process (e.g. an orphan tsx
+# started via `nohup node ... &` over SSH that survived its session). The
+# leading `-` makes each step non-fatal if nothing needs killing.
+ExecStartPre=-/usr/bin/fuser -k -TERM 3000/tcp
+ExecStartPre=-/bin/sleep 2
+ExecStart=/home/james/clawdbot/node_modules/.bin/tsx --env-file=.env src/index.js
+Restart=on-failure
+RestartSec=10
+Environment=HOME=/home/james
+
+[Install]
+WantedBy=multi-user.target
