@@ -1002,6 +1002,24 @@ export const TOOL_DEFINITIONS = [
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'lqc_knowledge',
+    description: 'Return curated LQcouncil reference knowledge distilled from the bot-council repo (CLAUDE.md, reference implementations, orchestrator source, live /bots/schema). This is authoritative reference material — NOT live state (use the other lqc_* tools for that). Prefer this over web_search or live_briefing for any question about how LQcouncil works, how bots are onboarded, the debate protocol, the wire schema, rounds, roles, error kinds, or testing. Pass either `topic_id` (for a specific chunk) or `query` (for keyword-matched top-N chunks within a token budget). With neither, returns the topic index.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        topic_id: {
+          type: 'string',
+          description: 'Exact topic id. One of: overview, onboarding, request-schema, response-schema, rounds, roles, confidence-and-scoring, endpoint-contract, test-before-submit, error-taxonomy, llm-wrapping, abstention, operational-facts.',
+        },
+        query: {
+          type: 'string',
+          description: 'Natural-language phrase; returns top keyword-matched topics within a 1500-token budget. Use when the topic id is unclear.',
+        },
+      },
+      required: [],
+    },
+  },
+  {
     name: 'lqc_why_failed',
     description: 'Explain why a specific LQ Council debate failed. Combines the debate transcript (which bots abstained in which rounds, with reasons) with Sentry issues tagged with the debate_id when Sentry is configured.',
     input_schema: {

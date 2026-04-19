@@ -155,10 +155,35 @@ class RouterService {
 
   // --- Main entry point ---
 
-  async classify(text, hasImage, isGroup = false) {
+  /**
+   * Classify a message. `groupProject` is the project id this group is
+   * bound to (from group-registry `allowedProjects[0]`) — when set,
+   * ambiguous-scope categories (conversational, general_knowledge) are
+   * forced through Claude so better tool selection happens; the category
+   * itself is preserved for downstream tool-filter logic. Also tags the
+   * result with `projectContext` so callers (prompt, tool policy) can
+   * specialise without re-reading the group registry.
+   */
+  async classify(text, hasImage, isGroup = false, groupProject = null) {
+    const applyProjectBias = (result) => {
+      if (!groupProject) return result;
+      result.projectContext = groupProject;
+      // Ambiguous-scope categories: the 4B sees no chat context so a
+      // question about an internal project looks generic. Force Claude
+      // and record WHY so trace-analysis can see the bias fired.
+      const ambiguous =
+        result.category === CATEGORY.GENERAL_KNOWLEDGE ||
+        result.category === CATEGORY.CONVERSATIONAL;
+      if (ambiguous && !result.forceClaude) {
+        result.forceClaude = true;
+        result.reason = `project-bound group (${groupProject}) — forcing Claude for better tool selection`;
+      }
+      return result;
+    };
+
     if (hasImage) {
-      logger.info({ category: CATEGORY.PLANNING, source: 'image' }, 'message classified');
-      return { category: CATEGORY.PLANNING, source: 'image', forceClaude: false, reason: 'image input — EVO VL model preferred', needsPlan: false, planReason: null, confidence: null };
+      logger.info({ category: CATEGORY.PLANNING, source: 'image', projectContext: groupProject }, 'message classified');
+      return applyProjectBias({ category: CATEGORY.PLANNING, source: 'image', forceClaude: false, reason: 'image input — EVO VL model preferred', needsPlan: false, planReason: null, confidence: null });
     }
 
     // Layer 1: 4B classifier
@@ -166,8 +191,8 @@ class RouterService {
     if (classResult && VALID_CATEGORIES.has(classResult.category)) {
       const writeIntent = this._detectsWriteIntent(text);
       const forceClaude = CLAUDE_CATEGORIES.has(classResult.category) || WRITE_LIKELY_CATEGORIES.has(classResult.category) || writeIntent || classResult.needsPlan;
-      logger.info({ category: classResult.category, source: '4b_classifier', forceClaude, needsPlan: classResult.needsPlan, confidence: classResult.confidence }, 'message classified');
-      return { category: classResult.category, source: '4b_classifier', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: classResult.needsPlan || false, planReason: classResult.planReason || null, confidence: classResult.confidence || null };
+      logger.info({ category: classResult.category, source: '4b_classifier', forceClaude, needsPlan: classResult.needsPlan, confidence: classResult.confidence, projectContext: groupProject }, 'message classified');
+      return applyProjectBias({ category: classResult.category, source: '4b_classifier', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: classResult.needsPlan || false, planReason: classResult.planReason || null, confidence: classResult.confidence || null });
     }
 
     // Layer 2: keyword heuristics
@@ -175,8 +200,8 @@ class RouterService {
     if (keywordResult) {
       const writeIntent = this._detectsWriteIntent(text);
       const forceClaude = CLAUDE_CATEGORIES.has(keywordResult) || WRITE_LIKELY_CATEGORIES.has(keywordResult) || writeIntent;
-      logger.info({ category: keywordResult, source: 'keywords_fallback', forceClaude, writeIntent }, 'message classified');
-      return { category: keywordResult, source: 'keywords_fallback', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: false, planReason: null, confidence: null };
+      logger.info({ category: keywordResult, source: 'keywords_fallback', forceClaude, writeIntent, projectContext: groupProject }, 'message classified');
+      return applyProjectBias({ category: keywordResult, source: 'keywords_fallback', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: false, planReason: null, confidence: null });
     }
 
     // Layer 3: 0.6B LLM classifier
@@ -184,12 +209,12 @@ class RouterService {
     if (llmResult) {
       const writeIntent = this._detectsWriteIntent(text);
       const forceClaude = CLAUDE_CATEGORIES.has(llmResult) || WRITE_LIKELY_CATEGORIES.has(llmResult) || writeIntent;
-      return { category: llmResult, source: 'llm_classifier', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: false, planReason: null, confidence: null };
+      return applyProjectBias({ category: llmResult, source: 'llm_classifier', forceClaude, reason: writeIntent ? 'write intent detected' : (forceClaude ? 'claude-only category' : null), needsPlan: false, planReason: null, confidence: null });
     }
 
     // Fallback
-    logger.info({ category: CATEGORY.PLANNING, source: 'fallback', isGroup }, 'message classified');
-    return { category: CATEGORY.PLANNING, source: 'fallback', forceClaude: true, reason: 'no confident classification', needsPlan: false, planReason: null, confidence: null };
+    logger.info({ category: CATEGORY.PLANNING, source: 'fallback', isGroup, projectContext: groupProject }, 'message classified');
+    return applyProjectBias({ category: CATEGORY.PLANNING, source: 'fallback', forceClaude: true, reason: 'no confident classification', needsPlan: false, planReason: null, confidence: null });
   }
 }
 
@@ -209,7 +234,7 @@ export function getToolsForCategory(category, allTools) {
 }
 export function needsMemories(category) { return MEMORY_CATEGORIES.has(category); }
 export function mustUseClaude(category) { return CLAUDE_CATEGORIES.has(category); }
-export const classifyMessage = (text, hasImage, isGroup) => router.classify(text, hasImage, isGroup);
+export const classifyMessage = (text, hasImage, isGroup, groupProject = null) => router.classify(text, hasImage, isGroup, groupProject);
 export const classifyByKeywords = (text) => router.classifyByKeywords(text);
 export const classifyByLLM = (text) => router.classifyByLLM(text);
 export const reloadLearnedRules = () => router._reloadLearnedRules();

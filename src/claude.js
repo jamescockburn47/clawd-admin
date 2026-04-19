@@ -158,7 +158,7 @@ class LLMService {
     const isGroup = chatJid && chatJid.endsWith('@g.us');
 
     const { route, memoryFragment, timing: cortexTiming } = await gatherIntelligence(
-      context, !!imageData, isGroup, { secretaryMode: options.secretaryMode },
+      context, !!imageData, isGroup, { secretaryMode: options.secretaryMode, chatJid },
     );
     const projectScopeFragment = isGroup ? buildProjectScopePrompt(chatJid, context) : '';
 

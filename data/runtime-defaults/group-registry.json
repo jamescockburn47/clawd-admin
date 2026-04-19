@@ -6,7 +6,12 @@
     },
     "120363409858920612@g.us": {
       "label": "LQcouncil",
-      "mode": "open"
+      "mode": "project",
+      "allowedProjects": [
+        "lqcouncil"
+      ],
+      "projectScopeMode": "single_project_only",
+      "offTopicPolicy": "soft_redirect"
     },
     "120363426226720044@g.us": {
       "label": "AGI (Tom Glover)",

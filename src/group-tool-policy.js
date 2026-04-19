@@ -8,6 +8,24 @@ function devGroupJid() {
   return (process.env.LQC_DEV_GROUP_JID || '').trim();
 }
 
+/**
+ * A chat is "LQcouncil-bound" when either:
+ *   - it matches the legacy dev-group JID env var, or
+ *   - its group-registry entry has `allowedProjects` including `lqcouncil`.
+ * Either gives full access to `lqc_*` tools.
+ */
+function isLqcouncilBoundChat(chatJid) {
+  if (!chatJid) return false;
+  if (!chatJid.endsWith('@g.us')) return false;
+  const dev = devGroupJid();
+  if (dev && chatJid === dev) return true;
+  const cfg = getGroupConfig(chatJid);
+  return (
+    Array.isArray(cfg?.allowedProjects) &&
+    cfg.allowedProjects.includes('lqcouncil')
+  );
+}
+
 const SOVREN_LABELS = new Set(['sovren']);
 
 const NON_PERSONAL_GROUP_TOOL_NAMES = new Set([
@@ -43,13 +61,14 @@ function isLqcTool(name) {
   return typeof name === 'string' && name.startsWith('lqc_');
 }
 
-/** Strip LQC tools when the chat is not the configured dev group.
+/** Strip LQC tools when the chat is not LQcouncil-bound. A chat is
+ *  LQcouncil-bound when it matches the legacy dev-group JID OR its
+ *  group-registry entry has `allowedProjects` including `lqcouncil`.
  *  Caller wraps in the existing SOVREN filter; this runs first so the
  *  restrictions compose. */
 function stripLqcToolsForOtherChats(chatJid, tools) {
-  const dev = devGroupJid();
   const isGroup = chatJid && chatJid.endsWith('@g.us');
-  if (isGroup && dev && chatJid === dev) return tools;
+  if (isGroup && isLqcouncilBoundChat(chatJid)) return tools;
   // Not a group (owner DM) — always allowed. The message processor
   // already restricts DM visibility to registered users.
   if (!isGroup) return tools;
