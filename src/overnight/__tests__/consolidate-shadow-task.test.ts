@@ -148,6 +148,41 @@ describe('overnight/consolidate-shadow-task.checkConsolidateShadow', () => {
     assert.equal(extract!.verdict, 'failed');
   });
 
+  it('records verdict=failed and writes extract-debug when extractor returns zero candidates from non-empty logs', async () => {
+    writeLog('2026-04-09-1.jsonl', [
+      { sender: 'James', text: 'A real conversation that should produce candidates but extractor returns none' },
+      { sender: 'Clint', text: 'Responding with something long enough to pass the length check', isBot: true },
+    ]);
+
+    const silentExtract: ExtractClient = {
+      extractCandidates: async () => ({ candidates: [] }),
+    };
+
+    await checkConsolidateShadow(
+      '2026-04-10',
+      SHADOW_TASK_HOUR,
+      SHADOW_TASK_MINUTE,
+      makeDeps({ extractClient: silentExtract }),
+    );
+
+    // Silent-zero must surface as 'failed' so the health-check can see it.
+    const events = await queryEvents({ date: '2026-04-10', overnightDir, stage: 'consolidate' });
+    // Debug aid: print events if extract missing so we can see what actually ran.
+    const extract = events.find((e) => e.phase === 'extract');
+    assert.ok(extract, `expected extract event, got phases: ${events.map((e) => e.phase).join(',')} count=${events.length}`);
+    assert.equal(extract!.verdict, 'failed');
+    assert.match(extract!.reason, /extractor produced nothing/);
+
+    // Debug file captures the failing input for later diagnosis.
+    const debugFile = join(overnightDir, 'extract-debug-2026-04-10.jsonl');
+    assert.ok(existsSync(debugFile), 'extract-debug file should exist');
+    const lines = readFileSync(debugFile, 'utf8').trim().split('\n');
+    assert.ok(lines.length >= 1);
+    const entry = JSON.parse(lines[0]!);
+    assert.ok(typeof entry.timestamp === 'string');
+    assert.ok(entry.conversation_length > 0);
+  });
+
   it('runs again the next day after lastShadowDate rolls over', async () => {
     writeLog('2026-04-09-1.jsonl', [
       { sender: 'James', text: 'Day one conversation with enough content to pass the length check for real' },

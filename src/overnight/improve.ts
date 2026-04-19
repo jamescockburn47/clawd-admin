@@ -11,12 +11,15 @@
 //   8. Run branch-first deploy → merge or proposal           — free
 //   9. Write events at every step for the next morning report
 
+import { appendFile, mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { StageContext, StageFn } from './runner.js';
 import { isoWeekOf, queryObservations } from './probe-observations.js';
 import { groomObservations } from './improve-grooming.js';
 import {
   synthesiseFinalCandidates,
   type FinalCandidate,
+  type SynthesisDiagnostics,
 } from './improve-synthesis.js';
 import { selectCandidate, type OpusClient } from './improve-opus-select.js';
 import {
@@ -56,6 +59,38 @@ export interface ImproveStageOptions {
  * so the stage is fully testable with mocked clients. Production wiring
  * lives in improve-task.ts.
  */
+function summariseRejections(d: SynthesisDiagnostics): string {
+  if (d.rejections.length === 0) return '0';
+  const byReason = new Map<string, number>();
+  for (const r of d.rejections) {
+    byReason.set(r.reason, (byReason.get(r.reason) ?? 0) + 1);
+  }
+  return Array.from(byReason.entries())
+    .map(([k, v]) => `${k}=${v}`)
+    .join(',');
+}
+
+async function persistSynthesisDebug(
+  overnightDir: string,
+  date: string,
+  diagnostics: SynthesisDiagnostics,
+  source: { candidates: number; clusters: number; worse_drifts: number },
+): Promise<void> {
+  try {
+    await mkdir(overnightDir, { recursive: true });
+    const file = join(overnightDir, `synthesis-debug-${date}.jsonl`);
+    const entry = {
+      timestamp: new Date().toISOString(),
+      source,
+      diagnostics,
+    };
+    await appendFile(file, JSON.stringify(entry) + '\n', 'utf8');
+  } catch {
+    // Intentional: debug-file failure must not mask the synthesis event.
+    // The event still carries a summary via its outputs[] field.
+  }
+}
+
 export function makeImproveStage(
   deps: ImproveStageDeps,
   opts: ImproveStageOptions = {},
@@ -123,8 +158,9 @@ export function makeImproveStage(
 
     // --- Step 3: Synthesise final candidates --------------------------
     let finalCandidates: FinalCandidate[] = [];
+    let synthesisDiagnostics: SynthesisDiagnostics | null = null;
     try {
-      finalCandidates = await synthesiseFinalCandidates({
+      const synthesisResult = await synthesiseFinalCandidates({
         client: deps.evoChatClient,
         source: {
           candidates: groomed.candidates,
@@ -132,6 +168,8 @@ export function makeImproveStage(
           worseDriftAlerts: groomed.worseDriftAlerts,
         },
       });
+      finalCandidates = synthesisResult.candidates;
+      synthesisDiagnostics = synthesisResult.diagnostics;
     } catch (err) {
       await ctx.appendEvent({
         stage: 'improve',
@@ -147,11 +185,28 @@ export function makeImproveStage(
       return;
     }
 
+    // When synthesis keeps zero candidates, persist the raw exchange +
+    // rejection breakdown to data/overnight/synthesis-debug-<date>.jsonl so
+    // we can diagnose later without retriggering the full run.
+    if (finalCandidates.length === 0) {
+      await persistSynthesisDebug(deps.overnightDir, ctx.date, synthesisDiagnostics, {
+        candidates: groomed.candidates.length,
+        clusters: groomed.patternClusters.length,
+        worse_drifts: groomed.worseDriftAlerts.length,
+      });
+    }
+
+    const rejectionSummary = summariseRejections(synthesisDiagnostics);
     await ctx.appendEvent({
       stage: 'improve',
       phase: 'synthesis',
       inputs: [`candidates:${groomed.candidates.length}`],
-      outputs: [`final:${finalCandidates.length}`],
+      outputs: [
+        `final:${finalCandidates.length}`,
+        `raw_bytes:${synthesisDiagnostics.rawResponseBytes ?? 0}`,
+        `parsed:${synthesisDiagnostics.parsedCount}`,
+        `rejected:${rejectionSummary}`,
+      ],
       verdict: 'ok',
       reason: `${finalCandidates.length} final candidates synthesised (${mode})`,
       evidence_refs: [],

@@ -10,8 +10,10 @@
 // external clients. In production the factory builds real clients from
 // memory.js / topic-index.js. In tests, mocks are passed directly.
 
+import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import logger from '../logger.js';
 import { OvernightRunner } from './runner.js';
 import { makeConsolidateStage } from './consolidate.js';
 import { ShadowSink } from './consolidate-shadow-sink.js';
@@ -33,9 +35,72 @@ const DEFAULT_LOG_DIR = join(DEFAULT_REPO_ROOT, 'data', 'conversation-logs');
 /** Module-level idempotency guard: one run per YYYY-MM-DD. */
 let lastShadowDate: string | null = null;
 
+/**
+ * Per-run counter for extract-debug file writes. Caps disk usage on a
+ * completely broken extractor that would otherwise produce one debug entry
+ * per conversation. Reset at the start of each run in checkConsolidateShadow.
+ */
+let extractDebugWritesThisRun = 0;
+const EXTRACT_DEBUG_MAX_PER_RUN = 5;
+
 /** Reset guard state. Test-only. */
 export function resetShadowTaskStateForTests(): void {
   lastShadowDate = null;
+  extractDebugWritesThisRun = 0;
+}
+
+/**
+ * Wrap an ExtractClient so that zero-candidate responses get logged with
+ * input/output context and (for the first N per run) persisted to
+ * data/overnight/extract-debug-<date>.jsonl for root-cause analysis.
+ * Exported for testing. Does not alter the happy path at all — a non-empty
+ * candidates array is returned unchanged.
+ */
+export function withExtractDebug(
+  inner: ExtractClient,
+  overnightDir: string,
+  todayStr: string,
+): ExtractClient {
+  return {
+    extractCandidates: async (conversation, source) => {
+      const result = await inner.extractCandidates(conversation, source);
+      if (result.candidates.length > 0) return result;
+
+      const conversationLength = conversation.length;
+      const sample = conversation.slice(0, 500);
+
+      logger.info(
+        {
+          source,
+          conversation_length: conversationLength,
+          sample,
+        },
+        'consolidate extract returned zero candidates',
+      );
+
+      if (extractDebugWritesThisRun < EXTRACT_DEBUG_MAX_PER_RUN) {
+        extractDebugWritesThisRun++;
+        try {
+          await mkdir(overnightDir, { recursive: true });
+          const file = join(overnightDir, `extract-debug-${todayStr}.jsonl`);
+          const entry = {
+            timestamp: new Date().toISOString(),
+            source,
+            conversation_length: conversationLength,
+            sample,
+          };
+          await appendFile(file, JSON.stringify(entry) + '\n', 'utf8');
+        } catch (err) {
+          logger.warn(
+            { err: (err as Error).message },
+            'failed to write extract-debug entry',
+          );
+        }
+      }
+
+      return result;
+    },
+  };
 }
 
 export interface ShadowTaskDeps {
@@ -143,6 +208,7 @@ export async function checkConsolidateShadow(
   if (hours !== SHADOW_TASK_HOUR || minutes !== SHADOW_TASK_MINUTE) return;
   if (lastShadowDate === todayStr) return;
   lastShadowDate = todayStr;
+  extractDebugWritesThisRun = 0;
 
   const resolvedDeps = deps ?? (await buildDefaultDeps());
 
@@ -151,9 +217,18 @@ export async function checkConsolidateShadow(
     todayStr,
   });
 
+  // Wrap extract client with debug layer (outermost) → source synthesis (inner).
+  // Debug observes the raw zero-candidate result before synthesis attaches sources,
+  // which is the state we actually need to diagnose.
+  const debugWrapped = withExtractDebug(
+    resolvedDeps.extractClient,
+    resolvedDeps.overnightDir,
+    todayStr,
+  );
+
   const stage = makeConsolidateStage({
     logDir: resolvedDeps.logDir,
-    extractClient: withSynthesizedSources(resolvedDeps.extractClient),
+    extractClient: withSynthesizedSources(debugWrapped),
     storeClient: shadowSink,
     memoryClient: resolvedDeps.memoryClient,
     topicClient: resolvedDeps.topicClient,

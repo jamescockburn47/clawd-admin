@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   synthesiseFinalCandidates,
   parseSynthesisResponse,
+  parseSynthesisResponseWithRejections,
   type SynthesisSource,
 } from '../improve-synthesis.js';
 import type { EvoChatClient } from '../probe-patterns.js';
@@ -53,6 +54,33 @@ describe('overnight/improve-synthesis.parseSynthesisResponse', () => {
 
   it('returns empty array on non-JSON input', () => {
     assert.deepEqual(parseSynthesisResponse('hello world'), []);
+  });
+});
+
+describe('overnight/improve-synthesis.parseSynthesisResponseWithRejections', () => {
+  it('reports parsedCount=-1 when the response has no JSON array', () => {
+    const out = parseSynthesisResponseWithRejections('The candidates are A, B, C.');
+    assert.equal(out.parsedCount, -1);
+    assert.deepEqual(out.candidates, []);
+    assert.deepEqual(out.rejections, []);
+  });
+
+  it('returns per-candidate rejection reasons with titles preserved', () => {
+    const resp = `[
+      {"id": "weak", "title": "thin evidence", "category": "x", "scope": "src/y.js", "evidence_refs": ["a"], "predicted_benefit": "p"},
+      {"id": "ok", "title": "valid fix", "category": "x", "scope": "src/y.js", "evidence_refs": ["a", "b"], "predicted_benefit": "p"},
+      {"id": "noscope", "title": "missing scope", "evidence_refs": ["a", "b"]},
+      "not-an-object"
+    ]`;
+    const out = parseSynthesisResponseWithRejections(resp);
+    assert.equal(out.parsedCount, 4);
+    assert.equal(out.candidates.length, 1);
+    assert.equal(out.candidates[0]!.id, 'ok');
+    assert.equal(out.rejections.length, 3);
+    const byReason = new Map(out.rejections.map((r) => [r.reason, r]));
+    assert.equal(byReason.get('insufficient-evidence-refs')!.title, 'thin evidence');
+    assert.equal(byReason.get('missing-title-or-scope')!.title, 'missing scope');
+    assert.equal(byReason.get('not-object')!.title, null);
   });
 });
 
@@ -109,23 +137,45 @@ describe('overnight/improve-synthesis.synthesiseFinalCandidates', () => {
       source: makeGroomed(),
     });
     assert.ok(capturedSystem.length > 0);
-    assert.equal(result.length, 2);
+    assert.equal(result.candidates.length, 2);
+    assert.equal(result.diagnostics.keptCount, 2);
+    assert.equal(result.diagnostics.parsedCount, 2);
+    assert.ok(result.diagnostics.rawResponseBytes! > 0);
   });
 
-  it('returns empty array when EVO returns null', async () => {
+  it('returns empty candidates and empty diagnostics when EVO returns null', async () => {
     const result = await synthesiseFinalCandidates({
       client: makeClient(null),
       source: makeGroomed(),
     });
-    assert.deepEqual(result, []);
+    assert.deepEqual(result.candidates, []);
+    assert.equal(result.diagnostics.rawResponseBytes, null);
+    assert.equal(result.diagnostics.keptCount, 0);
   });
 
-  it('returns empty array when source has nothing to synthesise from', async () => {
+  it('returns empty candidates when source has nothing to synthesise from', async () => {
     const result = await synthesiseFinalCandidates({
       client: makeClient(SAMPLE_RESPONSE),
       source: { candidates: [], patternClusters: [], worseDriftAlerts: [] },
     });
-    assert.deepEqual(result, []);
+    assert.deepEqual(result.candidates, []);
+    assert.equal(result.diagnostics.rawResponseBytes, null);
+  });
+
+  it('captures rejection reasons in diagnostics when candidates fail validation', async () => {
+    const response = `[
+      {"id": "weak", "title": "thin evidence", "category": "x", "scope": "src/y.js", "evidence_refs": ["a"], "predicted_benefit": "p"},
+      {"id": "mission", "title": "Simpler cortex by removing memory retrieval", "category": "x", "scope": "src/y.js", "evidence_refs": ["a", "b"], "predicted_benefit": "p"}
+    ]`;
+    const result = await synthesiseFinalCandidates({
+      client: makeClient(response),
+      source: makeGroomed(),
+    });
+    assert.equal(result.candidates.length, 0);
+    assert.equal(result.diagnostics.parsedCount, 2);
+    assert.equal(result.diagnostics.rejections.length, 2);
+    const reasons = result.diagnostics.rejections.map((r) => r.reason).sort();
+    assert.deepEqual(reasons, ['insufficient-evidence-refs', 'mission-regression']);
   });
 
   it('prioritises worse drift alerts by injecting them into the prompt', async () => {

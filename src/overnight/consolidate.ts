@@ -47,13 +47,26 @@ export function makeConsolidateStage(opts: ConsolidateStageOptions): StageFn {
 
     // --- 1. Extract ---------------------------------------------------------
     const extractResult = await extractor.extractForDate(yesterday);
+    // A run with files processed but zero candidates extracted is a silent
+    // failure mode of the extractor (e.g. EVO /extract offline or prompt
+    // broken). Surface it as 'failed' so the health-check and morning report
+    // can see it — 10 consecutive nights of candidates=0 previously showed ok.
+    const extractSilentZero =
+      extractResult.errors.length === 0 &&
+      extractResult.filesProcessed > 0 &&
+      extractResult.candidates.length === 0;
+    const extractFailed =
+      (extractResult.errors.length > 0 && extractResult.filesProcessed === 0) ||
+      extractSilentZero;
     await ctx.appendEvent({
       stage: 'consolidate',
       phase: 'extract',
       inputs: [`data/conversation-logs/${yesterday}*.jsonl`],
       outputs: [],
-      verdict: extractResult.errors.length > 0 && extractResult.filesProcessed === 0 ? 'failed' : 'ok',
-      reason: `files=${extractResult.filesProcessed} candidates=${extractResult.candidates.length} errors=${extractResult.errors.length}`,
+      verdict: extractFailed ? 'failed' : 'ok',
+      reason: extractSilentZero
+        ? `files=${extractResult.filesProcessed} candidates=0 — extractor produced nothing from non-empty logs`
+        : `files=${extractResult.filesProcessed} candidates=${extractResult.candidates.length} errors=${extractResult.errors.length}`,
       evidence_refs: extractResult.errors.map((e) => `extract_error:${e.file}:${e.reason}`),
       rollback_ref: null,
       budget: { opus_sessions: 0, tokens: 0 },
