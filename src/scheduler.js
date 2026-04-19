@@ -26,6 +26,7 @@ import { checkImprove } from './overnight/improve-task.js';
 import { tickLqcMonitor } from './tasks/lqc-monitor.js';
 import { checkWeeklyDigest } from './tasks/lqc-weekly-digest.js';
 import { checkFailureNudge } from './tasks/lqc-bot-failure-nudge.js';
+import { checkKnowledgeDrift } from './tasks/lqc-knowledge-drift.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -127,6 +128,9 @@ async function runScheduler() {
   await runTask('lqcWeeklyDigest', () => checkWeeklyDigest(todayStr, hours, minutes, dayOfWeek));
   // Daily 10:00 London — nudge for bots failing > LQC_NUDGE_FAILURE_THRESHOLD.
   await runTask('lqcFailureNudge', () => checkFailureNudge(todayStr, hours, minutes));
+  // Daily 02:10 London — check whether bot-council source has drifted from
+  // the facts baked into data/lqcouncil-knowledge.json.
+  await runTask('lqcKnowledgeDrift', () => checkKnowledgeDrift(todayStr, hours, minutes));
 
   // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
   if (config.evoMemoryEnabled && isEvoOnline()) {

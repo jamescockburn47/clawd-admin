@@ -126,6 +126,10 @@ const ConfigSchema = z.object({
   LQC_SENTRY_PROJECT_BACKEND: z.string().optional().default(''),
   LQC_SENTRY_PROJECT_FRONTEND: z.string().optional().default(''),
   LQC_SENTRY_WEBHOOK_SECRET: z.string().optional().default(''),
+  // Shared secret for the on-demand knowledge-refresh webhook. A GitHub
+  // Action in bot-council repo uses this to trigger Clint's drift check
+  // out-of-band when the source changes. HMAC-SHA256 over the body.
+  LQCOUNCIL_REFRESH_SECRET: z.string().optional().default(''),
 });
 
 // --- Parse & validate ---
@@ -229,6 +233,7 @@ const config = {
   lqcSentryProjectBackend: env.LQC_SENTRY_PROJECT_BACKEND,
   lqcSentryProjectFrontend: env.LQC_SENTRY_PROJECT_FRONTEND,
   lqcSentryWebhookSecret: env.LQC_SENTRY_WEBHOOK_SECRET,
+  lqcouncilRefreshSecret: env.LQCOUNCIL_REFRESH_SECRET,
 };
 
 Object.freeze(config);
