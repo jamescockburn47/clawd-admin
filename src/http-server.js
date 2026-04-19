@@ -185,6 +185,44 @@ export function startHttpServer(port, deps) {
       });
     }
 
+    // --- Knowledge-refresh webhook — called by GitHub Action in bot-council
+    // on push to main, OR manually via curl, to trigger an out-of-band
+    // drift check against data/lqcouncil-knowledge.json. HMAC-SHA256
+    // signed with LQCOUNCIL_REFRESH_SECRET in the `x-clint-signature`
+    // header. Fail-closed when secret unset.
+    if (req.method === 'POST' && path === '/api/lqcouncil-knowledge-refresh') {
+      const { createHmac, timingSafeEqual } = await import('node:crypto');
+      const secret = config.lqcouncilRefreshSecret || '';
+      if (!secret) return json(res, 503, { error: 'refresh webhook disabled: LQCOUNCIL_REFRESH_SECRET unset' });
+      const rawBody = await readBody(req);
+      const sigHeader = req.headers['x-clint-signature'];
+      const sig = typeof sigHeader === 'string' ? sigHeader : String(sigHeader || '');
+      const expected = createHmac('sha256', secret).update(rawBody).digest('hex');
+      const expBuf = Buffer.from(expected, 'utf8');
+      const actBuf = Buffer.from(sig, 'utf8');
+      let ok = false;
+      try {
+        ok = expBuf.length === actBuf.length && timingSafeEqual(expBuf, actBuf);
+      } catch {
+        ok = false;
+      }
+      if (!ok) return json(res, 401, { error: 'invalid signature' });
+      try {
+        const { runKnowledgeDriftCheck } = await import('./tasks/lqc-knowledge-drift.js');
+        const result = await runKnowledgeDriftCheck({ reason: 'webhook' });
+        return json(res, 202, {
+          ok: true,
+          reason: 'webhook',
+          actionable_changes: result.actionable.length,
+          proposal: result.proposalPath,
+          sourceAvailable: result.sourceAvailable,
+        });
+      } catch (err) {
+        logger.error({ err: err.message }, 'lqcouncil-knowledge-refresh: run failed');
+        return json(res, 500, { error: err.message });
+      }
+    }
+
     // --- Sentry webhook — inbound alerts from bot-council projects.
     // HMAC-signed by Sentry with sentry-hook-signature header; no bearer
     // token needed. Routes to the LQcouncil-bound group so authors see
