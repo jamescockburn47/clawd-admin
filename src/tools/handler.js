@@ -207,6 +207,7 @@ const TOOL_MAP = new Map([
   ['lqc_onboarding_checklist', lqcTools.lqcOnboardingChecklist],
   ['lqc_self_describe', lqcTools.lqcSelfDescribe],
   ['lqc_knowledge', lqcTools.lqcKnowledge],
+  ['lqc_dry_run_debate', lqcTools.lqcDryRunDebate],
   ['lqc_why_failed', lqcTools.lqcWhyFailed],
   ['lqc_recent_errors', lqcTools.lqcRecentErrors],
 ]);

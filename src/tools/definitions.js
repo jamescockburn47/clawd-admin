@@ -1002,6 +1002,20 @@ export const TOOL_DEFINITIONS = [
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
+    name: 'lqc_dry_run_debate',
+    description: 'POST a real round-0 debate prompt to a candidate bot\'s /debate endpoint and return the structured result (elapsed, status, parsed response, schema errors). Use AFTER lqc_validate_bot passes, when the author wants to see what their bot actually produces on a non-trivial prompt before submitting. Catches latency issues, prompt-interpretation bugs, and field-naming errors the generic smoke test does not.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        endpoint_url: { type: 'string', description: 'Full /debate URL (https:// required in production; http://localhost permitted in dev).' },
+        token: { type: 'string', description: 'Bearer token the bot will authenticate against.' },
+        topic: { type: 'string', description: 'Debate proposition. Pick something specific and contestable (not "AI is good").' },
+        role: { type: 'string', description: 'Optional role to test under. Defaults to "proponent". Valid: proponent, skeptic, devils_advocate, empiricist, steelman.' },
+      },
+      required: ['endpoint_url', 'token', 'topic'],
+    },
+  },
+  {
     name: 'lqc_knowledge',
     description: 'Return curated LQcouncil reference knowledge distilled from the bot-council repo (CLAUDE.md, reference implementations, orchestrator source, live /bots/schema). This is authoritative reference material — NOT live state (use the other lqc_* tools for that). Prefer this over web_search or live_briefing for any question about how LQcouncil works, how bots are onboarded, the debate protocol, the wire schema, rounds, roles, error kinds, or testing. Pass either `topic_id` (for a specific chunk) or `query` (for keyword-matched top-N chunks within a token budget). With neither, returns the topic index.',
     input_schema: {

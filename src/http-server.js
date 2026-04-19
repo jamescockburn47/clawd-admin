@@ -185,6 +185,22 @@ export function startHttpServer(port, deps) {
       });
     }
 
+    // --- Sentry webhook — inbound alerts from bot-council projects.
+    // HMAC-signed by Sentry with sentry-hook-signature header; no bearer
+    // token needed. Routes to the LQcouncil-bound group so authors see
+    // errors affecting their bots.
+    if (req.method === 'POST' && path === '/api/sentry-webhook') {
+      const { handleSentryWebhookRequest } = await import('./lqcouncil/sentry-webhook.js');
+      const rawBody = await readBody(req);
+      const signature = req.headers['sentry-hook-signature'] || '';
+      const out = await handleSentryWebhookRequest({
+        rawBody,
+        signature: typeof signature === 'string' ? signature : String(signature),
+        sendProactiveMessage,
+      });
+      return json(res, out.status, out.body);
+    }
+
     // --- On-demand forge trigger (spec §4.4 emergency mode) ---
     if (req.method === 'POST' && path === '/api/forge-now') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });

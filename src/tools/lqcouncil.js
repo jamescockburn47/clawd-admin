@@ -257,6 +257,7 @@ export async function lqcSelfDescribe() {
     '  • `lqc_list_bots` — list registered bots (optional status filter)',
     '  • `lqc_bot_schema` — wire schema for /debate requests and responses',
     '  • `lqc_validate_bot` — dry-run smoke test against a candidate endpoint',
+    '  • `lqc_dry_run_debate` — POST a real round-0 prompt to a candidate bot and show what it produces',
     '  • `lqc_bot_diagnose` — aggregate per-bot failure patterns and suggest fixes',
     '  • `lqc_bot_author_guide` — onboarding explainer (by topic)',
     '  • `lqc_onboarding_checklist` — step-by-step admission status',
@@ -265,6 +266,144 @@ export async function lqcSelfDescribe() {
     '',
     'All tools are read-only. Write actions (approve/reject/deactivate bots, create debates) are not exposed yet.',
   ].join('\n');
+}
+
+/**
+ * POST a real round-0 debate prompt to a candidate bot's /debate endpoint
+ * and return the structured result. Shape matches the prod orchestrator's
+ * round-0 call so the bot author sees exactly what their bot would produce
+ * in a real debate — catches bugs the generic /bots/validate smoke test
+ * does not (prompt interpretation, latency under realistic load, JSON
+ * field typos that only surface on non-trivial input).
+ *
+ * Returns structured data Clint's LLM can format into a WA reply:
+ * { ok, elapsed_ms, status, raw_response, schema_ok, schema_errors[], body_size }
+ */
+export async function lqcDryRunDebate({ endpoint_url, token, topic, role = 'proponent' } = {}) {
+  if (!endpoint_url || typeof endpoint_url !== 'string') {
+    return 'dry-run failed: `endpoint_url` is required.';
+  }
+  if (!token || typeof token !== 'string') {
+    return 'dry-run failed: `token` is required.';
+  }
+  if (!topic || typeof topic !== 'string') {
+    return 'dry-run failed: `topic` is required (the debate proposition).';
+  }
+
+  const sessionId = `clint-dry-run-${Date.now()}`;
+  const body = {
+    session_id: sessionId,
+    round: 0,
+    role,
+    context: [],
+    prompt: [
+      'You are participating in a structured adversarial debate.',
+      `Topic: ${topic}`,
+      `Your role: ${role}`,
+      '',
+      'State your initial position on this topic. Be substantive and specific.',
+      'Do not hedge or equivocate — commit to a clear position consistent with your assigned role.',
+    ].join('\n'),
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  const start = Date.now();
+  let resp = null;
+  let err = null;
+  try {
+    resp = await fetch(endpoint_url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    err = e.message || String(e);
+  } finally {
+    clearTimeout(timer);
+  }
+  const elapsed_ms = Date.now() - start;
+
+  if (err) {
+    return [
+      '*Dry-run failed before response*',
+      `endpoint: ${endpoint_url}`,
+      `elapsed: ${elapsed_ms}ms`,
+      `error: ${err}`,
+      '',
+      'This usually means DNS, TLS, or connection refused — fix at the network layer before retrying.',
+    ].join('\n');
+  }
+
+  const status = resp.status;
+  const text = await resp.text();
+  const bodySize = text.length;
+
+  let parsed = null;
+  let parseError = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    parseError = e.message || String(e);
+  }
+
+  const schemaErrors = [];
+  let schemaOk = false;
+  if (parsed !== null) {
+    if (typeof parsed.response !== 'string') {
+      schemaErrors.push(`missing or non-string \`response\` field (got ${typeof parsed.response})`);
+    }
+    if (bodySize > 512 * 1024) {
+      schemaErrors.push(`body too large: ${bodySize} bytes (limit 524288)`);
+    }
+    // confidence is optional at round 0; only warn if present but wrong.
+    if ('confidence' in parsed && parsed.confidence !== null && parsed.confidence !== undefined) {
+      if (!Number.isInteger(parsed.confidence)) {
+        schemaErrors.push(`confidence must be an integer (got ${typeof parsed.confidence} ${parsed.confidence}) — round 0 can omit it`);
+      } else if (parsed.confidence < 0 || parsed.confidence > 100) {
+        schemaErrors.push(`confidence out of range 0-100 (got ${parsed.confidence})`);
+      }
+    }
+    schemaOk = schemaErrors.length === 0;
+  }
+
+  const lines = [
+    `*Dry-run ${resp.ok && schemaOk ? 'PASS' : 'FAIL'}* — \`${endpoint_url}\``,
+    `status: HTTP ${status}  |  elapsed: ${elapsed_ms}ms  |  body: ${bodySize} bytes`,
+    `role: ${role}  |  session: ${sessionId}`,
+    '',
+  ];
+  if (!resp.ok) {
+    lines.push(`Non-2xx response. Body (truncated 400):`);
+    lines.push('```');
+    lines.push(text.slice(0, 400));
+    lines.push('```');
+  } else if (parseError) {
+    lines.push(`Response was not valid JSON: ${parseError}`);
+    lines.push('```');
+    lines.push(text.slice(0, 400));
+    lines.push('```');
+  } else if (!schemaOk) {
+    lines.push('Schema errors:');
+    for (const e of schemaErrors) lines.push(`  - ${e}`);
+    lines.push('');
+    lines.push('Raw response (truncated 400):');
+    lines.push('```');
+    lines.push(text.slice(0, 400));
+    lines.push('```');
+  } else {
+    lines.push(`response field: "${String(parsed.response).slice(0, 200)}${parsed.response.length > 200 ? '…' : ''}"`);
+    if ('confidence' in parsed && parsed.confidence !== null) {
+      lines.push(`confidence: ${parsed.confidence}`);
+    }
+    lines.push('');
+    lines.push('Next step: test rounds 1-4 by submitting and participating in a real debate, or call `lqc_validate_bot` for the canonical smoke test shape.');
+  }
+  return lines.join('\n');
 }
 
 /**
