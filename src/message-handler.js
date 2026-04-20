@@ -12,6 +12,7 @@ import { logInteraction, handleReaction, isCorrection, logFeedback } from './int
 import { isMuteTrigger, activateMute, recordGroupResponse } from './engagement.js';
 import { scanMessage } from './lquorum-rag.js';
 import { logConversation } from './memory.js';
+import { observeMember } from './group-members.js';
 import { getDocumentInfo, processDocument } from './document-handler.js';
 // Phase 5: evolution-gate retired. The old DM-approval flow is replaced
 // by proposal cards written to data/overnight/proposals/ by the new
@@ -159,6 +160,14 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     if (!text && !msgHasImage && !docInfo) return;
 
+    // Passive member observation — fixes pushName drift by pinning each
+    // speaker to their JID the first time we see them in a group. Runs
+    // for every group message (including Clint's own, via fromMe), so
+    // bot-self is seeded without a separate code path.
+    if (isGroup) {
+      observeMember(chatJid, senderJid, senderName, { isBotSelf: !!message.key.fromMe });
+    }
+
     pushMessage(chatJid, { senderName, text, hasImage: msgHasImage, isBot: false });
     if (isGroup) {
       recordParticipantTurn({
@@ -219,7 +228,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
 
     // Log ALL group messages before respond gate (dream mode needs everything)
     if (isGroup && config.evoMemoryEnabled) {
-      try { logConversation(chatJid, [{ senderName, text, isBot: false }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
+      try { logConversation(chatJid, [{ senderName, senderJid, text, isBot: false }]); } catch (err) { logger.warn({ err: err.message }, 'conversation log failed'); }
       // Queue for real-time fact extraction via 30B model
       queueGroupMessage(chatJid, senderName, text);
     }

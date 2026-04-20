@@ -11,20 +11,27 @@ mkdirSync(CONV_LOG_DIR, { recursive: true });
 
 /**
  * Log conversation messages to a per-group JSONL file.
+ * `senderJid` is optional and additive — older log lines that predate
+ * the member register will not have it, which is fine: downstream
+ * consumers fall back to `sender` (pushName) when absent.
  * @param {string} chatJid - WhatsApp chat JID
- * @param {Array<{senderName: string, text: string, isBot: boolean}>} messages
+ * @param {Array<{senderName: string, senderJid?: string, text: string, isBot: boolean}>} messages
  */
 export function logConversation(chatJid, messages) {
   const date = new Date().toISOString().split('T')[0];
   const filename = `${date}_${chatJid.replace(/[^a-zA-Z0-9]/g, '_')}.jsonl`;
   const filepath = join(CONV_LOG_DIR, filename);
 
-  const lines = messages.map(m => JSON.stringify({
-    timestamp: new Date().toISOString(),
-    sender: m.senderName,
-    text: m.text,
-    isBot: m.isBot,
-  }));
+  const lines = messages.map(m => {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      sender: m.senderName,
+      text: m.text,
+      isBot: m.isBot,
+    };
+    if (m.senderJid) entry.senderJid = m.senderJid;
+    return JSON.stringify(entry);
+  });
 
   try {
     const existing = existsSync(filepath) ? readFileSync(filepath, 'utf-8') : '';
