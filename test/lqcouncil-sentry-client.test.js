@@ -32,7 +32,10 @@ describe('buildIssuesUrl', () => {
     });
     assert.match(url, /^https:\/\/de\.sentry\.io\/api\/0\/projects\/legal-quants\/bot-council-backend\/issues\/\?/);
     assert.match(url, /limit=5/);
-    assert.match(url, /statsPeriod=1h/);
+    // statsPeriod is bucketed to {24h, 14d} so Sentry doesn't 400 on
+    // arbitrary ages; the search query's `age:` filter does precise
+    // bounding.
+    assert.match(url, /statsPeriod=24h/);
     assert.match(url, /query=age%3A-1h/);
   });
 

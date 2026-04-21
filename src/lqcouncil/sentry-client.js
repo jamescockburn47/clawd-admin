@@ -23,13 +23,33 @@ const DEFAULT_TIMEOUT_MS = 10_000;
  * config singleton (zod parses env at first import; subsequent imports
  * with different env do not re-parse).
  */
+/**
+ * Sentry's statsPeriod parameter accepts a narrow set of bucket strings
+ * (this project rejects anything other than '', '24h', '14d'). The
+ * search query's `age:` filter does the real time-range work; statsPeriod
+ * only controls stats graphs. Map any requested age to the nearest valid
+ * bucket so we never 400 on a custom lookback.
+ */
+function statsPeriodFor(age) {
+  if (!age) return '24h';
+  // Parse the magnitude from strings like '-30m', '-1h', '-7d'.
+  const m = String(age).match(/-?(\d+)([mhd])/);
+  if (!m) return '24h';
+  const n = parseInt(m[1], 10);
+  const unit = m[2];
+  // Convert everything to hours for comparison.
+  const hours = unit === 'm' ? n / 60 : unit === 'd' ? n * 24 : n;
+  if (hours <= 24) return '24h';
+  return '14d';
+}
+
 export function buildIssuesUrl({ apiUrl, org, project, query = '', limit = 10, age = '-24h' }) {
   const base = (apiUrl || 'https://sentry.io/api/0').replace(/\/+$/, '');
   const u = new URL(`${base}/projects/${encodeURIComponent(org)}/${encodeURIComponent(project)}/issues/`);
   const q = [`age:${age}`, query].filter(Boolean).join(' ');
   if (q) u.searchParams.set('query', q);
   u.searchParams.set('limit', String(Math.min(Math.max(limit, 1), 100)));
-  u.searchParams.set('statsPeriod', age.replace(/^-/, ''));
+  u.searchParams.set('statsPeriod', statsPeriodFor(age));
   return u.toString();
 }
 
