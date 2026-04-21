@@ -924,7 +924,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'lqc_debate_detail',
-    description: 'Get one LQ Council debate: topic, bots + roles, status, rankings if complete.',
+    description: 'Return structural metadata for one LQ Council debate: topic, bots + roles, status, rankings if complete. For SUBSTANCE of a debate (consensus points, disagreements, minority positions, what the bots actually concluded) use `lqc_debate_summary` instead — this tool is metadata only.',
     input_schema: {
       type: 'object',
       properties: {
@@ -951,7 +951,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'lqc_validate_bot',
-    description: 'Dry-run smoke test against a candidate LQ Council bot endpoint + bearer token, without persisting anything. Returns a list of checks and whether they passed.',
+    description: 'QUICK smoke test — round 0 only. Verifies reachability, TLS, bearer-auth handshake, and that the bot returns JSON with a `response` string on a dummy round-0 prompt. Fast but shallow: does NOT exercise rounds 1-4 or the round-specific fields (challenge, position_change). Use as the FIRST check; once green, move to `lqc_full_smoke_test` to verify all 5 rounds.',
     input_schema: {
       type: 'object',
       properties: {
@@ -963,7 +963,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'lqc_bot_diagnose',
-    description: 'Aggregate recent per-round outcomes for one LQ Council bot, surface dominant error_kinds, and suggest fixes. Use when an author asks why their bot is failing.',
+    description: 'Diagnose ONE specific LQ Council bot by bot_id: aggregate its recent round outcomes, surface dominant error_kinds (timeout, http_5xx, schema_missing_field, etc.), show abstention / invalid-response patterns, and suggest fixes. Use when an author knows their bot_id and asks "why is my bot failing", "why does my bot abstain", "what\'s wrong with bot X". If the author doesn\'t know the bot_id, call `lqc_failing_bots` first to surface candidates, or `lqc_list_bots` to find it by name.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1116,6 +1116,44 @@ export const TOOL_DEFINITIONS = [
         confirm: { type: 'boolean', description: 'Pass true ONLY on the second call, after a prior stage call has returned the confirmation prompt for this same debate_id.' },
       },
       required: ['debate_id'],
+    },
+  },
+  {
+    name: 'lqc_debate_summary',
+    description: 'Summarise one specific debate in one call: topic, status, bots, plus — if complete — the synthesis headlines (consensus points, live disagreements with both sides, minority positions, flagged capitulations, peer rankings). If still in flight, returns a per-round progress walkthrough. Use when someone asks "tell me about debate X", "what did they decide in X", "what\'s happening in that debate", "summarise debate X", etc.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        debate_id: { type: 'string', description: 'The debate UUID. Use lqc_list_debates first if you only have a topic keyword.' },
+      },
+      required: ['debate_id'],
+    },
+  },
+  {
+    name: 'lqc_failing_bots',
+    description: 'Scan all active LQ Council bots and list any whose recent-rounds failure rate is above a threshold (default 30%). Each entry shows the bot name, id, failure count, rate, dominant error_kind, and submitter. Use when someone asks "are any bots broken", "which bots are failing", "any bots in trouble", without naming a specific bot. Follow up with lqc_bot_diagnose using the returned bot_id for per-bot specifics.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        threshold: { type: 'number', description: 'Failure-rate cutoff between 0 and 1. Default 0.3 (30%). Lower = more bots surface.' },
+        limit: { type: 'number', description: 'How many recent rounds per bot to inspect (5-50). Default 20.' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'lqc_full_smoke_test',
+    description: 'Run a full 5-round smoke test against a candidate bot endpoint with fabricated peer context. Confirms the bot responds correctly on EVERY round, not just round 0. Each round is validated for: HTTP 2xx, valid JSON, required fields per round (challenge in round 2, position_change in round 4, confidence 0-100 integer in rounds 1-4). Returns per-round pass/fail with specific schema errors and targeted remediation hints. Use when a bot author wants to check their bot is truly ready for production — not just reachable. Slower and more expensive than lqc_validate_bot (5 LLM invocations on the candidate endpoint); run the quick validate first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        endpoint_url: { type: 'string', description: 'Full HTTPS URL of the candidate bot\'s /debate endpoint.' },
+        token: { type: 'string', description: 'Bearer token the candidate bot expects. This is the bot\'s own token, NOT an LQC credential.' },
+        topic: { type: 'string', description: 'A debate proposition string used for the synthetic test. Short and clear — one sentence works.' },
+        role: { type: 'string', description: 'Which constitutional role to test under. Default proponent. Options: proponent, skeptic, devils_advocate, empiricist, steelman.' },
+        per_round_timeout_ms: { type: 'number', description: 'Per-round timeout in milliseconds (10000-180000). Default 60000.' },
+      },
+      required: ['endpoint_url', 'token', 'topic'],
     },
   },
 ];
