@@ -97,7 +97,7 @@ export async function lqcStatus() {
     if (recent.length > 0) {
       lines.push('', '*Recent debates:*');
       for (const d of recent) {
-        lines.push(`  - [${d.status}] ${truncate(d.topic, 80)} (${d.id.slice(0, 8)})`);
+        lines.push(`  - [${d.status}] ${truncate(d.topic, 80)}\n      id: ${d.id}`);
       }
     } else if (debates && debates.error) {
       lines.push('', `(could not list debates: ${debates.error})`);
@@ -117,9 +117,14 @@ export async function lqcListDebates(input = {}) {
     const status = input.status || null;
     const debates = await lqc.listDebates({ limit, status });
     if (!debates || debates.length === 0) return 'No debates match that query.';
+    // Emit the FULL UUID on each line (tagged "id:" so the LLM can
+    // copy it verbatim into a follow-up lqc_debate_summary / detail /
+    // why_failed call). Short 8-char prefix is shown in the header for
+    // human readability only. Backend requires full UUID — passing the
+    // prefix returns 404.
     return debates.map((d) => {
       const completed = d.completed_at ? ` → ${d.completed_at}` : '';
-      return `*${d.id.slice(0, 8)}* [${d.status}] ${d.topic}\n  ${d.bots.length} bots, created ${d.created_at}${completed}`;
+      return `*${d.id.slice(0, 8)}* [${d.status}] ${d.topic}\n  id: ${d.id}\n  ${d.bots.length} bots, created ${d.created_at}${completed}`;
     }).join('\n\n');
   } catch (err) {
     return `Failed to list debates: ${err.message}`;
@@ -160,8 +165,11 @@ export async function lqcListBots(input = {}) {
     const filter = input.status ? String(input.status).toLowerCase() : null;
     const filtered = filter ? bots.filter((b) => (b.status || '').toLowerCase() === filter) : bots;
     if (filtered.length === 0) return filter ? `No bots with status '${filter}'.` : 'No bots registered.';
+    // Full UUID on its own line for the LLM to copy into follow-up
+    // tool calls (lqc_bot_diagnose, lqc_full_smoke_test). Short prefix
+    // in the header is human-readable only.
     return filtered.map((b) =>
-      `*${b.name}* [${b.status}] — ${b.id.slice(0, 8)}\n  ${b.endpoint_url}${b.model_family ? ` (${b.model_family})` : ''}${b.submitted_by ? `\n  Submitted by: ${b.submitted_by}` : ''}`,
+      `*${b.name}* [${b.status}] — ${b.id.slice(0, 8)}\n  id: ${b.id}\n  ${b.endpoint_url}${b.model_family ? ` (${b.model_family})` : ''}${b.submitted_by ? `\n  Submitted by: ${b.submitted_by}` : ''}`,
     ).join('\n\n');
   } catch (err) {
     return `Failed to list bots: ${err.message}`;
