@@ -128,6 +128,11 @@ const ConfigSchema = z.object({
   // Sentry API access (for Phase 4 lqc_recent_errors / webhook). Unused
   // while tools are in their Phase 2 scope but defined here so it's ready.
   LQC_SENTRY_API_TOKEN: z.string().optional().default(''),
+  // Regional API base. US tenant: https://sentry.io/api/0. EU (DE) tenant
+  // (bot-council's case — DSN host is o...ingest.de.sentry.io): use
+  // https://de.sentry.io/api/0. A user auth token scoped to an EU org
+  // returns empty lists against the US endpoint.
+  LQC_SENTRY_API_URL: z.string().url().optional().default('https://sentry.io/api/0'),
   LQC_SENTRY_ORG: z.string().optional().default(''),
   LQC_SENTRY_PROJECT_BACKEND: z.string().optional().default(''),
   LQC_SENTRY_PROJECT_FRONTEND: z.string().optional().default(''),
@@ -244,6 +249,7 @@ const config = {
   lqcAdminToken: env.LQC_ADMIN_TOKEN,
   lqcDevGroupJid: env.LQC_DEV_GROUP_JID,
   lqcSentryApiToken: env.LQC_SENTRY_API_TOKEN,
+  lqcSentryApiUrl: env.LQC_SENTRY_API_URL,
   lqcSentryOrg: env.LQC_SENTRY_ORG,
   lqcSentryProjectBackend: env.LQC_SENTRY_PROJECT_BACKEND,
   lqcSentryProjectFrontend: env.LQC_SENTRY_PROJECT_FRONTEND,
