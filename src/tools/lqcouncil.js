@@ -70,9 +70,12 @@ export async function lqcStatus() {
     const envName = cfg?.sentry_environment ?? 'unknown';
 
     const debatesArr = Array.isArray(debates) ? debates : [];
-    const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+    // Bot-council canonical terminal statuses (see src/types.rs::DebateStatus):
+    // `complete` (not `completed`), `cancelled`, `failed`. Keep in sync if
+    // that enum grows.
+    const TERMINAL = new Set(['complete', 'failed', 'cancelled']);
     const inFlight = debatesArr.filter((d) => !TERMINAL.has((d.status || '').toLowerCase())).length;
-    const completed = debatesArr.filter((d) => (d.status || '').toLowerCase() === 'completed');
+    const completed = debatesArr.filter((d) => (d.status || '').toLowerCase() === 'complete');
     const lastCompletion = completed
       .map((d) => d.completed_at)
       .filter(Boolean)
@@ -294,7 +297,9 @@ export async function lqcSelfDescribe() {
   return [
     '*Clint ↔ LQ Council tools (LQcouncil-bound groups / owner DM only):*',
     '',
-    '  • `lqc_status` — harness health + recent debates',
+    '_Read-only:_',
+    '  • `lqc_status` — harness health, release, LLM routing, in-flight count, recent debates',
+    '  • `lqc_live_llm` — which model is serving analyser + synthesis right now',
     '  • `lqc_list_debates` — list debates (optional status filter)',
     '  • `lqc_debate_detail` — single-debate summary (topic, bots, rankings)',
     '  • `lqc_list_bots` — list registered bots (optional status filter)',
@@ -304,10 +309,15 @@ export async function lqcSelfDescribe() {
     '  • `lqc_bot_diagnose` — aggregate per-bot failure patterns and suggest fixes',
     '  • `lqc_bot_author_guide` — onboarding explainer (by topic)',
     '  • `lqc_onboarding_checklist` — step-by-step admission status',
-    '  • `lqc_knowledge` — curated LQcouncil reference (topic ids: overview, onboarding, request-schema, response-schema, rounds, roles, confidence-and-scoring, endpoint-contract, test-before-submit, error-taxonomy, llm-wrapping, abstention, operational-facts)',
-    '  • `lqc_self_describe` — this list',
+    '  • `lqc_knowledge` — curated LQcouncil reference',
+    '  • `lqc_recent_errors`, `lqc_why_failed` — Sentry correlation (requires LQC_SENTRY_* env)',
     '',
-    'All tools are read-only. Write actions (approve/reject/deactivate bots, create debates) are not exposed yet.',
+    '_Writes (admin via Clint\'s bearer — use with care):_',
+    '  • `lqc_start_debate` + `lqc_confirm_debate` — propose + fire a new debate',
+    '  • `lqc_archive_debate` — soft archive/unarchive, reversible',
+    '  • `lqc_delete_debate` — permanent delete (two-step confirm)',
+    '',
+    '  • `lqc_self_describe` — this list',
   ].join('\n');
 }
 
@@ -823,4 +833,127 @@ export async function lqcOnboardingChecklist(input = {}) {
     if (!s.done) lines.push(`      → ${s.suggest}`);
   }
   return lines.join('\n');
+}
+
+// ── LLM routing ──────────────────────────────────────────────────────
+
+/**
+ * Concise summary of the currently-live analyser + final-synthesis model
+ * routing. Answers "is the council still on MiniMax, or did something
+ * fall back to local Gemma?". Source: GET /api/diag/models.
+ */
+export async function lqcLiveLlm() {
+  try {
+    const m = await lqc.getModelsDiag();
+    const lines = [
+      '*LQ Council — live LLM routing*',
+      `Analyser:    ${m.analysis_model || '?'} @ ${m.analysis_base_url || '?'}`,
+      `Synthesis:   ${m.final_synthesis_model || '?'} @ ${m.final_synthesis_base_url || '?'}`,
+      `Timeouts:    analyser ${m.analysis_request_timeout_secs ?? '?'}s  |  synth ${m.final_synthesis_request_timeout_secs ?? '?'}s`,
+      `Max concurrency (analyser): ${m.analysis_max_concurrency ?? '?'}`,
+      `Synthesis warmup: ${m.final_synthesis_warmup_enabled ? 'enabled' : 'disabled'}`,
+    ];
+    const isMinimax = /minimax\.io/i.test(`${m.analysis_base_url} ${m.final_synthesis_base_url}`);
+    const isLocal = /127\.0\.0\.1|localhost/i.test(`${m.analysis_base_url} ${m.final_synthesis_base_url}`);
+    if (isMinimax) {
+      lines.push('', 'Live on MiniMax-M2.7 (hosted). Cost = per-token. Rollback path is local llama-server.');
+    } else if (isLocal) {
+      lines.push('', 'Live on local llama-server (EVO :8086). Zero per-call cost, GPU-bound latency.');
+    } else {
+      lines.push('', 'Routing does not match known hosted or local targets — check /etc/bot-council.env overrides.');
+    }
+    return lines.join('\n');
+  } catch (err) {
+    return `Failed to read LLM routing: ${err.message}`;
+  }
+}
+
+// ── Phase D: archive / delete ────────────────────────────────────────
+
+/**
+ * Archive or un-archive a debate (soft). Hides from the default list
+ * without deleting any data. Reversible — no confirm step needed.
+ *
+ * Caller is expected to be in the LQcouncil-bound dev group or owner DM;
+ * group-tool-policy.js enforces that gate.
+ */
+export async function lqcArchiveDebate(input = {}) {
+  const id = typeof input.debate_id === 'string' ? input.debate_id.trim() : '';
+  if (!id) return 'debate_id is required.';
+  const archived = input.archived === undefined ? true : !!input.archived;
+  try {
+    const res = await lqc.archiveDebate(id, archived);
+    const verb = archived ? 'archived' : 'unarchived';
+    const when = res?.archived_at ?? (archived ? 'now' : 'cleared');
+    return `Debate ${id.slice(0, 8)} ${verb} (archived_at = ${when}).`;
+  } catch (err) {
+    return `Failed to ${archived ? 'archive' : 'unarchive'} ${id.slice(0, 8)}: ${err.message}`;
+  }
+}
+
+// Pending deletions, keyed by debate_id. TTL-bounded so a stale confirm
+// from a long-past "are you sure?" message can't replay. Cleared on
+// confirm or expiry.
+const _pendingDeletes = new Map();
+const DELETE_CONFIRM_TTL_MS = 5 * 60 * 1000;
+
+function _pruneExpiredDeletes(now = Date.now()) {
+  for (const [id, entry] of _pendingDeletes) {
+    if (entry.expiresAt <= now) _pendingDeletes.delete(id);
+  }
+}
+
+/**
+ * Permanently delete a debate. TWO-STEP CONFIRM:
+ *   1. First call with `{debate_id}` — stages the deletion and returns
+ *      an "are you sure?" message. Does NOT hit the API.
+ *   2. Second call with `{debate_id, confirm: true}` within 5 minutes —
+ *      actually fires the DELETE.
+ *
+ * Rationale: LQC_ADMIN_TOKEN is Clint's admin bearer, so any `lqc_*`
+ * caller has admin-level power over the harness. Confirming in two
+ * steps means a hallucinated tool call can't erase a debate.
+ */
+export async function lqcDeleteDebate(input = {}) {
+  const id = typeof input.debate_id === 'string' ? input.debate_id.trim() : '';
+  if (!id) return 'debate_id is required.';
+  _pruneExpiredDeletes();
+
+  if (!input.confirm) {
+    try {
+      // Show the author what they're about to delete so confirmation is informed.
+      const preview = await lqc.getDebate(id);
+      _pendingDeletes.set(id, { stagedAt: Date.now(), expiresAt: Date.now() + DELETE_CONFIRM_TTL_MS });
+      return [
+        `*About to DELETE debate ${id.slice(0, 12)}*`,
+        `Topic: ${truncate(preview.topic || '(unknown)', 160)}`,
+        `Status: ${preview.status || '?'}  |  bots: ${preview.bots?.length ?? '?'}`,
+        '',
+        'This is permanent: transcript, responses, analyses, synthesis, and debate_bots rows all removed. Use `lqc_archive_debate` instead if you just want it hidden.',
+        '',
+        `Call \`lqc_delete_debate\` again with \`debate_id: "${id}", confirm: true\` within 5 minutes to proceed.`,
+      ].join('\n');
+    } catch (err) {
+      return `Cannot stage delete for ${id.slice(0, 8)} — fetch failed: ${err.message}`;
+    }
+  }
+
+  const staged = _pendingDeletes.get(id);
+  if (!staged) {
+    return `No staged delete for ${id.slice(0, 8)}. Call \`lqc_delete_debate\` without confirm first to stage it.`;
+  }
+  _pendingDeletes.delete(id);
+
+  try {
+    await lqc.deleteDebate(id);
+    logger.warn({ debate_id: id }, 'LQC: debate permanently deleted via Clint');
+    return `Debate ${id.slice(0, 8)} deleted.`;
+  } catch (err) {
+    return `Delete failed for ${id.slice(0, 8)}: ${err.message}`;
+  }
+}
+
+// Test-only: reset the pending-deletes map so suite ordering doesn't matter.
+export function _resetPendingDeletesForTests() {
+  _pendingDeletes.clear();
 }

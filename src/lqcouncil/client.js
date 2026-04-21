@@ -198,3 +198,25 @@ export async function validateBot({ endpoint_url, token }) {
     timeoutMs: 45_000, // validate runs a live smoke test against the URL
   });
 }
+
+// ── Admin writes (Phase D) ─────────────────────────────────────────────
+
+/**
+ * Soft-archive or un-archive a debate. Sets/clears `archived_at` on the
+ * debates row. Archived debates are hidden from the default list but
+ * surface via `?archived=true`. Reversible.
+ */
+export async function archiveDebate(debateId, archived) {
+  return request('PATCH', `/debates/${encodeURIComponent(debateId)}/archive`, {
+    body: { archived: !!archived },
+  });
+}
+
+/**
+ * Permanently delete a debate, cascading through responses, analyses,
+ * syntheses, debate_bots, and dropping the broadcast channel. NOT
+ * REVERSIBLE. Caller must obtain explicit confirmation before invoking.
+ */
+export async function deleteDebate(debateId) {
+  return request('DELETE', `/debates/${encodeURIComponent(debateId)}`);
+}

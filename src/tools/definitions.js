@@ -1089,4 +1089,33 @@ export const TOOL_DEFINITIONS = [
       required: ['confirm_id'],
     },
   },
+  {
+    name: 'lqc_live_llm',
+    description: 'Report which LLM is currently serving the LQ Council analyser + final synthesis (MiniMax vs local llama-server) with timeouts and concurrency. Use when someone asks "what model is the council running on" or "is it still on MiniMax".',
+    input_schema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'lqc_archive_debate',
+    description: 'Soft-archive or un-archive a debate in LQ Council. Archived debates are hidden from the default list but preserved in the database; pass archived:false to reverse. Reversible — no confirmation needed.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        debate_id: { type: 'string', description: 'The debate UUID.' },
+        archived: { type: 'boolean', description: 'true to archive (default), false to unarchive.' },
+      },
+      required: ['debate_id'],
+    },
+  },
+  {
+    name: 'lqc_delete_debate',
+    description: 'Permanently delete a debate and all child rows (responses, analyses, synthesis, debate_bots). NOT REVERSIBLE. Two-step: first call with {debate_id} stages the deletion and returns a confirmation prompt; second call with {debate_id, confirm:true} within 5 minutes actually fires the delete. Use `lqc_archive_debate` instead if the debate just needs to be hidden.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        debate_id: { type: 'string', description: 'The debate UUID.' },
+        confirm: { type: 'boolean', description: 'Pass true ONLY on the second call, after a prior stage call has returned the confirmation prompt for this same debate_id.' },
+      },
+      required: ['debate_id'],
+    },
+  },
 ];
