@@ -43,25 +43,63 @@ function truncate(s, n = 200) {
 
 // ── Status / overview ────────────────────────────────────────────────
 
+/**
+ * Compose harness status from endpoints that actually exist in prod:
+ *   - /api/health — liveness
+ *   - /api/config.json — release SHA + sentry env (public runtime config)
+ *   - /api/diag/models — analyser/synthesis model routing (admin)
+ *   - /api/debates?limit=20 — for in-flight count and last completion
+ *
+ * Historical note: an earlier build had an enriched admin-only
+ * /diag/health returning {debates_in_flight, release, failure_rate_1h,
+ * …}. That endpoint no longer exists; /api/diag/health is now a
+ * liveness alias returning {status:"ok"}. This handler reconstructs the
+ * equivalent status client-side.
+ */
 export async function lqcStatus() {
   try {
-    const [health, debates] = await Promise.all([
-      lqc.getDiagHealth(),
-      lqc.listDebates({ limit: 5 }),
+    const [liveCheck, cfg, models, debates] = await Promise.all([
+      lqc.getDiagHealth().catch((err) => ({ error: err.message })),
+      lqc.getPublicConfig().catch((err) => ({ error: err.message })),
+      lqc.getModelsDiag().catch((err) => ({ error: err.message })),
+      lqc.listDebates({ limit: 20 }).catch((err) => ({ error: err.message })),
     ]);
+
+    const up = liveCheck && liveCheck.status === 'ok';
+    const release = cfg?.release ?? 'unknown';
+    const envName = cfg?.sentry_environment ?? 'unknown';
+
+    const debatesArr = Array.isArray(debates) ? debates : [];
+    const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
+    const inFlight = debatesArr.filter((d) => !TERMINAL.has((d.status || '').toLowerCase())).length;
+    const completed = debatesArr.filter((d) => (d.status || '').toLowerCase() === 'completed');
+    const lastCompletion = completed
+      .map((d) => d.completed_at)
+      .filter(Boolean)
+      .sort()
+      .slice(-1)[0] || null;
+
+    const modelRoute = models && !models.error
+      ? `${models.analysis_model || '?'} @ ${models.analysis_base_url || '?'}`
+      : `unavailable (${models?.error || 'admin token mismatch?'})`;
+
     const lines = [
       `*LQ Council status*`,
-      `Release: ${health.release}`,
-      `In flight: ${health.debates_in_flight}`,
-      `Last completion: ${timeAgo(health.last_completion_ts)} (${health.last_completion_ts || 'never'})`,
-      `Failure rate (1h): ${pct(health.failure_rate_1h)} over ${health.terminal_1h} terminal (${health.failures_1h} failed)`,
+      `Backend: ${up ? 'up' : 'DOWN'}  |  release: ${release}  |  env: ${envName}`,
+      `LLM route: ${modelRoute}`,
+      `In flight: ${inFlight}  |  last completion: ${lastCompletion ? `${lastCompletion} (${timeAgo(lastCompletion)})` : 'none in recent window'}`,
     ];
-    if (debates && debates.length > 0) {
+
+    const recent = debatesArr.slice(0, 5);
+    if (recent.length > 0) {
       lines.push('', '*Recent debates:*');
-      for (const d of debates) {
+      for (const d of recent) {
         lines.push(`  - [${d.status}] ${truncate(d.topic, 80)} (${d.id.slice(0, 8)})`);
       }
+    } else if (debates && debates.error) {
+      lines.push('', `(could not list debates: ${debates.error})`);
     }
+
     return lines.join('\n');
   } catch (err) {
     return `LQ Council status check failed: ${err.message}`;
