@@ -51,4 +51,38 @@ describe('lqcouncil client URL composition', () => {
     // yield the /api-suffixed form.
     assert.equal(baseUrl(), 'http://127.0.0.1:3100/api');
   });
+
+  it('live request() composes paths with the /api prefix preserved', async () => {
+    // Regression guard: `new URL(path, base)` with an absolute `path`
+    // like `/debates` silently discards the base's pathname and keeps
+    // only the origin. If request() ever goes back to that pattern, the
+    // /api prefix gets stripped and every lqc_* tool returns 404.
+    //
+    // We mock fetch and assert the URL it's called with ends in
+    // `/api/debates`, not `/debates`.
+    const calls = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (urlOrObj, init) => {
+      const u = typeof urlOrObj === 'string' ? urlOrObj : urlOrObj.url;
+      calls.push(u);
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      const { listDebates, listBots, getPublicConfig, getModelsDiag, getDiagHealth } = await loadClientModule();
+      await listDebates({ limit: 5 });
+      await listBots();
+      await getPublicConfig();
+      await getModelsDiag();
+      await getDiagHealth();
+      assert.ok(calls.length === 5, `expected 5 fetch calls, got ${calls.length}`);
+      assert.match(calls[0], /\/api\/debates\?/, 'listDebates must hit /api/debates');
+      assert.match(calls[1], /\/api\/bots$/, 'listBots must hit /api/bots');
+      assert.match(calls[2], /\/api\/config\.json$/, 'getPublicConfig must hit /api/config.json');
+      assert.match(calls[3], /\/api\/diag\/models$/, 'getModelsDiag must hit /api/diag/models');
+      assert.match(calls[4], /\/api\/diag\/health$/, 'getDiagHealth must hit /api/diag/health');
+      for (const u of calls) assert.ok(!/\/api\/api\//.test(u), `double-prefix in ${u}`);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });
