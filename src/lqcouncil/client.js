@@ -1,13 +1,19 @@
 // src/lqcouncil/client.js — thin HTTP wrapper around the Bot Council API.
 //
 // Clint co-runs with bot-council on EVO, so the default base URL is the
-// loopback address that skips Vercel proxy + Tailscale Funnel. Reads
-// LQC_API_URL, LQC_ADMIN_TOKEN, LQC_ENABLED from config. All methods
-// resolve with parsed JSON or reject with a short error string suitable
-// for surfacing in WhatsApp.
+// loopback address (skips the Cloudflare Tunnel). Reads LQC_API_URL,
+// LQC_ADMIN_TOKEN, LQC_ENABLED from config. All methods resolve with
+// parsed JSON or reject with a short error string suitable for
+// surfacing in WhatsApp.
 //
 // Timeout is 10s per request; no retries (user-initiated — surface
 // failures fast instead of hiding them).
+//
+// Path contract: bot-council mounts every JSON route under `/api/*` in
+// production (same-origin with the SvelteKit frontend). `baseUrl()`
+// appends `/api` so callers pass un-prefixed paths like `/debates`,
+// `/bots`, `/diag/models`. LQC_API_URL may be either `http://host:port`
+// or `http://host:port/api`; both are normalised to the latter.
 
 import config from '../config.js';
 import logger from '../logger.js';
@@ -19,9 +25,28 @@ export function isEnabled() {
   return config.lqcEnabled && !!config.lqcApiUrl && !!config.lqcAdminToken;
 }
 
-/** Base URL without trailing slash. */
-function baseUrl() {
-  return (config.lqcApiUrl || 'http://127.0.0.1:3100').replace(/\/+$/, '');
+/**
+ * Normalise any LQC_API_URL-shaped input to `<origin>/api`. Accepts
+ * `http://host:port`, `http://host:port/`, `http://host:port/api`, and
+ * `http://host:port/api/` — all produce `http://host:port/api`.
+ *
+ * Exported as a pure function so tests can exercise every shape without
+ * fighting with the config singleton.
+ */
+export function normaliseApiBase(input) {
+  const raw = (input && typeof input === 'string' ? input : '').trim() || 'http://127.0.0.1:3100';
+  const origin = raw
+    .replace(/\/+$/, '')
+    .replace(/\/api$/, '');
+  return origin + '/api';
+}
+
+/**
+ * Base URL including the `/api` prefix. Thin wrapper over
+ * `normaliseApiBase` that reads the live config.
+ */
+export function baseUrl() {
+  return normaliseApiBase(config.lqcApiUrl);
 }
 
 /** Common request helper. Throws on non-2xx with a human-readable message. */
@@ -80,6 +105,29 @@ function safeParseJson(text) {
 
 export async function getDiagHealth() {
   return request('GET', '/diag/health');
+}
+
+/**
+ * Public runtime config served by bot-council to the SvelteKit bundle.
+ * Returns `{publishable_key, sentry_environment, release, api_base}`;
+ * `release` is the git SHA the backend was built from — useful in
+ * `lqc_status` since `/api/diag/health` only returns `{status:"ok"}`.
+ *
+ * This endpoint does not require auth but `request()` attaches a Bearer
+ * anyway; that's a no-op for config.json.
+ */
+export async function getPublicConfig() {
+  return request('GET', '/config.json');
+}
+
+/**
+ * Admin-only: effective model routing for analyser + final-synthesis.
+ * Returns `{analysis_base_url, analysis_model, final_synthesis_base_url,
+ * final_synthesis_model, …}`. Answers "is Clint still on MiniMax, or has
+ * it fallen back to the local llama-server?".
+ */
+export async function getModelsDiag() {
+  return request('GET', '/diag/models');
 }
 
 export async function listDebates({ limit = 20, status = null } = {}) {
