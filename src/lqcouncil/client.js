@@ -55,7 +55,13 @@ async function request(method, path, { body = null, query = null, timeoutMs = DE
     throw new Error('LQ Council integration is disabled (LQC_ENABLED=false or missing LQC_API_URL/LQC_ADMIN_TOKEN)');
   }
 
-  const url = new URL(path, baseUrl() + '/');
+  // Compose via string concatenation, NOT `new URL(path, base)`. The
+  // two-arg URL constructor treats an absolute `path` (leading `/`) as
+  // origin-relative — it would silently discard the `/api` prefix baked
+  // into `baseUrl()`. That was the original bug this module was written
+  // to fix; do not reintroduce it.
+  const pathWithLeadingSlash = path.startsWith('/') ? path : `/${path}`;
+  const url = new URL(baseUrl() + pathWithLeadingSlash);
   if (query) {
     for (const [k, v] of Object.entries(query)) {
       if (v !== null && v !== undefined) url.searchParams.set(k, String(v));
