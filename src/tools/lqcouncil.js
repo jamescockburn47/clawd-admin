@@ -452,12 +452,13 @@ export async function lqcDryRunDebate({ endpoint_url, token, topic, role = 'prop
     if (bodySize > 512 * 1024) {
       schemaErrors.push(`body too large: ${bodySize} bytes (limit 524288)`);
     }
-    // confidence is optional at round 0; only warn if present but wrong.
+    // confidence is fully optional (dropped the round 1-4 requirement
+    // 2026-04-22). Only type-check when present.
     if ('confidence' in parsed && parsed.confidence !== null && parsed.confidence !== undefined) {
       if (!Number.isInteger(parsed.confidence)) {
-        schemaErrors.push(`confidence must be an integer (got ${typeof parsed.confidence} ${parsed.confidence}) — round 0 can omit it`);
+        schemaErrors.push(`confidence present but not an integer (got ${typeof parsed.confidence} ${parsed.confidence}) — use 70 not 0.7, or omit the field`);
       } else if (parsed.confidence < 0 || parsed.confidence > 100) {
-        schemaErrors.push(`confidence out of range 0-100 (got ${parsed.confidence})`);
+        schemaErrors.push(`confidence out of 0-100 (got ${parsed.confidence})`);
       }
     }
     schemaOk = schemaErrors.length === 0;
@@ -1228,7 +1229,7 @@ function _promptForRound(round, topic, role) {
       `Topic: ${topic}`,
       `Your role: ${role}`,
       '',
-      'Round 1 — Anonymous Distribution. Review the anonymised round-0 positions in `context`. Identify the single strongest argument opposing your position, and state exactly what evidence or reasoning would change your mind. Return `response` and an integer `confidence` 0-100.',
+      'Round 1 — Anonymous Distribution. Review the anonymised round-0 positions in `context`. Identify the single strongest argument opposing your position, and state exactly what evidence or reasoning would change your mind. Return `response` (string).',
     ].join('\n');
   }
   if (round === 2) {
@@ -1252,7 +1253,7 @@ function _promptForRound(round, topic, role) {
     `Topic: ${topic}`,
     `Your role: ${role}`,
     '',
-    'Round 4 — Final Position. Review the full prior context. State your final position with an integer `confidence` 0-100. ALSO return a `position_change` object with fields {changed:boolean, from_summary, to_summary, reason}. The position_change is MANDATORY this round.',
+    'Round 4 — Final Position. Review the full prior context. State your final position in `response`. ALSO return a `position_change` object with fields {changed:boolean, from_summary, to_summary, reason}. The position_change is MANDATORY this round.',
   ].join('\n');
 }
 
@@ -1268,14 +1269,17 @@ function _validateRoundResponse(round, parsed, bodySize) {
   if (bodySize > 512 * 1024) {
     errs.push(`body too large: ${bodySize} bytes (limit 524288) — schema_invalid_value`);
   }
-  if (round >= 1) {
+  // `confidence` is OPTIONAL on all rounds (dropped 2026-04-22 because
+  // the value drove no downstream decision; peer scoring uses a
+  // separate round-level `scores` payload). Type-check only when the
+  // field is present so authors who DO return it still get useful
+  // errors.
+  if ('confidence' in parsed && parsed.confidence !== null && parsed.confidence !== undefined) {
     const c = parsed.confidence;
-    if (c === null || c === undefined) {
-      errs.push('round >= 1 requires `confidence` (integer 0-100)');
-    } else if (!Number.isInteger(c)) {
-      errs.push(`confidence must be an integer (got ${typeof c} ${c}) — schema_invalid_type (often 0.7 instead of 70)`);
+    if (!Number.isInteger(c)) {
+      errs.push(`confidence present but not an integer (got ${typeof c} ${c}) — use 70 not 0.7, or omit the field entirely`);
     } else if (c < 0 || c > 100) {
-      errs.push(`confidence out of 0-100 (got ${c}) — schema_invalid_value`);
+      errs.push(`confidence out of 0-100 (got ${c}) — schema_invalid_value, or omit the field entirely`);
     }
   }
   if (round === 2) {
