@@ -45,22 +45,26 @@ export async function buildFailureNudges() {
   if (active.length === 0) return [];
   const out = [];
   for (const bot of active) {
+    // /api/bots/{id}/history returns per-DEBATE aggregates, not per-round.
+    // Each record carries {rounds_total, abstained_rounds, invalid_rounds,
+    // ...}. Sum across debates to get round-level abstention rate.
     const history = await lqc.getBotHistory(bot.id, { limit: 20 }).catch(() => []);
-    if (history.length < 5) continue; // need enough signal
-    const failures = history.filter((r) => r.abstained || !r.valid).length;
-    const rate = failures / history.length;
-    if (rate < threshold()) continue;
-    const kindCounts = new Map();
-    for (const r of history) {
-      if (r.error_kind) kindCounts.set(r.error_kind, (kindCounts.get(r.error_kind) || 0) + 1);
+    if (history.length === 0) continue;
+    let totalRounds = 0;
+    let badRounds = 0;
+    for (const d of history) {
+      totalRounds += d.rounds_total || 0;
+      badRounds += (d.abstained_rounds || 0) + (d.invalid_rounds || 0);
     }
-    const dominant = [...kindCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (totalRounds < 5) continue; // need enough signal
+    const rate = badRounds / totalRounds;
+    if (rate < threshold()) continue;
     out.push({
       bot,
-      total: history.length,
-      failures,
+      debates: history.length,
+      totalRounds,
+      badRounds,
       rate,
-      dominantKind: dominant ? dominant[0] : null,
       submittedBy: bot.submitted_by || null,
     });
   }
@@ -85,8 +89,7 @@ export async function checkFailureNudge(todayStr, hours, minutes) {
     const lines = [`*LQ Council: bots needing attention*`, ''];
     for (const n of nudges.slice(0, 10)) {
       const author = n.submittedBy ? ` (submitted by ${n.submittedBy})` : '';
-      const kind = n.dominantKind ? `, dominant failure: ${n.dominantKind}` : '';
-      lines.push(`  • ${n.bot.name}${author}: ${Math.round(n.rate * 100)}% failure over last ${n.total} rounds${kind}`);
+      lines.push(`  • ${n.bot.name}${author}: ${Math.round(n.rate * 100)}% abstention/invalid rate (${n.badRounds}/${n.totalRounds} rounds across ${n.debates} debates)`);
       lines.push(`    Run: lqc_bot_diagnose ${n.bot.id}`);
     }
     if (nudges.length > 10) lines.push(`  … plus ${nudges.length - 10} more`);

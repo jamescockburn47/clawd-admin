@@ -179,16 +179,22 @@ export async function lqcListBots(input = {}) {
 export async function lqcBotSchema() {
   try {
     const schema = await lqc.getBotSchema();
-    const lines = [
-      `*Bot wire schema* (${schema.dialect}, harness v${schema.version})`,
-      '',
-      '*DebateRoundRequest* (sent by the harness to your /debate endpoint):',
-      describeSchema(schema.request),
-      '',
-      '*DebateRoundResponse* (your bot returns):',
-      describeSchema(schema.response),
-    ];
-    return lines.join('\n');
+    const sections = ['*Bot wire schema*'];
+    if (schema.deprecated) {
+      const note = [
+        '_Note: this endpoint is marked deprecated on the backend._',
+        schema.replacement ? `_Replacement: ${schema.replacement}_` : null,
+        '_Schema content below is still authoritative for the wire contract._',
+      ].filter(Boolean).join('\n');
+      sections.push(note);
+    }
+    sections.push(
+      '*DebateRoundRequest* (sent by the harness to your /debate endpoint):\n' + describeSchema(schema.request),
+    );
+    sections.push(
+      '*DebateRoundResponse* (your bot returns):\n' + describeSchema(schema.response),
+    );
+    return sections.join('\n\n');
   } catch (err) {
     return `Failed to fetch bot schema: ${err.message}`;
   }
@@ -249,48 +255,70 @@ export async function lqcBotDiagnose(input) {
   try {
     if (!input.bot_id) return 'bot_id is required. Use lqc_list_bots to find it.';
     const limit = Math.min(Math.max(parseInt(input.limit, 10) || 20, 5), 100);
+    // `/api/bots/{id}/history` returns per-DEBATE records, not per-round.
+    // Each record: {debate_id, topic, role, status, rounds_total,
+    // abstained_rounds, invalid_rounds, degraded_rounds, created_at,
+    // completed_at}. We aggregate across debates to get round-level stats.
     const history = await lqc.getBotHistory(input.bot_id, { limit });
     if (!history || history.length === 0) {
       return `No debate history for bot ${input.bot_id}. Either the bot has never been called, or the bot_id is wrong.`;
     }
-    const total = history.length;
-    const failed = history.filter((r) => r.abstained || !r.valid).length;
-    const byKind = new Map();
-    for (const r of history) {
-      if (!r.error_kind) continue;
-      const entry = byKind.get(r.error_kind) || { count: 0, latest: null, details: new Set() };
-      entry.count += 1;
-      entry.latest = entry.latest || r.created_at;
-      if (r.error_detail) entry.details.add(r.error_detail);
-      byKind.set(r.error_kind, entry);
+
+    const debatesSeen = history.length;
+    let totalRounds = 0;
+    let abstained = 0;
+    let invalid = 0;
+    let degraded = 0;
+    const perStatus = new Map();
+    for (const d of history) {
+      totalRounds += d.rounds_total || 0;
+      abstained += d.abstained_rounds || 0;
+      invalid += d.invalid_rounds || 0;
+      degraded += d.degraded_rounds || 0;
+      const st = d.status || 'unknown';
+      perStatus.set(st, (perStatus.get(st) || 0) + 1);
     }
+    const problemRounds = abstained + invalid;
+    const rate = totalRounds > 0 ? problemRounds / totalRounds : 0;
 
     const lines = [
       `*Bot diagnosis — ${input.bot_id.slice(0, 12)}*`,
-      `Recent rounds: ${total}  |  failed/abstained: ${failed}  |  failure rate: ${pct(failed / total)}`,
+      `Debates: ${debatesSeen}  |  rounds: ${totalRounds}  |  abstained: ${abstained}  |  invalid: ${invalid}${degraded ? `  |  degraded: ${degraded}` : ''}`,
+      `Abstention/invalid rate: ${pct(rate)} (${problemRounds}/${totalRounds})`,
     ];
 
-    if (byKind.size === 0) {
-      lines.push(
-        '',
-        failed === 0
-          ? 'No errors recorded in the last ' + total + ' rounds. Bot is healthy.'
-          : 'Abstentions present but none are classified yet. Older rounds pre-date the error_kind taxonomy — ask the bot author for server logs.',
-      );
+    const statusBreakdown = [...perStatus.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([s, n]) => `${s}×${n}`)
+      .join('  ');
+    lines.push(`Debate statuses: ${statusBreakdown}`);
+
+    if (problemRounds === 0) {
+      lines.push('', 'No abstentions or invalid responses across the surveyed debates. Bot is healthy.');
       return lines.join('\n');
     }
 
-    lines.push('', '*Failure breakdown (last ' + total + ' rounds):*');
-    const sorted = Array.from(byKind.entries()).sort((a, b) => b[1].count - a[1].count);
-    for (const [kind, entry] of sorted) {
-      const details = Array.from(entry.details).slice(0, 3).join('; ');
-      lines.push(`  • ${kind} ×${entry.count} (latest ${timeAgo(entry.latest)})${details ? ` — ${truncate(details, 200)}` : ''}`);
-    }
+    // Surface the specific debates where this bot struggled so the
+    // author can dig in. Sort by (abstained+invalid) desc.
+    const worst = history
+      .map((d) => ({
+        id: d.debate_id,
+        topic: d.topic,
+        status: d.status,
+        role: d.role,
+        bad: (d.abstained_rounds || 0) + (d.invalid_rounds || 0),
+        total: d.rounds_total || 0,
+      }))
+      .filter((d) => d.bad > 0)
+      .sort((a, b) => b.bad - a.bad)
+      .slice(0, 5);
 
-    lines.push('', '*Suggested remediations:*');
-    for (const [kind] of sorted.slice(0, 3)) {
-      const hint = ERROR_KIND_HINTS[kind] || 'See /bots/schema for field contract.';
-      lines.push(`  • ${kind}: ${hint}`);
+    if (worst.length > 0) {
+      lines.push('', '*Debates where this bot had issues:*');
+      for (const w of worst) {
+        lines.push(`  • [${w.status}] ${truncate(w.topic || '(no topic)', 80)} — ${w.bad}/${w.total} rounds (role=${w.role})\n      id: ${w.id}`);
+      }
+      lines.push('', 'Per-round error_kind is not exposed on this endpoint. For the specific classification (timeout / http_5xx / schema_missing_field / …), inspect the responses table on EVO for one of the debate IDs above, or check Sentry with `lqc_why_failed`.');
     }
 
     return lines.join('\n');
@@ -1097,39 +1125,44 @@ export async function lqcFailingBots(input = {}) {
 
     const failing = [];
     for (const bot of active) {
+      // historyLimit here is max debates to inspect. The API returns
+      // per-debate aggregates {abstained_rounds, invalid_rounds,
+      // rounds_total, ...}; aggregate across those to get a round-level
+      // abstention/invalid rate.
       const history = await lqc.getBotHistory(bot.id, { limit: historyLimit }).catch(() => []);
-      if (history.length < 5) continue; // not enough signal
-      const failures = history.filter((r) => r.abstained || !r.valid).length;
-      const rate = failures / history.length;
-      if (rate < threshold) continue;
-      const kindCounts = new Map();
-      for (const r of history) {
-        if (r.error_kind) kindCounts.set(r.error_kind, (kindCounts.get(r.error_kind) || 0) + 1);
+      if (history.length === 0) continue;
+      let totalRounds = 0;
+      let badRounds = 0;
+      for (const d of history) {
+        totalRounds += d.rounds_total || 0;
+        badRounds += (d.abstained_rounds || 0) + (d.invalid_rounds || 0);
       }
-      const dominant = [...kindCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+      if (totalRounds < 5) continue; // not enough signal
+      const rate = badRounds / totalRounds;
+      if (rate < threshold) continue;
       failing.push({
         id: bot.id,
         name: bot.name,
         submittedBy: bot.submitted_by || null,
-        total: history.length,
-        failures,
+        debates: history.length,
+        totalRounds,
+        badRounds,
         rate,
-        dominantKind: dominant ? dominant[0] : null,
       });
     }
 
     if (failing.length === 0) {
-      return `All ${active.length} active bots healthy (failure rate below ${pct(threshold)} over last ${historyLimit} rounds).`;
+      return `All ${active.length} active bots healthy (abstention/invalid rate below ${pct(threshold)} across the last ${historyLimit} debates each).`;
     }
 
     failing.sort((a, b) => b.rate - a.rate);
     const lines = [
-      `*Failing bots (threshold ${pct(threshold)}, last ${historyLimit} rounds):*`,
+      `*Bots above ${pct(threshold)} abstention/invalid rate (last ${historyLimit} debates each):*`,
       '',
     ];
     for (const f of failing) {
       lines.push(
-        `  • ${f.name} (${f.id.slice(0, 8)}) — ${pct(f.rate)} fail (${f.failures}/${f.total})${f.dominantKind ? `, dominant: ${f.dominantKind}` : ''}${f.submittedBy ? `\n      owner: ${f.submittedBy}` : ''}\n      → lqc_bot_diagnose with bot_id ${f.id} for specifics.`,
+        `  • ${f.name} (${f.id.slice(0, 8)}) — ${pct(f.rate)} (${f.badRounds}/${f.totalRounds} rounds across ${f.debates} debates)${f.submittedBy ? `\n      owner: ${f.submittedBy}` : ''}\n      id: ${f.id}\n      → lqc_bot_diagnose with bot_id ${f.id} for per-debate detail.`,
       );
     }
     return lines.join('\n');
