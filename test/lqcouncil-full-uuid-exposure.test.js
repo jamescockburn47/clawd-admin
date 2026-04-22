@@ -102,10 +102,15 @@ describe('list tools expose full UUIDs for LLM follow-up', () => {
     }
   });
 
-  it('lqcFailingBots already emits full UUIDs (regression floor)', async () => {
-    // This already worked — keep a guard so it stays that way.
+  it('lqcFailingBots emits full UUIDs for LLM follow-up', async () => {
     const real = globalThis.fetch;
-    const history = Array.from({ length: 20 }, () => ({ abstained: true, valid: false, error_kind: 'timeout' }));
+    // Per-debate aggregates; 20/20 rounds abstained across 4 debates.
+    const history = [
+      { debate_id: 'd1', topic: 't', status: 'complete', role: 'proponent',       rounds_total: 5, abstained_rounds: 5, invalid_rounds: 0, created_at: '2026-04-21' },
+      { debate_id: 'd2', topic: 't', status: 'complete', role: 'skeptic',         rounds_total: 5, abstained_rounds: 5, invalid_rounds: 0, created_at: '2026-04-21' },
+      { debate_id: 'd3', topic: 't', status: 'complete', role: 'empiricist',      rounds_total: 5, abstained_rounds: 5, invalid_rounds: 0, created_at: '2026-04-21' },
+      { debate_id: 'd4', topic: 't', status: 'complete', role: 'devils_advocate', rounds_total: 5, abstained_rounds: 5, invalid_rounds: 0, created_at: '2026-04-21' },
+    ];
     mockFetch({
       '/api/bots': { status: 200, body: [{ id: 'de1c7eae-b477-4373-ac97-72b0b80765e1', name: 'Akechi', status: 'active', submitted_by: 'user_x' }] },
       '/api/bots/de1c7eae-b477-4373-ac97-72b0b80765e1/history': { status: 200, body: history },

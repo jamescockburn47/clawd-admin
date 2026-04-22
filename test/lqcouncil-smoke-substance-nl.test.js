@@ -143,21 +143,25 @@ describe('lqc_debate_summary', () => {
 // ── lqc_failing_bots ─────────────────────────────────────────────────
 
 describe('lqc_failing_bots', () => {
-  it('surfaces only bots above the failure threshold', async () => {
+  // /api/bots/{id}/history returns per-DEBATE aggregates. Each record has
+  // rounds_total + abstained_rounds + invalid_rounds etc. Helper builds a
+  // plausible list given a target fail fraction across 20 rounds total.
+  const perDebateHistory = (badFraction) => {
+    // 4 debates of 5 rounds each = 20 rounds total.
+    const bad = Math.round(badFraction * 20);
+    // Spread the bad rounds across debates roughly.
+    const per = Math.floor(bad / 4);
+    const leftover = bad - per * 4;
+    return [
+      { debate_id: 'd1', topic: 't1', status: 'complete', role: 'proponent', rounds_total: 5, abstained_rounds: per + (leftover > 0 ? 1 : 0), invalid_rounds: 0, created_at: '2026-04-21T00:00:00Z' },
+      { debate_id: 'd2', topic: 't2', status: 'complete', role: 'skeptic', rounds_total: 5, abstained_rounds: per + (leftover > 1 ? 1 : 0), invalid_rounds: 0, created_at: '2026-04-21T00:00:00Z' },
+      { debate_id: 'd3', topic: 't3', status: 'complete', role: 'empiricist', rounds_total: 5, abstained_rounds: per + (leftover > 2 ? 1 : 0), invalid_rounds: 0, created_at: '2026-04-21T00:00:00Z' },
+      { debate_id: 'd4', topic: 't4', status: 'complete', role: 'devils_advocate', rounds_total: 5, abstained_rounds: per, invalid_rounds: 0, created_at: '2026-04-21T00:00:00Z' },
+    ];
+  };
+
+  it('surfaces only bots above the abstention/invalid threshold', async () => {
     const real = globalThis.fetch;
-    const history = (failures) => {
-      const out = [];
-      for (let i = 0; i < 20; i++) {
-        const failed = i < failures;
-        out.push({
-          abstained: failed,
-          valid: !failed,
-          error_kind: failed ? 'timeout' : null,
-          created_at: '2026-04-21T00:00:00Z',
-        });
-      }
-      return out;
-    };
     mockFetch({
       'GET /api/bots': {
         status: 200,
@@ -167,27 +171,27 @@ describe('lqc_failing_bots', () => {
           { id: 'bot-inactive-0001', name: 'Inactive', status: 'inactive' },
         ],
       },
-      'GET /api/bots/bot-healthy-0001/history': { status: 200, body: history(2) },   // 10% — passes
-      'GET /api/bots/bot-broken-0001/history': { status: 200, body: history(15) },   // 75% — fails
-      'GET /api/bots/bot-inactive-0001/history': { status: 200, body: history(20) }, // filtered out by status
+      'GET /api/bots/bot-healthy-0001/history': { status: 200, body: perDebateHistory(0.1) },   // 10% — passes
+      'GET /api/bots/bot-broken-0001/history': { status: 200, body: perDebateHistory(0.75) },   // 75% — fails
+      'GET /api/bots/bot-inactive-0001/history': { status: 200, body: perDebateHistory(1.0) },  // filtered out by status
     });
     try {
       const { lqcFailingBots } = await loadHandlers();
       const out = await lqcFailingBots({ threshold: 0.3 });
-      assert.match(out, /Failing bots/);
+      assert.match(out, /Bots above/);
       assert.match(out, /Broken/);
       assert.ok(!out.includes('Healthy'), 'Healthy bot should not appear');
       assert.ok(!out.includes('Inactive'), 'Inactive bots are filtered out');
-      assert.match(out, /dominant: timeout/);
       assert.match(out, /owner: user_1/);
+      // Full UUID still exposed on its own line for LLM follow-up.
+      assert.match(out, /id: bot-broken-0001/);
     } finally {
       globalThis.fetch = real;
     }
   });
 
-  it('returns all-healthy message when nothing fails', async () => {
+  it('returns all-healthy message when nothing is above threshold', async () => {
     const real = globalThis.fetch;
-    const healthy = Array.from({ length: 20 }, () => ({ abstained: false, valid: true, error_kind: null }));
     mockFetch({
       'GET /api/bots': {
         status: 200,
@@ -196,8 +200,8 @@ describe('lqc_failing_bots', () => {
           { id: 'b2', name: 'B2', status: 'active' },
         ],
       },
-      'GET /api/bots/b1/history': { status: 200, body: healthy },
-      'GET /api/bots/b2/history': { status: 200, body: healthy },
+      'GET /api/bots/b1/history': { status: 200, body: perDebateHistory(0) },
+      'GET /api/bots/b2/history': { status: 200, body: perDebateHistory(0) },
     });
     try {
       const { lqcFailingBots } = await loadHandlers();
