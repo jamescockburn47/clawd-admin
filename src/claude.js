@@ -29,16 +29,32 @@ const MAX_TOOL_LOOPS = 5;
 class LLMService {
   /** @param {{ anthropicApiKey: string, claudeModel: string, minimaxApiKey?: string, minimaxBaseUrl?: string, minimaxModel?: string }} opts */
   constructor(opts) {
-    this._claudeClient = new Anthropic({ apiKey: opts.anthropicApiKey });
+    // Claude is OPTIONAL. When ANTHROPIC_API_KEY is empty, the client
+    // is not constructed and every Claude code path gracefully routes
+    // to MiniMax (or returns a clear "temporarily unavailable" message
+    // when MiniMax also fails).
+    this._claudeClient = opts.anthropicApiKey
+      ? new Anthropic({ apiKey: opts.anthropicApiKey })
+      : null;
     this._minimaxClient = opts.minimaxApiKey
       ? new Anthropic({ apiKey: opts.minimaxApiKey, baseURL: opts.minimaxBaseUrl })
       : null;
+    if (!this._claudeClient && !this._minimaxClient) {
+      throw new Error(
+        'LLMService: at least one of MINIMAX_API_KEY or ANTHROPIC_API_KEY must be set',
+      );
+    }
     this._defaultClient = this._minimaxClient || this._claudeClient;
     this._defaultModel = this._minimaxClient ? opts.minimaxModel : opts.claudeModel;
     this._claudeModel = opts.claudeModel;
     this._claudeBreaker = new CircuitBreaker('claude', { threshold: 3, resetTimeout: 30000 });
     this._minimaxBreaker = new CircuitBreaker('minimax', { threshold: 3, resetTimeout: 30000 });
     this._lastToolsCalled = [];
+  }
+
+  /** True when the optional Claude client is configured. */
+  _hasClaude() {
+    return this._claudeClient !== null;
   }
 
   getLastToolsCalled() { return this._lastToolsCalled; }
@@ -58,10 +74,18 @@ class LLMService {
   }
 
   _selectClient(userWantsClaude) {
-    const activeClient = userWantsClaude ? this._claudeClient : this._defaultClient;
-    const activeModel = userWantsClaude ? this._claudeModel : this._defaultModel;
-    const breaker = userWantsClaude ? this._claudeBreaker : (this._minimaxClient ? this._minimaxBreaker : this._claudeBreaker);
-    return { activeClient, activeModel, breaker };
+    // When the user explicitly asked for Claude but Claude is not
+    // configured, silently fall through to the default MiniMax path
+    // rather than crashing on a null client. Caller gets a `droppedClaude`
+    // flag so it can log the degrade.
+    const wantsClaudeButUnavailable = userWantsClaude && !this._hasClaude();
+    const effectiveClaude = userWantsClaude && this._hasClaude();
+    const activeClient = effectiveClaude ? this._claudeClient : this._defaultClient;
+    const activeModel = effectiveClaude ? this._claudeModel : this._defaultModel;
+    const breaker = effectiveClaude
+      ? this._claudeBreaker
+      : this._minimaxClient ? this._minimaxBreaker : this._claudeBreaker;
+    return { activeClient, activeModel, breaker, droppedClaude: wantsClaudeButUnavailable };
   }
 
   /** Run the tool use loop, returning final response */
@@ -82,8 +106,12 @@ class LLMService {
       null,
     );
 
-    // Fallback: MiniMax failed → Claude
-    if (!response && activeClient !== this._claudeClient && this._minimaxClient) {
+    // Fallback: MiniMax failed → Claude (only when Claude is configured).
+    // When ANTHROPIC_API_KEY is empty we deliberately do NOT cascade to
+    // Claude — the caller gets `response === null` and surfaces a
+    // "temporarily unavailable" message. This preserves the
+    // MiniMax-primary-only routing contract.
+    if (!response && activeClient !== this._claudeClient && this._minimaxClient && this._claudeClient) {
       logger.warn('MiniMax unavailable, falling back to Claude');
       loopClient = this._claudeClient;
       loopModel = this._claudeModel;
@@ -164,9 +192,12 @@ class LLMService {
 
     const { category, source: classifySource, forceClaude, reason: routeReason } = route;
     const userWantsClaude = CLAUDE_REQUEST_PATTERNS.test(context);
-    const { activeClient, activeModel, breaker } = this._selectClient(userWantsClaude);
+    const { activeClient, activeModel, breaker, droppedClaude } = this._selectClient(userWantsClaude);
+    if (droppedClaude) {
+      logger.info({ sender: senderJid }, 'user asked for Claude but ANTHROPIC_API_KEY unset — using MiniMax');
+    }
 
-    logger.info({ category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid, model: activeModel, explicitClaude: userWantsClaude }, 'routed');
+    logger.info({ category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid, model: activeModel, explicitClaude: userWantsClaude, claudeAvailable: this._hasClaude() }, 'routed');
 
     const categoryTools = getToolsForCategory(category, tools);
 
