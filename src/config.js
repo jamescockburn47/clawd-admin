@@ -9,8 +9,14 @@ const intFromEnv = (fallback) => z.string().optional().transform(v => parseInt(v
 const floatFromEnv = (fallback) => z.string().optional().transform(v => parseFloat(v) || fallback).pipe(z.number());
 
 const ConfigSchema = z.object({
-  // Required
-  ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
+  // Cloud LLM providers. Clint needs AT LEAST ONE of {MINIMAX_API_KEY,
+  // ANTHROPIC_API_KEY} to function. MiniMax is the primary provider;
+  // Anthropic is an optional explicit-opt-in path. When ANTHROPIC_API_KEY
+  // is unset/empty, the Claude client is not constructed, all
+  // forceClaude routing gracefully routes to MiniMax, and the
+  // MiniMax-failed fallback returns a \"temporarily unavailable\"
+  // message instead of cascading to Claude.
+  ANTHROPIC_API_KEY: z.string().optional().default(''),
 
   // Cloud models
   CLAUDE_MODEL: z.string().optional().default('claude-sonnet-4-6'),

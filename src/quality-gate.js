@@ -1,11 +1,23 @@
-// Quality gate — Opus 4.6 review of complex responses
+// Quality gate — secondary LLM review of complex responses.
+//
+// Historically used Claude Opus for the critique pass. When the
+// optional ANTHROPIC_API_KEY is unset, falls back to MiniMax (still via
+// the Anthropic SDK surface — MiniMax speaks the same API shape). When
+// neither is configured, the gate silently skips (runCritique returns
+// the original text unchanged).
 
 import Anthropic from '@anthropic-ai/sdk';
 import config from './config.js';
 import logger from './logger.js';
 
-// Claude client for critique (always Opus)
-const claudeClient = new Anthropic({ apiKey: config.anthropicApiKey });
+// Prefer Claude for critique when available (its critique quality is
+// notably stronger on this prompt). Fall back to MiniMax otherwise so
+// the gate still runs. When neither is set the gate is disabled.
+const critiqueClient = config.anthropicApiKey
+  ? { client: new Anthropic({ apiKey: config.anthropicApiKey }), defaultModel: 'claude-opus-4-6', provider: 'claude' }
+  : (config.minimaxApiKey
+    ? { client: new Anthropic({ apiKey: config.minimaxApiKey, baseURL: config.minimaxBaseUrl }), defaultModel: config.minimaxModel, provider: 'minimax' }
+    : null);
 
 const CRITIQUE_SYSTEM = `You are a ruthless quality gate. You review Clint's draft responses before they're sent to a WhatsApp group of sharp, critical people who will instantly spot AI slop.
 
@@ -67,11 +79,15 @@ export function shouldCritique(category, text, useClaudeClient) {
  * @returns {Promise<string>} - Refined or original text
  */
 export async function runCritique(text, category, trackTokensFn) {
+  if (!critiqueClient) {
+    logger.info('self-critique: skipped (no LLM provider configured)');
+    return text;
+  }
   try {
-    const critiqueModel = process.env.CRITIQUE_MODEL || 'claude-opus-4-6';
-    logger.info({ category, responseLen: text.length, model: critiqueModel }, 'self-critique: reviewing response');
+    const critiqueModel = process.env.CRITIQUE_MODEL || critiqueClient.defaultModel;
+    logger.info({ category, responseLen: text.length, model: critiqueModel, provider: critiqueClient.provider }, 'self-critique: reviewing response');
 
-    const critiqueResponse = await claudeClient.messages.create({
+    const critiqueResponse = await critiqueClient.client.messages.create({
       model: critiqueModel,
       max_tokens: config.maxResponseTokens * 4,
       system: CRITIQUE_SYSTEM,
