@@ -109,7 +109,7 @@ describe('lqc_dry_run_debate', () => {
         token: 'x',
         topic: 'test',
       });
-      assert.match(out, /confidence must be an integer/);
+      assert.match(out, /confidence present but not an integer/);
     } finally {
       badConf.server.close();
     }

@@ -269,13 +269,16 @@ describe('lqc_full_smoke_test', () => {
     }
   });
 
-  it('flags float confidence as schema_invalid_type with specific remediation', async () => {
+  it('still flags float confidence when the field is present (type-checks, does not require)', async () => {
+    // Confidence is optional. If the bot returns it as a float
+    // (0.7 instead of 70), we flag that as a fixable mistake. If the
+    // bot omits confidence entirely, nothing is flagged.
     const real = globalThis.fetch;
     globalThis.fetch = async (url, init) => {
       const body = JSON.parse(init.body);
       const round = body.round;
       const resp = { response: 'stub' };
-      if (round >= 1) resp.confidence = 0.7; // WRONG — should be 70
+      if (round >= 1) resp.confidence = 0.7; // WRONG shape (still flagged)
       if (round === 2) resp.challenge = { claim_targeted: 'x', counter_evidence: 'y', type: 'factual' };
       if (round === 4) resp.position_change = { changed: false, from_summary: 'a', to_summary: 'b', reason: 'c' };
       return new Response(JSON.stringify(resp), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -287,11 +290,38 @@ describe('lqc_full_smoke_test', () => {
         token: 'test-token',
         topic: 'Test topic',
       });
-      // Rounds 1,2,3,4 fail; round 0 passes (no confidence needed).
-      assert.match(out, /Passed 1\/5 rounds/);
+      // Round 0 passes (no confidence sent); rounds 1-4 fail on the
+      // malformed confidence value — all other required fields are fine.
       assert.match(out, /Round 0 \[PASS\]/);
-      assert.match(out, /confidence must be an integer/);
-      assert.match(out, /0-100 \(not 0\.7/);
+      assert.match(out, /confidence present but not an integer/);
+      assert.match(out, /use 70 not 0\.7/);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+
+  it('passes all rounds when confidence is entirely omitted', async () => {
+    // Regression guard: dropping the confidence requirement should
+    // mean a bot that returns only `response` + required round-specific
+    // fields passes without ever touching confidence.
+    const real = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      const body = JSON.parse(init.body);
+      const round = body.round;
+      const resp = { response: `stub r${round}` };
+      if (round === 2) resp.challenge = { claim_targeted: 'x', counter_evidence: 'y', type: 'factual' };
+      if (round === 4) resp.position_change = { changed: false, from_summary: 'a', to_summary: 'b', reason: 'c' };
+      return new Response(JSON.stringify(resp), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      const { lqcFullSmokeTest } = await loadHandlers();
+      const out = await lqcFullSmokeTest({
+        endpoint_url: 'https://bot.example.com/debate',
+        token: 'test-token',
+        topic: 'Test topic',
+      });
+      assert.match(out, /Full smoke test PASS/);
+      assert.match(out, /Passed 5\/5 rounds/);
     } finally {
       globalThis.fetch = real;
     }
@@ -343,11 +373,12 @@ describe('lqc_full_smoke_test', () => {
     assert.equal(_validateRoundResponse(0, { response: 'ok' }, 100).length, 0);
     assert.ok(_validateRoundResponse(0, { result: 'wrong-key' }, 100).length > 0);
 
-    // Round 1: response + integer confidence 0-100.
+    // Round 1: response required; confidence OPTIONAL — type-checked
+    // only when present.
     assert.equal(_validateRoundResponse(1, { response: 'ok', confidence: 50 }, 100).length, 0);
+    assert.equal(_validateRoundResponse(1, { response: 'ok' }, 100).length, 0, 'missing confidence on R1 is fine now');
     assert.ok(_validateRoundResponse(1, { response: 'ok', confidence: 0.5 }, 100).some((e) => /integer/.test(e)));
     assert.ok(_validateRoundResponse(1, { response: 'ok', confidence: 150 }, 100).some((e) => /0-100/.test(e)));
-    assert.ok(_validateRoundResponse(1, { response: 'ok' }, 100).some((e) => /confidence/.test(e)));
 
     // Round 2: + challenge with valid type.
     const goodR2 = { response: 'ok', confidence: 60, challenge: { claim_targeted: 'a', counter_evidence: 'b', type: 'factual' } };
