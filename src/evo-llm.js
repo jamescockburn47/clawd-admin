@@ -548,20 +548,39 @@ export async function classifyViaEvo(text, systemPrompt) {
   }
 }
 
-// Keep-alive ping — exercises inference path to prevent any idle-state degradation
+// Keep-alive ping — exercises inference path every scheduler tick (60 s)
+// to prevent GPU power-state downclock during idle periods. With
+// Qwen3.6-27B now on :8080 as the default chat AND classifier model, the
+// prompt cache being warm matters for first-response latency.
+//
+// Strategy: 60 s cadence (set by scheduler.js), max_tokens=1, and a
+// short realistic prompt so the token path is exercised rather than a
+// health-check shortcut. Cost per ping is ~100-200 ms on warm
+// hardware; on cold GPU the first ping after a quiet period is ~1 s
+// (exactly what we want — it's the cost we're paying to keep the
+// follow-up user request cheap).
+//
+// cache_prompt=true instructs llama-server to hold the KV-cache prefix
+// across calls. The ping itself primes the system-prompt-less short
+// path; real traffic uses its own prefixes on top. The main value of
+// this call is GPU-clock warming, not cache priming.
 export async function keepEvoWarm() {
   try {
     await evoFetch(`${config.evoLlmUrl}/v1/chat/completions`, {
       method: 'POST',
       body: JSON.stringify({
-        messages: [{ role: 'user', content: 'ping' }],
+        messages: [{ role: 'user', content: 'ok' }],
         max_tokens: 1,
         cache_prompt: true,
       }),
       timeout: TIMEOUTS.EVO_HEALTH_CHECK,
     });
-    logger.info('evo model kept warm');
+    // Keep the log level at info but downgrade to debug-frequency once
+    // journal noise becomes a concern (every-tick logs add up). For now
+    // keep visibility — it's useful evidence that the warm path is
+    // actually firing.
+    logger.info('evo model warm ping ok');
   } catch {
-    // EVO offline — ignore
+    // EVO offline — ignore; scheduler runs every tick, we'll retry.
   }
 }

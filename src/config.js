@@ -76,13 +76,19 @@ const ConfigSchema = z.object({
 
   // Model labels for system_status tool
   EVO_MAIN_MODEL_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (llama-server :8080, EVO X2, default chat)'),
-  EVO_CLASSIFIER_LABEL: z.string().optional().default('(retired — 0.6B classifier removed 2026-04-23)'),
-  EVO_PLANNER_LABEL: z.string().optional().default('qwen3-4b-instruct (llama-server :8085, EVO X2, primary router)'),
+  EVO_CLASSIFIER_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (shared with main on :8080 — 0.6B retired 2026-04-23)'),
+  EVO_PLANNER_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (shared with main on :8080 — 4B retired 2026-04-23)'),
 
   // Local models via llama.cpp — bot runs on EVO, all localhost
   EVO_LLM_URL: z.string().url().optional().default('http://localhost:8080'),
-  EVO_CLASSIFIER_URL: z.string().url().optional().default('http://localhost:8081'),
-  EVO_PLANNER_URL: z.string().url().optional().default('http://localhost:8085'),
+  // Classifier + planner now share the main Qwen3.6-27B on :8080
+  // (2026-04-23 consolidation). The separate 0.6B classifier service
+  // (:8081) and 4B planner service (:8085) were retired because running
+  // classification on the 27B gives materially better routing decisions
+  // and the single-model topology is simpler to reason about. Overrides
+  // remain available if a dedicated small model is ever brought back.
+  EVO_CLASSIFIER_URL: z.string().url().optional().default('http://localhost:8080'),
+  EVO_PLANNER_URL: z.string().url().optional().default('http://localhost:8080'),
   EVO_TOOL_ENABLED: boolFromEnv.default('true'),
   EVO_EMBED_URL: z.string().url().optional().default('http://localhost:8083'),
   EVO_DOCLING_URL: z.string().url().optional().default('http://localhost:8084'),
