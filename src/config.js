@@ -75,9 +75,9 @@ const ConfigSchema = z.object({
   DASHBOARD_TOKEN: z.string().optional().default(''),
 
   // Model labels for system_status tool
-  EVO_MAIN_MODEL_LABEL: z.string().optional().default('llama-server :8080 (EVO X2, main LLM)'),
-  EVO_CLASSIFIER_LABEL: z.string().optional().default('llama-server :8081 (EVO X2, classifier)'),
-  EVO_PLANNER_LABEL: z.string().optional().default('llama-server :8085 (EVO X2, 4B planner/classifier)'),
+  EVO_MAIN_MODEL_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (llama-server :8080, EVO X2, default chat)'),
+  EVO_CLASSIFIER_LABEL: z.string().optional().default('(retired — 0.6B classifier removed 2026-04-23)'),
+  EVO_PLANNER_LABEL: z.string().optional().default('qwen3-4b-instruct (llama-server :8085, EVO X2, primary router)'),
 
   // Local models via llama.cpp — bot runs on EVO, all localhost
   EVO_LLM_URL: z.string().url().optional().default('http://localhost:8080'),

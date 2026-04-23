@@ -93,7 +93,7 @@ WhatsApp admin assistant bot ("Clint", previously "Clawd") running on EVO X2, wi
 
 **Who uses it:** James (owner, full access) and MG (wife — calendar reading, todos, travel, web search only).
 
-**Tech:** Node.js 20+ ESM (migrating to TypeScript file-by-file, `tsx` runner), Baileys (WhatsApp), three-tier AI (local EVO free → MiniMax cheap → Claude premium), Rust dashboard on Pi, JSON file persistence. No database.
+**Tech:** Node.js 20+ ESM (migrating to TypeScript file-by-file, `tsx` runner), Baileys (WhatsApp), Qwen3.6-27B-Q8_0 local on EVO as default chat model (language + coding) with MiniMax as cloud fallback + vision path, Rust dashboard on Pi, JSON file persistence. No database.
 
 ## Architectural Invariants — BINDING
 
@@ -107,11 +107,12 @@ These are constraints the agent cannot infer from code. Do not revisit, reverse,
 - **Tailscale on all machines.** Pi `cnc`, EVO `james-nucbox-evo-x2`.
 - **All EVO servers run 24/7.** No sleep/wake timers.
 
-### Model Routing
-- **MiniMax M2.7 is the default cloud model.** ~8% of Claude's cost. All chat responses.
-- **Claude Opus 4.6 only on explicit request** ("ask claude", "use opus") or as quality gate for PLANNING, LEGAL, long EMAIL.
-- **EVO local models for vision, doc summarisation, and classification ONLY.** Never generate chat responses.
-- **4B classifier is the PRIMARY routing layer.** Keywords are fallback only (EVO down).
+### Model Routing (2026-04-23 Qwen3.6-27B swap)
+- **Qwen3.6-27B-Q8_0 local on EVO `:8080` is the DEFAULT chat model.** Handles every non-image chat response — language AND coding. Dense 27B, Apache 2.0, ~28 GB weights on GPU + ~4 GB KV cache, Q8_0 quant for near-reference quality. Replaces the previous "MiniMax default" + day/night swap scheme. One always-on model, no scheduled model swaps.
+- **MiniMax M2.7 is the FALLBACK path.** Invoked automatically when Qwen local is unreachable (llama-server crash, GPU hang, model-load failure) AND on every image-bearing message (dense 27B has no vision head; MiniMax's vision endpoint handles photos).
+- **Claude / Opus is OPTIONAL and dormant.** `ANTHROPIC_API_KEY` is no longer set by default. If re-added it only fires on explicit "ask claude" / "use opus" invocation. No automatic cascade.
+- **4B classifier on `:8085` is the PRIMARY routing layer.** Unchanged. Keywords are fallback only (EVO down). Do not conflate the classifier with the chat model — they are separate llama-server instances with very different latency budgets.
+- **EVO llama-server inventory.** `:8080` Qwen3.6-27B (chat+tools+coding). `:8083` Qwen3-Embedding-8B (memory). `:8084` granite-docling (PDF/doc parsing). `:8085` Qwen3-4B Instruct (classifier/planner). `:8086` gemma-4-31B (bot-council rollback, not Clint's concern). The old `:8081` 0.6B classifier, `llama-server-coder.service`, and `llama-swap-{main,coder}.{service,timer}` are retired — do not re-enable.
 
 ### Voice Pipeline
 - **Piper TTS for everything.** Every voice command MUST produce audible output.

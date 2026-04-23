@@ -1,18 +1,17 @@
 [Unit]
-Description=llama.cpp coder server (Qwen3-Coder-30B-A3B Q4_K_M) — overnight coding, 64K ctx
+Description=llama.cpp main server (Qwen3.6-27B Q8_0) — default chat model, language + coding, always-on
 After=network.target
-Conflicts=llama-server-main.service
 
 [Service]
 Type=simple
 User=james
 LimitMEMLOCK=infinity
 ExecStart=/home/james/llama.cpp/build/bin/llama-server \
-  -m /home/james/models/Qwen3-Coder-30B-A3B-Q4_K_M.gguf \
+  -m /mnt/storage/models/qwen36-27b/Qwen_Qwen3.6-27B-Q8_0.gguf \
   --host 0.0.0.0 --port 8080 \
   -ngl 999 \
-  -c 65536 \
-  --parallel 1 \
+  -c 32768 \
+  --parallel 2 \
   --reasoning off \
   --flash-attn on \
   --mlock \
@@ -21,11 +20,10 @@ ExecStart=/home/james/llama.cpp/build/bin/llama-server \
   --batch-size 1024 \
   --ubatch-size 512 \
   --cache-type-k q8_0 \
-  --cache-type-v q8_0 \
-  --cache-ram 0
+  --cache-type-v q8_0
 Restart=on-failure
 RestartSec=10
-TimeoutStartSec=120
+TimeoutStartSec=600
 
 [Install]
 WantedBy=multi-user.target

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import config from './config.js';
+import { createQwenChatClient } from './qwen-chat.js';
 import { getSystemPrompt } from './prompt.js';
 import { TOOL_DEFINITIONS } from './tools/definitions.js';
 import { executeTool } from './tools/handler.js';
@@ -27,26 +28,49 @@ const MAX_TOOL_LOOPS = 5;
 // --- LLMService class ---
 
 class LLMService {
-  /** @param {{ anthropicApiKey: string, claudeModel: string, minimaxApiKey?: string, minimaxBaseUrl?: string, minimaxModel?: string }} opts */
+  /**
+   * @param {{
+   *   anthropicApiKey?: string,
+   *   claudeModel?: string,
+   *   minimaxApiKey?: string,
+   *   minimaxBaseUrl?: string,
+   *   minimaxModel?: string,
+   *   qwenChatUrl?: string,
+   *   qwenChatModel?: string,
+   * }} opts
+   *
+   * Priority model (2026-04-23 Qwen3.6-27B swap):
+   *   1. Qwen3.6-27B-Q8_0 local on EVO (config.evoLlmUrl, default :8080) —
+   *      default for ALL non-image chat. Handles language and coding.
+   *   2. MiniMax-M2.7 — fallback when Qwen is unreachable (llama-server
+   *      down, GPU hang, model loading). Also handles images since the
+   *      dense 27B has no vision head.
+   *   3. Claude — only constructed if ANTHROPIC_API_KEY is set. Kept as
+   *      last-resort dead-man's-switch; not reached in normal operation.
+   */
   constructor(opts) {
-    // Claude is OPTIONAL. When ANTHROPIC_API_KEY is empty, the client
-    // is not constructed and every Claude code path gracefully routes
-    // to MiniMax (or returns a clear "temporarily unavailable" message
-    // when MiniMax also fails).
+    this._qwenClient = opts.qwenChatUrl
+      ? createQwenChatClient({ baseUrl: opts.qwenChatUrl, defaultModel: opts.qwenChatModel })
+      : null;
     this._claudeClient = opts.anthropicApiKey
       ? new Anthropic({ apiKey: opts.anthropicApiKey })
       : null;
     this._minimaxClient = opts.minimaxApiKey
       ? new Anthropic({ apiKey: opts.minimaxApiKey, baseURL: opts.minimaxBaseUrl })
       : null;
-    if (!this._claudeClient && !this._minimaxClient) {
+    if (!this._qwenClient && !this._claudeClient && !this._minimaxClient) {
       throw new Error(
-        'LLMService: at least one of MINIMAX_API_KEY or ANTHROPIC_API_KEY must be set',
+        'LLMService: at least one of EVO_LLM_URL, MINIMAX_API_KEY, or ANTHROPIC_API_KEY must yield a client',
       );
     }
-    this._defaultClient = this._minimaxClient || this._claudeClient;
-    this._defaultModel = this._minimaxClient ? opts.minimaxModel : opts.claudeModel;
+    // Default = Qwen local if configured, else MiniMax, else Claude.
+    this._defaultClient = this._qwenClient || this._minimaxClient || this._claudeClient;
+    this._defaultModel = this._qwenClient
+      ? (opts.qwenChatModel || 'qwen3.6-27b')
+      : (this._minimaxClient ? opts.minimaxModel : opts.claudeModel);
+    this._qwenModel = opts.qwenChatModel || 'qwen3.6-27b';
     this._claudeModel = opts.claudeModel;
+    this._qwenBreaker = new CircuitBreaker('qwen', { threshold: 3, resetTimeout: 30000 });
     this._claudeBreaker = new CircuitBreaker('claude', { threshold: 3, resetTimeout: 30000 });
     this._minimaxBreaker = new CircuitBreaker('minimax', { threshold: 3, resetTimeout: 30000 });
     this._lastToolsCalled = [];
@@ -55,6 +79,32 @@ class LLMService {
   /** True when the optional Claude client is configured. */
   _hasClaude() {
     return this._claudeClient !== null;
+  }
+
+  /** True when the local Qwen client is configured and ready. */
+  _hasQwen() {
+    return this._qwenClient !== null;
+  }
+
+  /**
+   * Resolve the cloud fallback when Qwen is down. Prefer MiniMax over
+   * Claude — MiniMax is the configured cloud provider; Claude only
+   * exists as a kept-around dead-man's-switch.
+   */
+  _cloudFallback() {
+    if (this._minimaxClient) return {
+      client: this._minimaxClient,
+      model: config.minimaxModel,
+      breaker: this._minimaxBreaker,
+      name: 'minimax',
+    };
+    if (this._claudeClient) return {
+      client: this._claudeClient,
+      model: this._claudeModel,
+      breaker: this._claudeBreaker,
+      name: 'claude',
+    };
+    return null;
   }
 
   getLastToolsCalled() { return this._lastToolsCalled; }
@@ -73,19 +123,82 @@ class LLMService {
     return filterToolsForChat(chatJid, filtered);
   }
 
-  _selectClient(userWantsClaude) {
-    // When the user explicitly asked for Claude but Claude is not
-    // configured, silently fall through to the default MiniMax path
-    // rather than crashing on a null client. Caller gets a `droppedClaude`
-    // flag so it can log the degrade.
+  _selectClient(userWantsClaude, hasImage = false) {
+    // Image path: dense Qwen3.6-27B has no vision head, always route
+    // images to MiniMax (which has vision via its Anthropic-compatible
+    // endpoint). Falls back to Claude only if MiniMax is unavailable.
+    if (hasImage) {
+      if (this._minimaxClient) {
+        return {
+          activeClient: this._minimaxClient,
+          activeModel: config.minimaxModel,
+          breaker: this._minimaxBreaker,
+          droppedClaude: false,
+          providerHint: 'minimax',
+          reason: 'image_content',
+        };
+      }
+      if (this._claudeClient) {
+        return {
+          activeClient: this._claudeClient,
+          activeModel: this._claudeModel,
+          breaker: this._claudeBreaker,
+          droppedClaude: false,
+          providerHint: 'claude',
+          reason: 'image_content_no_minimax',
+        };
+      }
+      // No vision-capable provider — fall through to text path; caller
+      // will get a garbage answer but not a crash.
+    }
+
+    // Explicit "ask claude" overrides if Claude is configured.
     const wantsClaudeButUnavailable = userWantsClaude && !this._hasClaude();
     const effectiveClaude = userWantsClaude && this._hasClaude();
-    const activeClient = effectiveClaude ? this._claudeClient : this._defaultClient;
-    const activeModel = effectiveClaude ? this._claudeModel : this._defaultModel;
-    const breaker = effectiveClaude
-      ? this._claudeBreaker
-      : this._minimaxClient ? this._minimaxBreaker : this._claudeBreaker;
-    return { activeClient, activeModel, breaker, droppedClaude: wantsClaudeButUnavailable };
+    if (effectiveClaude) {
+      return {
+        activeClient: this._claudeClient,
+        activeModel: this._claudeModel,
+        breaker: this._claudeBreaker,
+        droppedClaude: false,
+        providerHint: 'claude',
+        reason: 'explicit_request',
+      };
+    }
+
+    // Default: Qwen3.6-27B local.
+    if (this._qwenClient) {
+      return {
+        activeClient: this._qwenClient,
+        activeModel: this._qwenModel,
+        breaker: this._qwenBreaker,
+        droppedClaude: wantsClaudeButUnavailable,
+        providerHint: 'qwen',
+        reason: 'qwen_local_default',
+      };
+    }
+
+    // Fallback when Qwen isn't configured: MiniMax, then Claude.
+    const cloud = this._cloudFallback();
+    return {
+      activeClient: cloud?.client || null,
+      activeModel: cloud?.model || null,
+      breaker: cloud?.breaker || this._claudeBreaker,
+      droppedClaude: wantsClaudeButUnavailable,
+      providerHint: cloud?.name || 'unavailable',
+      reason: 'cloud_fallback_no_qwen',
+    };
+  }
+
+  /**
+   * Identify which provider the given client represents — for logging
+   * and for the cascade's "which tier am I in" check.
+   */
+  _providerNameFor(client) {
+    if (client === this._qwenClient) return 'qwen';
+    if (client === this._claudeClient) return 'claude';
+    if (client === this._minimaxClient) return 'minimax';
+    return 'unknown';
   }
 
   /** Run the tool use loop, returning final response */
@@ -93,38 +206,46 @@ class LLMService {
     let loopClient = activeClient;
     let loopModel = activeModel;
     let loopBreaker = breaker;
-    let provider = loopClient === this._claudeClient ? 'claude' : 'minimax';
+    let provider = this._providerNameFor(loopClient);
     let usedFallback = false;
 
+    const callOpts = () => ({
+      model: loopModel,
+      max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
+      system, messages,
+      ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
+    });
+
     let response = await loopBreaker.call(
-      () => activeClient.messages.create({
-        model: activeModel,
-        max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
-        system, messages,
-        ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
-      }),
+      () => loopClient.messages.create(callOpts()),
       null,
     );
 
-    // Fallback: MiniMax failed → Claude (only when Claude is configured).
-    // When ANTHROPIC_API_KEY is empty we deliberately do NOT cascade to
-    // Claude — the caller gets `response === null` and surfaces a
-    // "temporarily unavailable" message. This preserves the
-    // MiniMax-primary-only routing contract.
-    if (!response && activeClient !== this._claudeClient && this._minimaxClient && this._claudeClient) {
+    // Fallback cascade Qwen → MiniMax → Claude:
+    //   - When we started on Qwen and it failed, try MiniMax next.
+    //   - When we were on MiniMax (directly or via the Qwen fallback) and it failed, try Claude.
+    //   - When the active client is already Claude, no further fallback.
+    if (!response && loopClient === this._qwenClient && this._minimaxClient) {
+      logger.warn('Qwen local unreachable, falling back to MiniMax');
+      loopClient = this._minimaxClient;
+      loopModel = config.minimaxModel;
+      loopBreaker = this._minimaxBreaker;
+      provider = 'minimax';
+      usedFallback = true;
+      response = await loopBreaker.call(
+        () => loopClient.messages.create(callOpts()),
+        null,
+      );
+    }
+    if (!response && loopClient === this._minimaxClient && this._claudeClient) {
       logger.warn('MiniMax unavailable, falling back to Claude');
       loopClient = this._claudeClient;
       loopModel = this._claudeModel;
       loopBreaker = this._claudeBreaker;
       provider = 'claude';
       usedFallback = true;
-      response = await this._claudeBreaker.call(
-        () => this._claudeClient.messages.create({
-          model: this._claudeModel,
-          max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
-          system, messages,
-          ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
-        }),
+      response = await loopBreaker.call(
+        () => loopClient.messages.create(callOpts()),
         null,
       );
     }
@@ -151,17 +272,12 @@ class LLMService {
       messages.push({ role: 'user', content: toolResults });
 
       response = await loopBreaker.call(
-        () => loopClient.messages.create({
-          model: loopModel,
-          max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
-          system, messages,
-          ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
-        }),
+        () => loopClient.messages.create(callOpts()),
         null,
       );
       if (!response) break;
       trackTokens(response);
-      logger.info({ loop: loopCount, input: response.usage?.input_tokens, output: response.usage?.output_tokens }, 'tool loop');
+      logger.info({ loop: loopCount, input: response.usage?.input_tokens, output: response.usage?.output_tokens, provider }, 'tool loop');
     }
 
     return { response, provider, modelName: loopModel, usedFallback };
@@ -192,12 +308,12 @@ class LLMService {
 
     const { category, source: classifySource, forceClaude, reason: routeReason } = route;
     const userWantsClaude = CLAUDE_REQUEST_PATTERNS.test(context);
-    const { activeClient, activeModel, breaker, droppedClaude } = this._selectClient(userWantsClaude);
+    const { activeClient, activeModel, breaker, droppedClaude, providerHint } = this._selectClient(userWantsClaude, !!imageData);
     if (droppedClaude) {
       logger.info({ sender: senderJid }, 'user asked for Claude but ANTHROPIC_API_KEY unset — using MiniMax');
     }
 
-    logger.info({ category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid, model: activeModel, explicitClaude: userWantsClaude, claudeAvailable: this._hasClaude() }, 'routed');
+    logger.info({ category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid, model: activeModel, provider: providerHint, hasImage: !!imageData, explicitClaude: userWantsClaude, qwenAvailable: this._hasQwen(), claudeAvailable: this._hasClaude() }, 'routed');
 
     const categoryTools = getToolsForCategory(category, tools);
 
@@ -284,7 +400,9 @@ class LLMService {
             routeReason,
             routeForceClaude: forceClaude,
             provider,
-            providerReason: usedFallback ? 'minimax_fallback' : (userWantsClaude ? 'explicit_request' : 'default_cloud_model'),
+            providerReason: usedFallback
+              ? `${provider}_fallback`
+              : (userWantsClaude ? 'explicit_request' : `${provider}_default`),
             modelName,
           },
         };
@@ -295,9 +413,26 @@ class LLMService {
         text = await runCritique(text, category, trackTokens);
       }
 
-      const providerReason = userWantsClaude
-        ? 'explicit_request'
-        : (usedFallback ? 'minimax_fallback' : (provider === 'minimax' ? 'default_cloud_model' : 'default_claude_model'));
+      // Provider-reason derives from how we ended up on `provider` given
+      // the original routing intent (`providerHint`). Branches match the
+      // Qwen-primary → MiniMax → Claude cascade defined in _selectClient
+      // + _toolLoop.
+      let providerReason;
+      if (userWantsClaude) {
+        providerReason = 'explicit_request';
+      } else if (!!imageData && provider === 'minimax') {
+        providerReason = 'image_to_minimax';
+      } else if (usedFallback && provider === 'minimax') {
+        providerReason = 'qwen_local_fallback_to_minimax';
+      } else if (usedFallback && provider === 'claude') {
+        providerReason = 'cascade_fallback_to_claude';
+      } else if (provider === 'qwen') {
+        providerReason = 'qwen_local_default';
+      } else if (provider === 'minimax') {
+        providerReason = 'minimax_default';
+      } else {
+        providerReason = 'claude_default';
+      }
       logRouting({
         category,
         confidence: route.confidence || null,
@@ -399,6 +534,12 @@ const llmService = new LLMService({
   minimaxApiKey: config.minimaxApiKey,
   minimaxBaseUrl: config.minimaxBaseUrl,
   minimaxModel: config.minimaxModel,
+  // Qwen3.6-27B local on EVO :8080 — the configured PRIMARY chat path
+  // as of 2026-04-23. When EVO_LLM_URL is reachable this is the default
+  // for every non-image chat. Images route to MiniMax because the dense
+  // 27B has no vision head.
+  qwenChatUrl: config.evoLlmUrl,
+  qwenChatModel: config.evoMainModelLabel || 'qwen3.6-27b',
 });
 
 // --- Facade exports ---
