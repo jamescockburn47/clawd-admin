@@ -112,3 +112,34 @@ describe('sentry-webhook.formatSentryAlert', () => {
     assert.match(out, /bot: bot-obj/);
   });
 });
+
+describe('sentry-webhook.handleSentryWebhookRequest — enriched diagnostic logging', () => {
+  // Only one integration-level test here — deeper coverage of the
+  // config-gated branches (503 vs 401 vs 202) is impractical because the
+  // config module is loaded once per ESM session and process.env
+  // changes don't propagate. Those branches are exercised in live
+  // smoke. This test locks the new behavior: signature-failure path
+  // accepts an optional headers bag and returns 401 with the invalid-
+  // signature body (the enriched warn log is verified by inspection of
+  // the live journal, not here — logger output is fire-and-forget).
+  before(() => {
+    process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || 'sk-test';
+    // Set secret BEFORE the first dynamic import below so config zod
+    // captures it. Subsequent tests in other files that don't need the
+    // secret will still see it — that's fine, they either set their
+    // own or their failure branches don't care.
+    process.env.LQC_SENTRY_WEBHOOK_SECRET = process.env.LQC_SENTRY_WEBHOOK_SECRET || 'test-webhook-secret';
+  });
+
+  it('returns 401 invalid-signature when headers + body are inspected but sig mismatches', async () => {
+    const { handleSentryWebhookRequest } = await import('../src/lqcouncil/sentry-webhook.js');
+    const out = await handleSentryWebhookRequest({
+      rawBody: '{"any":"body"}',
+      signature: 'wrong-sig',
+      headers: { 'content-type': 'application/json', 'sentry-hook-resource': 'issue', 'sentry-hook-id': 'abc' },
+      sendProactiveMessage: async () => {},
+    });
+    assert.equal(out.status, 401);
+    assert.equal(out.body.error, 'invalid signature');
+  });
+});

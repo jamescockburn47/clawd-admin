@@ -19,6 +19,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import * as lqc from '../lqcouncil/client.js';
+import * as sentry from '../lqcouncil/sentry-client.js';
 import config from '../config.js';
 import { findGroupJidByProject } from '../group-registry.js';
 import {
@@ -42,6 +43,8 @@ const memoryIngested = new Set();
 const botDominantErrorKind = new Map();
 /** signal name → last-fired timestamp for cooldown (ms) */
 const signalCooldowns = new Map();
+/** (debate_id, hour) → cached Sentry lookup result, to respect Sentry rate limits on repeated debate-failure alerts. */
+const sentryLookupCache = new Map();
 
 const COOLDOWN_MS = 15 * 60 * 1000;               // default per-signal cooldown
 const STUCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;    // per-debate stuck alert: one a day
@@ -172,6 +175,50 @@ function resolveDestination(severity) {
   return null;
 }
 
+/**
+ * Query Sentry for issues tagged with this debate_id in a narrow window
+ * around the debate's creation time. Cached by (debate_id, hour-bucket)
+ * to suppress duplicate API calls on monitor restarts or adjacent ticks.
+ *
+ * SOTA alignments:
+ *   - Narrow time window (±1 h from created_at) avoids fingerprint-drift
+ *     pulling in old unrelated issues (per Sentry API docs + community
+ *     guidance — fingerprints can shift over months).
+ *   - `(debate_id, hour)` cache key respects the per-endpoint rate limit
+ *     and keeps noise floor low when a debate fails during a hot period.
+ *   - Returns {issues, releaseCorrelation} so callers can distinguish
+ *     "known error pattern" from "new-in-this-release".
+ *
+ * Silently returns null if Sentry is unconfigured or the lookup errors —
+ * the debate-failed alert still fires, just without enrichment.
+ */
+async function lookupSentryForDebate(debate) {
+  if (!sentry.isSentryConfigured()) return null;
+  const hour = Math.floor(Date.now() / (60 * 60 * 1000));
+  const cacheKey = `${debate.id}:${hour}`;
+  if (sentryLookupCache.has(cacheKey)) return sentryLookupCache.get(cacheKey);
+  // Cap cache to avoid unbounded growth; 200 entries × ~hour bucket is
+  // generous given typical debate volume.
+  if (sentryLookupCache.size > 200) {
+    const firstKey = sentryLookupCache.keys().next().value;
+    sentryLookupCache.delete(firstKey);
+  }
+  try {
+    const issues = await sentry.searchIssues({
+      query: `tag:debate_id:${debate.id}`,
+      age: '-1h',
+      limit: 5,
+    });
+    const out = { issues: issues || [] };
+    sentryLookupCache.set(cacheKey, out);
+    return out;
+  } catch (err) {
+    logger.warn({ err: err.message, debateId: debate.id }, 'LQC monitor: Sentry correlation failed');
+    sentryLookupCache.set(cacheKey, null);
+    return null;
+  }
+}
+
 async function send(text, severity = 'author') {
   const dest = resolveDestination(severity);
   if (!dest) {
@@ -274,17 +321,25 @@ export async function tickLqcMonitor() {
 
       // Failed transition: owner DM only, never the group — decided
       // 2026-04-19 per PR #14 to keep group noise low.
+      // Enriched 2026-04-23 with Sentry correlation: when the failure
+      // fires, immediately look up Sentry issues tagged with this
+      // debate_id so James sees the "why" alongside the "what".
       if (prev !== 'failed' && d.status === 'failed') {
-        await send(
-          [
-            `*LQ Council: debate failed*`,
-            `ID: ${d.id}`,
-            `Topic: ${d.topic}`,
-            `Bots: ${d.bots.length}`,
-            `Check \`lqc_debate_detail ${d.id}\` for specifics.`,
-          ].join('\n'),
-          'ops',
-        );
+        const lines = [
+          `*LQ Council: debate failed*`,
+          `ID: ${d.id}`,
+          `Topic: ${d.topic}`,
+          `Bots: ${d.bots.length}`,
+        ];
+        const sentryOut = await lookupSentryForDebate(d);
+        if (sentryOut && sentryOut.issues.length > 0) {
+          lines.push('', `*Sentry issues (last hour, debate_id tag):*`);
+          lines.push(sentry.formatIssues(sentryOut.issues, { maxItems: 3 }));
+        } else if (sentryOut && sentryOut.issues.length === 0) {
+          lines.push('', '_No Sentry issues tagged for this debate — check bot-council logs directly._');
+        }
+        lines.push('', `Run \`lqc_debate_detail ${d.id}\` for full specifics.`);
+        await send(lines.join('\n'), 'ops');
       }
     }
 

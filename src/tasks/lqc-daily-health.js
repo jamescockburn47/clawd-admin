@@ -28,6 +28,7 @@ import logger from '../logger.js';
 
 const STATE_DIR = join('data', 'runtime');
 const STATE_PATH = join(STATE_DIR, 'lqc-daily-health-last-run.txt');
+const BASELINE_PATH = join(STATE_DIR, 'lqc-sentry-baseline.json');
 const PROPOSALS_DIR = join('data', 'overnight', 'proposals');
 const HEALTH_HOUR = 8;
 const HEALTH_MINUTE = 45;
@@ -38,6 +39,16 @@ const BOT_FLEET_WARN_RATE = 0.3;        // softer than nudge's 0.7 — early war
 const MIN_ROUNDS_FOR_RATE = 5;          // don't flag bots with <5 rounds signal
 const SENTRY_TOP_ISSUES = 3;
 const DRIFT_LOOKBACK_MS = 30 * 60 * 60 * 1000; // 30h covers the 02:10 drift run
+
+// Rolling baseline for Sentry 24h counts — SOTA-appropriate for
+// low-volume services (single-digit to low-hundreds/day). Research
+// shows Prophet / seasonal decomposition assumes much higher volume;
+// rolling median + ±50% flag is what the literature converges on for
+// this regime (plus Sentry's native Anomaly Alerts, which we use as
+// complementary signal in the UI).
+const BASELINE_RING_DAYS = 14;
+const BASELINE_SPIKE_FACTOR = 1.5;
+const BASELINE_QUIET_FACTOR = 0.5;
 
 let _sendProactive = null;
 
@@ -200,14 +211,80 @@ async function buildBotFleetSection() {
   }
 }
 
-async function buildSentrySection() {
+/**
+ * Rolling 14-day Sentry baseline — pure state functions so tests can
+ * drive deterministic inputs.
+ */
+export function loadBaseline(path = BASELINE_PATH) {
+  try {
+    if (!existsSync(path)) return { counts: {} };
+    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return { counts: {} };
+    return { counts: parsed.counts || {} };
+  } catch {
+    return { counts: {} };
+  }
+}
+
+export function saveBaseline(state, path = BASELINE_PATH) {
+  try {
+    mkdirSync(join(path, '..'), { recursive: true });
+    writeFileSync(path, JSON.stringify(state, null, 2), 'utf8');
+  } catch (err) {
+    logger.warn({ err: err.message }, 'daily health: baseline persist failed');
+  }
+}
+
+/**
+ * Record today's count into the baseline, trim to last BASELINE_RING_DAYS,
+ * return a human-readable annotation string for the daily-health post.
+ * Rolling MEDIAN (not mean) is used because low-volume streams are
+ * skewed by the occasional spike; median is robust.
+ */
+export function updateBaselineAndAnnotate({ project, count, today, state }) {
+  if (!state.counts[project]) state.counts[project] = {};
+  state.counts[project][today] = count;
+
+  // Trim to last N days.
+  const dates = Object.keys(state.counts[project]).sort();
+  while (dates.length > BASELINE_RING_DAYS) {
+    const oldest = dates.shift();
+    delete state.counts[project][oldest];
+  }
+
+  // Need at least 3 historical points (excluding today) to flag.
+  const history = Object.entries(state.counts[project])
+    .filter(([d]) => d !== today)
+    .map(([, v]) => v)
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+  if (history.length < 3) {
+    return `  (baseline learning: ${history.length + 1}/14 days of history)`;
+  }
+  const median = history[Math.floor(history.length / 2)];
+  if (median === 0 && count === 0) return '  (no errors today, baseline 0)';
+  if (median === 0 && count > 0) return `  ⚠ ${count} vs 14-day median 0 — new error surface`;
+  const ratio = count / median;
+  if (ratio >= BASELINE_SPIKE_FACTOR) {
+    return `  ⚠ ${count} vs 14-day median ${median} (${ratio.toFixed(1)}× — spike)`;
+  }
+  if (count > 0 && ratio <= BASELINE_QUIET_FACTOR) {
+    return `  • ${count} vs 14-day median ${median} (${ratio.toFixed(2)}× — quieter than usual)`;
+  }
+  return `  • ${count} vs 14-day median ${median} (within normal range)`;
+}
+
+async function buildSentrySection(now = Date.now(), baselinePath = BASELINE_PATH) {
   if (!sentry.isSentryConfigured()) {
     return '*Error tracing (24h)*\n  Sentry not configured — set LQC_SENTRY_API_TOKEN/ORG/PROJECT_BACKEND';
   }
+  const today = new Date(now).toISOString().slice(0, 10);
+  const state = loadBaseline(baselinePath);
   try {
     const backend = await sentry.searchIssues({ age: '-24h', limit: 10 });
     const lines = ['*Error tracing (24h)*'];
     lines.push(`  backend: ${backend.length} issue group${backend.length === 1 ? '' : 's'}`);
+    lines.push(updateBaselineAndAnnotate({ project: 'backend', count: backend.length, today, state }));
     if (backend.length > 0) {
       lines.push(sentry.formatIssues(backend, { maxItems: SENTRY_TOP_ISSUES }));
     }
@@ -221,6 +298,7 @@ async function buildSentrySection() {
           project: frontendProject,
         });
         lines.push(`  frontend: ${frontend.length} issue group${frontend.length === 1 ? '' : 's'}`);
+        lines.push(updateBaselineAndAnnotate({ project: 'frontend', count: frontend.length, today, state }));
         if (frontend.length > 0) {
           lines.push(sentry.formatIssues(frontend, { maxItems: SENTRY_TOP_ISSUES }));
         }
@@ -230,6 +308,11 @@ async function buildSentrySection() {
     } else {
       lines.push('  frontend: project slug not set (LQC_SENTRY_PROJECT_FRONTEND)');
     }
+
+    // Persist updated baseline only after a successful render so a
+    // partial-failure doesn't corrupt the ring.
+    saveBaseline(state, baselinePath);
+
     return lines.join('\n');
   } catch (err) {
     return `*Error tracing (24h)*\n  check failed: ${err.message}`;
@@ -294,14 +377,18 @@ function buildKnowledgeDriftSection(now = Date.now(), proposalsDir = PROPOSALS_D
  * Build the full daily-health text. Returns null only when the LQC
  * integration is disabled outright.
  */
-export async function buildDailyHealth({ now = Date.now(), proposalsDir = PROPOSALS_DIR } = {}) {
+export async function buildDailyHealth({
+  now = Date.now(),
+  proposalsDir = PROPOSALS_DIR,
+  baselinePath = BASELINE_PATH,
+} = {}) {
   if (!lqc.isEnabled()) return null;
   const [backend, activity, routing, fleet, sentrySection] = await Promise.all([
     buildBackendSection(),
     buildActivitySection(),
     buildLlmRoutingSection(),
     buildBotFleetSection(),
-    buildSentrySection(),
+    buildSentrySection(now, baselinePath),
   ]);
   const drift = buildKnowledgeDriftSection(now, proposalsDir);
   const header = `*LQ Council daily health* — ${new Date(now).toISOString().slice(0, 10)}`;
