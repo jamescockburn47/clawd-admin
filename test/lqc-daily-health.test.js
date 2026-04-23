@@ -75,13 +75,13 @@ describe('buildDailyHealth', () => {
 
   it('returns null when lqc integration is disabled', async () => {
     const mod = await loadModule({ lqc: makeLqc({ isEnabled: () => false }) });
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.equal(out, null);
   });
 
   it('includes all six sections in order', async () => {
     const mod = await loadModule();
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /LQ Council daily health/);
     const idxBackend = out.indexOf('*Backend*');
     const idxActivity = out.indexOf('*Activity (24h)*');
@@ -96,7 +96,7 @@ describe('buildDailyHealth', () => {
 
   it('renders backend health with release SHA', async () => {
     const mod = await loadModule();
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /\/api\/diag\/health: ok/);
     assert.match(out, /in-flight debates: 2/);
     assert.match(out, /release: abc1234/);
@@ -104,20 +104,20 @@ describe('buildDailyHealth', () => {
 
   it('categorises debates correctly into 24h window', async () => {
     const mod = await loadModule();
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /debates: 2 /);                // d1 + d2 within 24h
     assert.match(out, /complete 1, failed 1, in-flight 0/);
   });
 
   it('flags bots with >=30% abstain/invalid rate', async () => {
     const mod = await loadModule();
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /Oscar: 60% abstain\/invalid/);
   });
 
   it('shows LLM routing from /api/diag/models', async () => {
     const mod = await loadModule();
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /analyser: MiniMax-M2\.7/);
     assert.match(out, /synthesis: MiniMax-M2\.7/);
   });
@@ -126,14 +126,14 @@ describe('buildDailyHealth', () => {
     const mod = await loadModule({
       lqc: makeLqc({ getModelsDiag: async () => { throw new Error('401 unauthorized'); } }),
     });
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /admin-gated/);
     assert.doesNotMatch(out, /check failed: 401/);
   });
 
   it('surfaces Sentry when configured, notes missing frontend project', async () => {
     const mod = await loadModule();
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /backend: 2 issue groups/);
     assert.match(out, /timeout at bot/);
     assert.match(out, /frontend: project slug not set/);
@@ -153,7 +153,7 @@ describe('buildDailyHealth', () => {
       sentry,
       config: makeConfig({ lqcSentryProjectFrontend: 'fe' }),
     });
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.ok(calls.includes('fe'), 'frontend project should be queried');
     assert.match(out, /frontend: 1 issue group/);
     assert.match(out, /frontend boom/);
@@ -161,14 +161,14 @@ describe('buildDailyHealth', () => {
 
   it('reports "not configured" when Sentry env is absent', async () => {
     const mod = await loadModule({ sentry: makeSentry({ isSentryConfigured: () => false }) });
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /Sentry not configured/);
   });
 
   it('reports no drift when proposals dir is empty', async () => {
     const mod = await loadModule();
     mkdirSync(work, { recursive: true });
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /none detected \(drift detector clean\)/);
   });
 
@@ -184,7 +184,7 @@ describe('buildDailyHealth', () => {
     };
     const fname = `lqc-knowledge-drift-2026-04-23T02-10-00-000Z.json`;
     writeFileSync(join(work, fname), JSON.stringify(proposal));
-    const out = await mod.buildDailyHealth({ proposalsDir: work, now: Date.now() });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json'), now: Date.now() });
     assert.match(out, /\+roles:Mediator/);
     assert.match(out, /roundTimeoutSeconds: 300→240/);
     assert.match(out, /Review data\/overnight\/proposals/);
@@ -198,7 +198,7 @@ describe('buildDailyHealth', () => {
     const fs = await import('node:fs/promises');
     const past = new Date(Date.now() - 48 * 3600_000);
     await fs.utimes(oldFile, past, past);
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     assert.match(out, /none detected/);
   });
 
@@ -212,13 +212,111 @@ describe('buildDailyHealth', () => {
       }),
       sentry: makeSentry({ searchIssues: async () => { throw new Error('sentry down'); } }),
     });
-    const out = await mod.buildDailyHealth({ proposalsDir: work });
+    const out = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
     // Post still produced, every section has its own failure marker
     assert.match(out, /Backend\*\s*\n  \/api\/diag\/health: FAIL — conn refused/);
     assert.match(out, /Activity \(24h\)\*\s*\n  check failed: upstream 500/);
     assert.match(out, /LLM routing\*\s*\n  check failed: nope/);
     assert.match(out, /Bot fleet\*\s*\n  check failed: dead/);
     assert.match(out, /Error tracing \(24h\)\*\s*\n  check failed: sentry down/);
+  });
+});
+
+describe('Sentry baseline annotation', () => {
+  let work;
+  beforeEach(() => { work = mkdtempSync(join(tmpdir(), 'lqc-health-baseline-')); });
+  afterEach(() => { rmSync(work, { recursive: true, force: true }); });
+
+  it('reports baseline-learning until 3 days of history', async () => {
+    const mod = await loadModule();
+    // First call — no history, still learning
+    const out1 = await mod.buildDailyHealth({ proposalsDir: work, baselinePath: join(work, 'baseline.json') });
+    assert.match(out1, /baseline learning: 1\/14/);
+  });
+
+  it('flags a spike against a non-zero median', async () => {
+    const mod = await loadModule();
+    const baselinePath = join(work, 'baseline.json');
+    // Seed 4 days of "2 issues/day" + today = 10 → 5x spike
+    const state = {
+      counts: {
+        backend: {
+          '2026-04-18': 2,
+          '2026-04-19': 2,
+          '2026-04-20': 2,
+          '2026-04-21': 2,
+        },
+      },
+    };
+    writeFileSync(baselinePath, JSON.stringify(state), 'utf8');
+    const annotation = mod.updateBaselineAndAnnotate({
+      project: 'backend',
+      count: 10,
+      today: '2026-04-23',
+      state: mod.loadBaseline(baselinePath),
+    });
+    assert.match(annotation, /spike/);
+    assert.match(annotation, /5\.0×/);
+  });
+
+  it('flags a new error surface when historical median is zero', async () => {
+    const mod = await loadModule();
+    const baselinePath = join(work, 'baseline.json');
+    const state = { counts: { backend: { '2026-04-18': 0, '2026-04-19': 0, '2026-04-20': 0 } } };
+    writeFileSync(baselinePath, JSON.stringify(state), 'utf8');
+    const annotation = mod.updateBaselineAndAnnotate({
+      project: 'backend',
+      count: 3,
+      today: '2026-04-23',
+      state: mod.loadBaseline(baselinePath),
+    });
+    assert.match(annotation, /new error surface/);
+  });
+
+  it('notes quieter-than-usual when count is much lower than median', async () => {
+    const mod = await loadModule();
+    const baselinePath = join(work, 'baseline.json');
+    const state = {
+      counts: {
+        backend: {
+          '2026-04-18': 10, '2026-04-19': 10, '2026-04-20': 10, '2026-04-21': 10,
+        },
+      },
+    };
+    writeFileSync(baselinePath, JSON.stringify(state), 'utf8');
+    const annotation = mod.updateBaselineAndAnnotate({
+      project: 'backend',
+      count: 2,
+      today: '2026-04-23',
+      state: mod.loadBaseline(baselinePath),
+    });
+    assert.match(annotation, /quieter than usual/);
+  });
+
+  it('trims history to 14 days', async () => {
+    const mod = await loadModule();
+    const baselinePath = join(work, 'baseline.json');
+    const state = { counts: { backend: {} } };
+    // Seed 16 days
+    for (let i = 0; i < 16; i++) {
+      state.counts.backend[`2026-03-${(i + 1).toString().padStart(2, '0')}`] = 1;
+    }
+    mod.updateBaselineAndAnnotate({
+      project: 'backend',
+      count: 1,
+      today: '2026-04-23',
+      state,
+    });
+    assert.ok(Object.keys(state.counts.backend).length <= 14, `expected ≤14 days, got ${Object.keys(state.counts.backend).length}`);
+  });
+
+  it('persists the baseline file after Sentry render', async () => {
+    const mod = await loadModule();
+    const baselinePath = join(work, 'baseline.json');
+    await mod.buildDailyHealth({ proposalsDir: work, baselinePath });
+    assert.ok(existsSync(baselinePath), 'baseline file should be written');
+    const saved = JSON.parse(readFileSync(baselinePath, 'utf8'));
+    assert.ok(saved.counts && saved.counts.backend, 'backend counts recorded');
   });
 });
 

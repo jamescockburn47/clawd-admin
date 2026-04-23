@@ -311,6 +311,7 @@ export function startHttpServer(port, deps) {
       const out = await handleSentryWebhookRequest({
         rawBody,
         signature: typeof signature === 'string' ? signature : String(signature),
+        headers: req.headers,
         sendProactiveMessage,
       });
       return json(res, out.status, out.body);

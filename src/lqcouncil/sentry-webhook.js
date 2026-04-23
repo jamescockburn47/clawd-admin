@@ -92,17 +92,44 @@ export function formatSentryAlert(payload, now = Date.now()) {
  * the HMAC, formats the alert, sends it via the injected sendProactiveMessage.
  * Returns { status, body } for the caller to write back to the HTTP response.
  */
-export async function handleSentryWebhookRequest({ rawBody, signature, sendProactiveMessage }) {
+export async function handleSentryWebhookRequest({ rawBody, signature, headers = {}, sendProactiveMessage }) {
   const [{ default: config }, { findGroupJidByProject }] = await Promise.all([
     import('../config.js'),
     import('../group-registry.js'),
   ]);
   const secret = config.lqcSentryWebhookSecret || '';
   if (!secret) {
+    logger.warn({
+      sigPresent: !!signature,
+      bodyLen: rawBody ? rawBody.length : 0,
+      resource: headers['sentry-hook-resource'] || headers['Sentry-Hook-Resource'] || null,
+    }, 'sentry-webhook: dropped (no LQC_SENTRY_WEBHOOK_SECRET)');
     return { status: 503, body: { error: 'webhook disabled: LQC_SENTRY_WEBHOOK_SECRET unset' } };
   }
   if (!verifySentrySignature(rawBody, signature, secret)) {
-    logger.warn({ sigPresent: !!signature }, 'sentry-webhook: signature verification failed');
+    // Enriched diagnostic — the older `sigPresent:false` line left us
+    // guessing whether Sentry sent the wrong secret, the wrong header
+    // name, or an unsigned probe. Log everything Sentry shipped short
+    // of the body (which may contain sensitive data) + the hash of
+    // what we'd have expected, so a mismatch is diagnosable in one
+    // look. The expected-hash prefix is safe to surface; it's not the
+    // secret and an attacker with the raw body could compute it
+    // themselves.
+    let expectedPrefix = null;
+    try {
+      expectedPrefix = createHmac('sha256', secret).update(rawBody || '').digest('hex').slice(0, 12);
+    } catch { /* intentional: diagnostic only */ }
+    logger.warn({
+      sigPresent: !!signature,
+      sigLen: signature ? signature.length : 0,
+      sigPrefix: signature ? String(signature).slice(0, 12) : null,
+      expectedPrefix,
+      bodyLen: rawBody ? rawBody.length : 0,
+      bodyPreview: rawBody ? String(rawBody).slice(0, 120) : null,
+      resource: headers['sentry-hook-resource'] || headers['Sentry-Hook-Resource'] || null,
+      hookId: headers['sentry-hook-id'] || headers['Sentry-Hook-Id'] || null,
+      contentType: headers['content-type'] || headers['Content-Type'] || null,
+    }, 'sentry-webhook: signature verification failed');
     return { status: 401, body: { error: 'invalid signature' } };
   }
 
