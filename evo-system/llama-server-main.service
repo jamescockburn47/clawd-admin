@@ -10,8 +10,8 @@ ExecStart=/home/james/llama.cpp/build/bin/llama-server \
   -m /mnt/storage/models/qwen36-27b/Qwen_Qwen3.6-27B-Q8_0.gguf \
   --host 0.0.0.0 --port 8080 \
   -ngl 999 \
-  -c 32768 \
-  --parallel 2 \
+  -c 65536 \
+  --parallel 4 \
   --reasoning off \
   --flash-attn on \
   --mlock \
