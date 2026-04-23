@@ -118,6 +118,7 @@ retire_unit() {
 }
 for legacy in \
     llama-server-classifier.service \
+    llama-server-planner.service \
     llama-server-coder.service \
     llama-swap-main.service llama-swap-main.timer \
     llama-swap-coder.service llama-swap-coder.timer; do

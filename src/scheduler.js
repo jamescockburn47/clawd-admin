@@ -199,11 +199,14 @@ async function runScheduler() {
     }
   }
 
-  // Keep EVO X2 tool model warm every 10 minutes
+  // Keep EVO X2 Qwen3.6-27B warm EVERY TICK (60 s). 10-minute cadence was
+  // set for the older small-model topology; on a 27B dense with mlock'd
+  // weights the concern is GPU power-state downclock during idle, which
+  // can happen in seconds. A small ping every minute keeps clocks up and
+  // the classifier prompt cache primed without meaningful cost
+  // (max_tokens=1, ~100-200 ms per ping).
   if (config.evoToolEnabled) {
-    if (minutes % 10 === 0) {
-      keepEvoWarm().catch(() => {});
-    }
+    keepEvoWarm().catch(() => {});
   }
 
   // Tick-wide timing. Warn on overlap risk (>45s) so we see tick
