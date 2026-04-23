@@ -202,11 +202,21 @@ export function startHttpServer(port, deps) {
       });
     }
 
-    // --- Knowledge-refresh webhook — called by GitHub Action in bot-council
-    // on push to main, OR manually via curl, to trigger an out-of-band
-    // drift check against data/lqcouncil-knowledge.json. HMAC-SHA256
-    // signed with LQCOUNCIL_REFRESH_SECRET in the `x-clint-signature`
-    // header. Fail-closed when secret unset.
+    // --- Knowledge-refresh webhook — called by bot-council's deploy
+    // pipeline (ship.sh post-hook, GitHub Action, or ad-hoc curl) to
+    // trigger an out-of-band drift check against
+    // data/lqcouncil-knowledge.json. HMAC-SHA256 signed over the RAW
+    // request body (not re-serialized JSON — that's the #1 Sentry
+    // webhook pitfall per the SOTA survey), with
+    // LQCOUNCIL_REFRESH_SECRET in the `x-clint-signature` header.
+    // Fail-closed when secret unset.
+    //
+    // Idempotency: payload `{commit_sha, ...}` is deduped against the
+    // last-processed SHA within LQC_REFRESH_DEDUPE_MS (default 10 min).
+    // At-least-once delivery is the universal webhook guarantee
+    // (LaunchDarkly, Algolia, Stripe, GitHub all explicitly document
+    // this) — without dedupe, a retry on a transient network error
+    // runs the drift check twice.
     if (req.method === 'POST' && path === '/api/lqcouncil-knowledge-refresh') {
       const { createHmac, timingSafeEqual } = await import('node:crypto');
       const secret = config.lqcouncilRefreshSecret || '';
@@ -224,12 +234,62 @@ export function startHttpServer(port, deps) {
         ok = false;
       }
       if (!ok) return json(res, 401, { error: 'invalid signature' });
+
+      // Parse payload opportunistically — empty body is fine (back-compat
+      // with any existing callers that send no body).
+      let payload = {};
+      if (rawBody && rawBody.length > 0) {
+        try {
+          payload = JSON.parse(rawBody);
+        } catch {
+          // Non-JSON body is allowed; treat as no commit SHA.
+          payload = {};
+        }
+      }
+      const commitSha = typeof payload.commit_sha === 'string' ? payload.commit_sha : null;
+      const refreshReason = typeof payload.reason === 'string' ? payload.reason : 'webhook';
+
+      // Idempotency check against last-processed SHA.
+      const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('node:fs');
+      const dedupeStatePath = 'data/runtime/lqc-refresh-dedupe.json';
+      const dedupeWindowMs = parseInt(process.env.LQC_REFRESH_DEDUPE_MS || '600000', 10);
+      let dedupeState = { sha: null, processedAt: null };
+      if (existsSync(dedupeStatePath)) {
+        try { dedupeState = JSON.parse(readFileSync(dedupeStatePath, 'utf8')); }
+        catch { /* intentional: stale state file — just treat as empty */ }
+      }
+      if (commitSha && dedupeState.sha === commitSha && dedupeState.processedAt) {
+        const ageMs = Date.now() - Date.parse(dedupeState.processedAt);
+        if (Number.isFinite(ageMs) && ageMs < dedupeWindowMs) {
+          return json(res, 200, {
+            ok: true,
+            skipped: true,
+            reason: 'already-processed',
+            commit_sha: commitSha,
+            processed_at: dedupeState.processedAt,
+            age_ms: ageMs,
+          });
+        }
+      }
+
       try {
         const { runKnowledgeDriftCheck } = await import('./tasks/lqc-knowledge-drift.js');
-        const result = await runKnowledgeDriftCheck({ reason: 'webhook' });
+        const result = await runKnowledgeDriftCheck({
+          reason: commitSha ? `webhook:${commitSha.slice(0, 7)}` : refreshReason,
+        });
+        // Persist dedupe state only on successful run.
+        if (commitSha) {
+          try {
+            mkdirSync('data/runtime', { recursive: true });
+            writeFileSync(dedupeStatePath, JSON.stringify({ sha: commitSha, processedAt: new Date().toISOString() }, null, 2), 'utf8');
+          } catch (err) {
+            logger.warn({ err: err.message }, 'lqcouncil-knowledge-refresh: dedupe persist failed');
+          }
+        }
         return json(res, 202, {
           ok: true,
-          reason: 'webhook',
+          reason: refreshReason,
+          commit_sha: commitSha,
           actionable_changes: result.actionable.length,
           proposal: result.proposalPath,
           sourceAvailable: result.sourceAvailable,

@@ -28,6 +28,7 @@ import { checkWeeklyDigest } from './tasks/lqc-weekly-digest.js';
 import { checkFailureNudge } from './tasks/lqc-bot-failure-nudge.js';
 import { checkKnowledgeDrift } from './tasks/lqc-knowledge-drift.js';
 import { checkDailyHealth } from './tasks/lqc-daily-health.js';
+import { checkRepoPoll } from './tasks/lqc-repo-poll.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -135,6 +136,10 @@ async function runScheduler() {
   // Daily 08:45 London — all-systems health post to owner DM (or
   // LQC_HEALTH_GROUP_JID override).
   await runTask('lqcDailyHealth', () => checkDailyHealth(todayStr, hours, minutes));
+  // Every 15 minutes — poll bot-council main HEAD via GitHub; run
+  // drift check on any SHA change. Belt-and-braces with the push-based
+  // /api/lqcouncil-knowledge-refresh webhook.
+  await runTask('lqcRepoPoll', () => checkRepoPoll(todayStr, hours, minutes));
 
   // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
   if (config.evoMemoryEnabled && isEvoOnline()) {
