@@ -84,18 +84,68 @@ export function getSystemHealth() {
     probe: { enabled: true, source: 'data/overnight/events-<date>.jsonl' },
     report: { enabled: true, source: 'data/overnight/events-<date>.jsonl' },
     improve: { enabled: true, schedule: 'Saturday 22:00 London', source: 'data/overnight/events-<date>.jsonl' },
+    scheduler: {
+      lastTickMs,
+      lastTickStats,
+      slowTaskWarnMs: SLOW_TASK_WARN_MS,
+      tickOverlapWarnMs: TICK_OVERLAP_WARN_MS,
+    },
+  };
+}
+
+// Per-task rolling stats: task name → { count, totalMs, maxMs, overBudgetMs }.
+// Exposed via getTaskStats() for dashboard/debug. Reset never; clears naturally
+// on process restart. SOTA-aligned: p95 matters more than mean for small-sample
+// scheduler latency (tinybird, risingwave anomaly-detection guidance).
+const taskStats = new Map();
+let lastTickStats = null;
+let lastTickMs = 0;
+
+const SLOW_TASK_WARN_MS = 10_000;     // warn when a single task >10s
+const TICK_OVERLAP_WARN_MS = 45_000;  // warn when a full tick >45s (overlap risk)
+
+function recordTaskStat(name, durationMs) {
+  const s = taskStats.get(name) || { count: 0, totalMs: 0, maxMs: 0, overBudgetMs: 0 };
+  s.count += 1;
+  s.totalMs += durationMs;
+  if (durationMs > s.maxMs) s.maxMs = durationMs;
+  if (durationMs > SLOW_TASK_WARN_MS) s.overBudgetMs += 1;
+  taskStats.set(name, s);
+}
+
+export function getTaskStats() {
+  return {
+    lastTickMs,
+    lastTickStats,
+    perTask: Object.fromEntries(
+      [...taskStats.entries()].map(([name, s]) => [name, {
+        count: s.count,
+        totalMs: s.totalMs,
+        maxMs: s.maxMs,
+        meanMs: Math.round(s.totalMs / Math.max(s.count, 1)),
+        overBudgetCount: s.overBudgetMs,
+      }]),
+    ),
   };
 }
 
 async function runTask(name, fn) {
+  const started = performance.now();
   try {
     await fn();
   } catch (err) {
     logger.error({ task: name, err: err.message }, 'scheduler task failed');
+  } finally {
+    const durationMs = Math.round(performance.now() - started);
+    recordTaskStat(name, durationMs);
+    if (durationMs > SLOW_TASK_WARN_MS) {
+      logger.warn({ task: name, durationMs }, 'scheduler task exceeded budget');
+    }
   }
 }
 
 async function runScheduler() {
+  const tickStart = performance.now();
   const { todayStr, hours, minutes, dayOfWeek } = getLondonTime();
 
   // Check EVO health first -- briefing and other tasks read cached status
@@ -154,5 +204,23 @@ async function runScheduler() {
     if (minutes % 10 === 0) {
       keepEvoWarm().catch(() => {});
     }
+  }
+
+  // Tick-wide timing. Warn on overlap risk (>45s) so we see tick
+  // contention before tasks start queueing. Info log includes top 5
+  // slowest tasks this tick so a single slow upstream is immediately
+  // visible without grepping.
+  lastTickMs = Math.round(performance.now() - tickStart);
+  const perTaskThisTick = [...taskStats.entries()]
+    .map(([name, s]) => ({ name, lastMs: s.maxMs, mean: Math.round(s.totalMs / Math.max(s.count, 1)) }))
+    .sort((a, b) => b.lastMs - a.lastMs)
+    .slice(0, 5);
+  lastTickStats = { tickMs: lastTickMs, topSlow: perTaskThisTick };
+  if (lastTickMs > TICK_OVERLAP_WARN_MS) {
+    logger.warn({ tickMs: lastTickMs, topSlow: perTaskThisTick }, 'scheduler tick exceeded overlap budget');
+  } else if (lastTickMs > 5000) {
+    // Only log at info for non-trivial ticks; most ticks are <100ms
+    // because every task short-circuits immediately via its time gate.
+    logger.info({ tickMs: lastTickMs, topSlow: perTaskThisTick.slice(0, 3) }, 'scheduler tick');
   }
 }
