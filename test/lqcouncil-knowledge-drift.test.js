@@ -24,6 +24,10 @@ function seedCheckout(dir, { roles = ['Proponent', 'Skeptic'], errorKinds = ['ti
   writeFileSync(join(dir, 'config', 'default.toml'), `timeout_secs = ${timeoutSecs}`);
 }
 
+// Prevent the new frontend-routes GitHub fallback from firing real HTTP
+// during these tests; returning ok:false makes it null-out cleanly.
+const noNetworkExtractOptions = { fetchFn: async () => ({ ok: false }) };
+
 describe('runKnowledgeDriftCheck', () => {
   let work;
   let checkout;
@@ -50,6 +54,7 @@ describe('runKnowledgeDriftCheck', () => {
       snapshotFile,
       proposalsDir,
       reason: 'test-first-run',
+      extractOptions: noNetworkExtractOptions,
     });
     assert.equal(result.actionable.length, 0);
     assert.equal(result.proposalPath, null);
@@ -61,18 +66,18 @@ describe('runKnowledgeDriftCheck', () => {
 
   it('second run with no source change reports no drift', async () => {
     seedCheckout(checkout);
-    await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir });
-    const second = await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir });
+    await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir, extractOptions: noNetworkExtractOptions });
+    const second = await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir, extractOptions: noNetworkExtractOptions });
     assert.deepEqual(second.changes, []);
     assert.equal(second.proposalPath, null);
   });
 
   it('detects added role and writes a proposal', async () => {
     seedCheckout(checkout);
-    await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir });
+    await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir, extractOptions: noNetworkExtractOptions });
     // simulate someone adding a new role
     seedCheckout(checkout, { roles: ['Proponent', 'Skeptic', 'Moderator'] });
-    const result = await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir });
+    const result = await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir, extractOptions: noNetworkExtractOptions });
 
     assert.ok(result.actionable.length > 0);
     const roleChange = result.actionable.find((c) => c.field === 'roles');
@@ -88,9 +93,9 @@ describe('runKnowledgeDriftCheck', () => {
 
   it('detects scalar change in round count', async () => {
     seedCheckout(checkout);
-    await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir });
+    await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir, extractOptions: noNetworkExtractOptions });
     seedCheckout(checkout, { roundMax: 6 });
-    const result = await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir });
+    const result = await runKnowledgeDriftCheck({ botCouncilDir: checkout, snapshotFile, proposalsDir, extractOptions: noNetworkExtractOptions });
 
     const scalar = result.actionable.find((c) => c.field === 'roundCount');
     assert.ok(scalar, 'expected roundCount drift');

@@ -51,6 +51,38 @@ function writeSnapshot(file, snap) {
   writeFileSync(file, JSON.stringify(snap, null, 2) + '\n', 'utf8');
 }
 
+// Chunk mapping: which knowledge chunks reference which facts. Used in
+// the proposal's recommended_action so the reviewer doesn't have to
+// guess which section of data/lqcouncil-knowledge.json is affected.
+const FIELD_TO_CHUNKS = {
+  roles: ['roles'],
+  errorKinds: ['error-taxonomy'],
+  roundCount: ['rounds'],
+  roundTimeoutSeconds: ['endpoint-contract', 'rounds'],
+  apiRoutes: ['onboarding', 'admin-operations', 'operational-facts', 'test-before-submit'],
+  frontendRoutes: ['onboarding', 'test-before-submit'],
+  'claudeMd.sections': ['overview', 'architecture-topology'],
+  'claudeMd.urls': ['onboarding', 'architecture-topology', 'operational-facts'],
+  'claudeMd.hash': [],   // low-priority, typo-level
+};
+
+function chunksForChange(c) {
+  const key = c.field || c.kind;
+  return FIELD_TO_CHUNKS[key] || [];
+}
+
+function buildRecommendedAction(changes) {
+  const affectedChunks = new Set();
+  for (const c of changes) {
+    for (const ch of chunksForChange(c)) affectedChunks.add(ch);
+  }
+  if (affectedChunks.size === 0) {
+    return 'Low-signal drift detected (content-level hash change only). No action required unless sections/urls also changed.';
+  }
+  const list = [...affectedChunks].sort().map((c) => `\`${c}\``).join(', ');
+  return `Review data/lqcouncil-knowledge.json chunks: ${list}. Update prose, bump version (2.1.x), commit.`;
+}
+
 function writeProposal(changes, snap, proposalsDir) {
   mkdirSync(proposalsDir, { recursive: true });
   const filename = `lqc-knowledge-drift-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
@@ -61,8 +93,7 @@ function writeProposal(changes, snap, proposalsDir) {
     source_repo: snap.repoRoot,
     changes,
     current_snapshot: snap,
-    recommended_action:
-      'Review data/lqcouncil-knowledge.json — specifically the chunks whose content depends on the drifted field (roles → `roles` chunk; errorKinds → `error-taxonomy` chunk; roundCount → `rounds` chunk; roundTimeoutSeconds → `endpoint-contract` chunk). Update prose, bump version, commit.',
+    recommended_action: buildRecommendedAction(changes),
   };
   writeFileSync(path, JSON.stringify(payload, null, 2) + '\n', 'utf8');
   return path;
@@ -83,6 +114,22 @@ function summariseChanges(changes) {
       if (c.kind === 'scalar-diff') {
         return `${c.field}: ${c.old}→${c.new}`;
       }
+      if (c.kind === 'api-routes-diff') {
+        const parts = [];
+        if (c.added?.length) parts.push(`apiRoutes+${c.added.length}`);
+        if (c.removed?.length) parts.push(`apiRoutes-${c.removed.length}`);
+        if (c.changed?.length) parts.push(`apiRoutes~${c.changed.length}`);
+        return parts.join(' ');
+      }
+      if (c.kind === 'claude-md-hash-only') {
+        return `claudeMd hash ${c.old}→${c.new} (content-only)`;
+      }
+      if (c.kind === 'frontend-routes-first-snapshot') {
+        return `frontendRoutes first snapshot (${c.count} paths, ${c.source})`;
+      }
+      if (c.kind === 'frontend-source-unavailable') {
+        return 'frontend source unavailable (transient?)';
+      }
       return c.kind;
     })
     .join('; ');
@@ -94,6 +141,8 @@ function summariseChanges(changes) {
  * @property {string} [snapshotFile]
  * @property {string} [proposalsDir]
  * @property {string} [reason]
+ * @property {object} [extractOptions] — passed through to
+ *   extractFactsFromCheckout (githubOwner/Repo/Branch, fetchFn for tests).
  */
 
 /**
@@ -109,12 +158,20 @@ export async function runKnowledgeDriftCheck(opts = {}) {
   const reason = opts.reason ?? 'scheduled';
 
   const oldSnap = loadSnapshot(snapshotFile);
-  const newSnap = extractFactsFromCheckout(botCouncilDir);
+  const newSnap = await extractFactsFromCheckout(botCouncilDir, opts.extractOptions || {});
   const changes = diffSnapshots(oldSnap, newSnap);
 
   let proposalPath = null;
-  // Only write proposals for non-trivial drift (skip initial-snapshot bootstrap).
-  const actionable = changes.filter((c) => c.kind !== 'initial-snapshot');
+  // Only write proposals for non-trivial drift. These kinds are either
+  // bootstrap/transient (first-snapshot, source-unavailable) or
+  // intentionally low-signal (hash-only with no section/url change).
+  const NON_ACTIONABLE_KINDS = new Set([
+    'initial-snapshot',
+    'frontend-routes-first-snapshot',
+    'frontend-source-unavailable',
+    'claude-md-hash-only',
+  ]);
+  const actionable = changes.filter((c) => !NON_ACTIONABLE_KINDS.has(c.kind));
   if (actionable.length > 0) {
     proposalPath = writeProposal(changes, newSnap, proposalsDir);
   }
