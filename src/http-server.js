@@ -32,6 +32,7 @@ import {
 import { AGENCY_DEFAULTS, getAmbientAgencyConfig } from './agency/policy.js';
 import { PARTICIPATION_DEFAULTS } from './participation/constants.js';
 import { handleVoiceLocal, handleVoiceCommand, handleDashboardChat } from './voice-handler.js';
+import { handleDebate } from './debate-handler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -57,8 +58,20 @@ function urlPath(req) { return new URL(req.url, 'http://localhost').pathname; }
 export function startHttpServer(port, deps) {
   const { getActiveSock, sendProactiveMessage, getLastActivity } = deps;
 
-  createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     const path = urlPath(req);
+
+    // --- Bot Council debate endpoint (no auth — council sends its own bearer token) ---
+    if (req.method === 'POST' && path === '/debate') {
+      try {
+        const body = JSON.parse(await readBody(req));
+        const result = await handleDebate(body);
+        return json(res, 200, result);
+      } catch (err) {
+        logger.error({ err: err.message }, 'debate endpoint error');
+        return json(res, 500, { response: 'Internal error processing debate request.', confidence: 50 });
+      }
+    }
 
     if (req.method === 'POST' && path === '/api/send') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
@@ -594,7 +607,20 @@ export function startHttpServer(port, deps) {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end('<html><head><meta http-equiv="refresh" content="3"></head><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Waiting for QR...</h2><p style="color:#888">Auto-refreshing</p></body></html>');
     }
-  }).listen(port, () => logger.info({ port }, 'HTTP server started'));
+  });
+
+  // Bot Council smoke-tests and debate rounds send up to five back-to-back
+  // POSTs to /debate with a single pooled HTTP client. Node's default
+  // keepAliveTimeout (5s) is far shorter than a tool-heavy debate response
+  // (which can run 20-45s), so the pooled connection is stale by the next
+  // round and the caller's first attempt fails with "error sending request"
+  // before retrying. Extending the server-side idle window keeps the
+  // connection usable across the full 5-round gauntlet. headersTimeout
+  // must exceed keepAliveTimeout (Node invariant).
+  server.keepAliveTimeout = 120_000;
+  server.headersTimeout = 125_000;
+
+  server.listen(port, () => logger.info({ port }, 'HTTP server started'));
 
   startWidgetRefresh();
 }
