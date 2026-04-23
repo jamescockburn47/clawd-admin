@@ -81,15 +81,59 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
-# Sync the tracked systemd unit file into /etc/systemd/system/ if it drifted
-# from the repo copy. Keeps the live unit (which includes the ExecStartPre
-# port-3000 reclaim) in step with evo-system/clawdbot.service.
-tracked_unit="$REPO_DIR/evo-system/clawdbot.service"
-live_unit="/etc/systemd/system/${UNIT}.service"
-if [ -f "$tracked_unit" ] && ! sudo cmp -s "$tracked_unit" "$live_unit"; then
-  echo "Installing updated $live_unit from $tracked_unit..."
-  sudo cp "$tracked_unit" "$live_unit"
-  sudo systemctl daemon-reload
+# Sync the tracked systemd unit files into /etc/systemd/system/ when they
+# drift from the repo copies. Keeps every live unit in step with its
+# evo-system/ source of truth.
+sync_unit() {
+  local src="$1" dest="$2" needs_restart_var="$3"
+  if [ -f "$src" ] && ! sudo cmp -s "$src" "$dest"; then
+    echo "Installing updated $dest from $src..."
+    sudo cp "$src" "$dest"
+    sudo systemctl daemon-reload
+    eval "$needs_restart_var=1"
+  fi
+}
+
+clawdbot_changed=0
+llama_main_changed=0
+sync_unit "$REPO_DIR/evo-system/clawdbot.service" "/etc/systemd/system/${UNIT}.service" clawdbot_changed
+sync_unit "$REPO_DIR/evo-system/llama-server-main.service" "/etc/systemd/system/llama-server-main.service" llama_main_changed
+
+# Retire services that are no longer referenced in evo-system/. Idempotent:
+# only fires when the live unit is present (so a fresh EVO with no legacy
+# state is a no-op). Preserves unit files under /etc/systemd/system/ so
+# operators can inspect them — `disable` removes the WantedBy symlinks,
+# `stop` terminates the running instance, unit file stays in place.
+retire_unit() {
+  local unit="$1"
+  if sudo systemctl list-unit-files "$unit" --no-legend --no-pager 2>/dev/null | grep -q .; then
+    if sudo systemctl is-active --quiet "$unit" 2>/dev/null; then
+      echo "Retiring $unit (stop + disable)..."
+      sudo systemctl stop "$unit" || true
+    fi
+    if sudo systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+      sudo systemctl disable "$unit" || true
+    fi
+  fi
+}
+for legacy in \
+    llama-server-classifier.service \
+    llama-server-coder.service \
+    llama-swap-main.service llama-swap-main.timer \
+    llama-swap-coder.service llama-swap-coder.timer; do
+  retire_unit "$legacy"
+done
+
+# If the llama-server-main unit changed, restart it so the new binary/args
+# take effect. Rolls the Qwen3.6-27B loader (~45 s startup) before Clint
+# tries to talk to it on restart.
+if [ "$llama_main_changed" = "1" ]; then
+  echo "Restarting llama-server-main.service (new unit)..."
+  sudo systemctl restart llama-server-main.service || true
+  sleep 3
+  if ! sudo systemctl is-active --quiet llama-server-main.service; then
+    echo "WARN: llama-server-main.service not active after restart — check journalctl -u llama-server-main.service" >&2
+  fi
 fi
 
 # Pre-flight: surface any non-systemd process holding :3000. The unit's
