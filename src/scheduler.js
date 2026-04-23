@@ -27,6 +27,7 @@ import { tickLqcMonitor } from './tasks/lqc-monitor.js';
 import { checkWeeklyDigest } from './tasks/lqc-weekly-digest.js';
 import { checkFailureNudge } from './tasks/lqc-bot-failure-nudge.js';
 import { checkKnowledgeDrift } from './tasks/lqc-knowledge-drift.js';
+import { checkDailyHealth } from './tasks/lqc-daily-health.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -131,6 +132,9 @@ async function runScheduler() {
   // Daily 02:10 London — check whether bot-council source has drifted from
   // the facts baked into data/lqcouncil-knowledge.json.
   await runTask('lqcKnowledgeDrift', () => checkKnowledgeDrift(todayStr, hours, minutes));
+  // Daily 08:45 London — all-systems health post to owner DM (or
+  // LQC_HEALTH_GROUP_JID override).
+  await runTask('lqcDailyHealth', () => checkDailyHealth(todayStr, hours, minutes));
 
   // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
   if (config.evoMemoryEnabled && isEvoOnline()) {

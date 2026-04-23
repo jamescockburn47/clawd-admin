@@ -167,9 +167,11 @@ async function startBot() {
           const { initLqcMonitor } = await import('./tasks/lqc-monitor.js');
           const { initWeeklyDigest } = await import('./tasks/lqc-weekly-digest.js');
           const { initFailureNudge } = await import('./tasks/lqc-bot-failure-nudge.js');
+          const { initDailyHealth } = await import('./tasks/lqc-daily-health.js');
           initLqcMonitor(sendProactiveMessage);
           initWeeklyDigest(sendProactiveMessage);
           initFailureNudge(sendProactiveMessage);
+          initDailyHealth(sendProactiveMessage);
         } catch (err) {
           logger.warn({ err: err.message }, 'LQC monitor init failed');
         }
