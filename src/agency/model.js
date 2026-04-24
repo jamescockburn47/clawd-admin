@@ -3,101 +3,77 @@ import logger from '../logger.js';
 import { TIMEOUTS } from '../constants.js';
 import { evoFetch } from '../evo-client.js';
 
-// 2026-04-24 recalibration. Evidence: every model_below_threshold entry in
-// data/agency-decisions.jsonl returned `intervene:false, confidence:0.00`
-// — including messages scoring 6 and 8 on the heuristic. The 4B model was
-// anchoring on "Default is NO. The bar is HIGH." and categorically
-// rejecting, rather than weighing each message on its merits. Per the
-// CLAUDE.md invariant, LQCore SHOULD receive unsolicited participation
-// when Clint can contribute genuinely useful information. Reframed prompt
-// below describes positive triggers alongside the filters, and asks the
-// classifier to express real confidence rather than default to 0.00.
-const AGENCY_CLASSIFIER_PROMPT = `You decide whether Clint, a WhatsApp admin assistant, should contribute UNPROMPTED to an active group conversation.
+// 2026-04-24 redesign: the 4B model now does ONE job — a cheap,
+// permissive "is this worth Clint looking at?" binary pre-filter.
+// The nuanced "should Clint speak" judgment moves to the 27B itself
+// (via claude.js getResponse with options.ambient=true), which has
+// the full cortex context and writes the response in the same call.
+//
+// Previous architecture had the 4B doing BOTH category classification
+// AND ambient-opportunity classification, both as gates before the 27B
+// could run. Evidence from data/agency-decisions.jsonl showed the 4B
+// ambient classifier was returning intervene:false, confidence:0.00 on
+// every message — a small model over-filtering a nuanced decision.
+// Collapsing the gate so the 27B decides (with an easy SILENT opt-out)
+// is the right shape.
 
-Context: Clint is a trusted participant in small, high-trust professional groups (primarily LQCore — a legal + AI community). Members already know Clint is there and welcome substantive contributions when they materially advance the discussion.
+const PREFILTER_PROMPT = `You decide whether Clint (an AI admin assistant in a WhatsApp group) should BOTHER looking at the latest message.
 
-Intervene (return intervene:true) when ANY of these apply AND Clint can add something concrete that nobody else has said yet:
-- factual_correction — a clear error, misattribution, or misinformation in the recent transcript
-- synthesis — a long-running thread would benefit from a compressed summary or framing
-- issue_spotting — a premise, constraint, or risk the group has not named
-- action_item_capture — the group is deciding something and hasn't assigned an owner or deadline
-- research_nudge — Clint has specific information (from memory, tools, or his own knowledge) that would materially change the conversation's direction, and nobody else has contributed it
+This is a cheap pre-filter, not a final decision. Bias toward YES when in doubt. A downstream model will make the real call about whether to speak.
 
-Stay silent (intervene:false) when:
-- Short reactions / banter / agreement ("yeah", "true", "lol", "exactly", "fair enough")
-- A human has already answered the question adequately
-- Clint has already spoken on this topic in the recent transcript
-- Pure speculation or opinion without new information
-- Meta-discussion about Clint himself
-- Private owner/admin topics (those belong in DMs)
-- The conversation is flowing naturally without needing input
+Say YES when the message is:
+- A question, decision, or task being discussed
+- A technical / legal / operational topic someone might want input on
+- Something addressed to Clint (directly or indirectly)
+- A conversation turn where a substantive contribution could add value
+- Ambiguous — in doubt, YES (downstream model will reject if pointless)
 
-Principles:
-- You are not the only gate. The heuristic score has already confirmed meaningful signal is present — your job is calibration, not blanket rejection.
-- Express real confidence. 0.00 means "certainly no"; 0.50 means "I could see it either way"; 0.85 means "clearly yes". A defaulting 0.00 on every message is wrong.
-- You may not take actions or call tools from this decision; the answer is purely "speak or stay silent".
-- You may not leak private owner information. The allowedSources field restricts what context Clint may draw on IF he does speak.
+Say NO when the message is:
+- A pure reaction or short agreement ("yeah", "true", "exactly", "lol", "haha", "ok")
+- An emoji or sticker reaction
+- Clearly human-to-human chitchat with no place for Clint
+- One or two words of small-talk with no topic signal
 
-Return JSON only, no thinking, no commentary:
-{"intervene":true,"interventionType":"factual_correction","confidence":0.84,"urgency":"normal","rationale":"brief reason","allowedSources":["group_local","shared_memory"]}`;
+Output exactly one word: YES or NO.`;
 
-const VALID_TYPES = new Set([
-  'factual_correction',
-  'synthesis',
-  'issue_spotting',
-  'action_item_capture',
-  'research_nudge',
-]);
-
-export async function classifyAmbientOpportunity(opts) {
+/**
+ * Fast binary pre-filter — cheap 4B call on :8085. Returns true when the
+ * downstream 27B should evaluate this message, false to discard outright.
+ *
+ * Design: bias toward YES. The 27B has the full context; it is better
+ * positioned to decide silence or speech. The 4B's job is only to avoid
+ * wasting the 27B on obvious nothing-to-say messages.
+ */
+export async function prefilterAmbientOpportunity(opts) {
   try {
     const res = await evoFetch(`${config.evoPlannerUrl}/v1/chat/completions`, {
       method: 'POST',
       body: JSON.stringify({
         messages: [
-          { role: 'system', content: AGENCY_CLASSIFIER_PROMPT },
+          { role: 'system', content: PREFILTER_PROMPT },
           {
             role: 'user',
             content:
               `Group: ${opts.groupLabel || 'unknown'}\n` +
-              `Recent transcript:\n${opts.transcript.slice(0, 4000)}\n\n` +
+              (opts.transcript ? `Recent context:\n${opts.transcript.slice(-1500)}\n\n` : '') +
               `Latest message:\n${opts.text}\n/no_think`,
           },
         ],
         temperature: 0,
-        max_tokens: 200,
+        max_tokens: 10,
         cache_prompt: true,
       }),
       timeout: TIMEOUTS.EVO_CLASSIFIER,
     });
-
     const data = await res.json();
-    const raw = (data.choices?.[0]?.message?.content || '').trim();
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('ambient agency classifier returned non-JSON');
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    return {
-      intervene: !!parsed.intervene,
-      interventionType: VALID_TYPES.has(parsed.interventionType) ? parsed.interventionType : null,
-      confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0,
-      urgency: parsed.urgency === 'high' ? 'high' : parsed.urgency === 'low' ? 'low' : 'normal',
-      rationale: typeof parsed.rationale === 'string' ? parsed.rationale : 'No rationale provided.',
-      allowedSources: Array.isArray(parsed.allowedSources)
-        ? parsed.allowedSources.filter((item) => typeof item === 'string')
-        : [],
-    };
+    const raw = (data.choices?.[0]?.message?.content || '').trim().toUpperCase();
+    const worth = raw.startsWith('YES');
+    return { worth, raw };
   } catch (err) {
-    logger.warn({ err: err.message }, 'ambient agency classifier failed');
-    return {
-      intervene: false,
-      interventionType: null,
-      confidence: 0,
-      urgency: 'low',
-      rationale: 'classifier_failed',
-      allowedSources: [],
-    };
+    // On failure, bias toward YES — let the 27B reject if needed. Better
+    // than dropping a potentially useful contribution because :8085 is
+    // momentarily unreachable.
+    logger.warn({ err: err.message }, 'ambient prefilter failed — defaulting to worth=true');
+    return { worth: true, raw: 'ERROR' };
   }
 }
