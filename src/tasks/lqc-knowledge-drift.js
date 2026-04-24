@@ -18,6 +18,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { extractFactsFromCheckout, diffSnapshots } from '../lqcouncil/facts-extractor.js';
+import { assessDriftImpact, loadChunksByIds } from '../lqcouncil/semantic-diff.js';
 import { appendEvent } from '../overnight/events.js';
 import logger from '../logger.js';
 
@@ -83,7 +84,7 @@ function buildRecommendedAction(changes) {
   return `Review data/lqcouncil-knowledge.json chunks: ${list}. Update prose, bump version (2.1.x), commit.`;
 }
 
-function writeProposal(changes, snap, proposalsDir) {
+function writeProposal(changes, snap, proposalsDir, semantic = null) {
   mkdirSync(proposalsDir, { recursive: true });
   const filename = `lqc-knowledge-drift-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
   const path = join(proposalsDir, filename);
@@ -94,6 +95,7 @@ function writeProposal(changes, snap, proposalsDir) {
     changes,
     current_snapshot: snap,
     recommended_action: buildRecommendedAction(changes),
+    semantic_assessment: semantic, // null if semantic-diff was skipped; {severity, rationale, ...} if run
   };
   writeFileSync(path, JSON.stringify(payload, null, 2) + '\n', 'utf8');
   return path;
@@ -172,8 +174,60 @@ export async function runKnowledgeDriftCheck(opts = {}) {
     'claude-md-hash-only',
   ]);
   const actionable = changes.filter((c) => !NON_ACTIONABLE_KINDS.has(c.kind));
+  let semanticAssessment = null;
   if (actionable.length > 0) {
-    proposalPath = writeProposal(changes, newSnap, proposalsDir);
+    // LLM-assisted semantic diff: does the structural drift actually
+    // warrant editing any prose, or is it unrelated to what the chunks
+    // describe? On "none", we skip the proposal entirely — fewer
+    // false-positive morning-report items. On any other severity we
+    // still write the proposal but enrich it with the LLM's guidance.
+    const knowledgeFile = opts.knowledgeFile ?? join(REPO_ROOT, 'data', 'lqcouncil-knowledge.json');
+    const affectedIds = new Set();
+    for (const c of actionable) for (const id of chunksForChange(c)) affectedIds.add(id);
+    const chunks = loadChunksByIds([...affectedIds], knowledgeFile);
+    if (chunks.length > 0) {
+      // Assess each actionable change separately so the LLM's verdict
+      // is specific — a "none" on one kind doesn't suppress the "high"
+      // on another.
+      const perChange = [];
+      for (const change of actionable) {
+        const relevantChunks = chunks.filter((c) => chunksForChange(change).includes(c.id));
+        if (relevantChunks.length === 0) continue;
+        const r = await assessDriftImpact({
+          change,
+          chunks: relevantChunks,
+          fetchFn: opts.semanticFetchFn,
+        });
+        perChange.push({ change_kind: change.kind, change_field: change.field, ...r });
+      }
+      // Roll up: max severity wins; chunks_to_revise is the union.
+      const severityRank = { none: 0, low: 1, medium: 2, high: 3 };
+      const worst = perChange.reduce((acc, r) => {
+        return (severityRank[r.severity] ?? 2) > (severityRank[acc.severity] ?? 2) ? r : acc;
+      }, { severity: 'none' });
+      const unionRevise = new Set();
+      for (const r of perChange) for (const id of (r.chunks_to_revise || [])) unionRevise.add(id);
+      semanticAssessment = {
+        overall_severity: worst.severity,
+        per_change: perChange,
+        chunks_to_revise: [...unionRevise],
+        assessed_at: new Date().toISOString(),
+      };
+    }
+    // Only write a proposal if the LLM didn't rule every change out as "none".
+    // When semantic-diff was unavailable (chunks.length === 0 or load failed),
+    // semanticAssessment stays null and we fall back to the historical "always
+    // write" behaviour.
+    const shouldWrite = semanticAssessment === null
+      ? true
+      : (semanticAssessment.overall_severity || 'medium') !== 'none';
+    if (shouldWrite) {
+      proposalPath = writeProposal(changes, newSnap, proposalsDir, semanticAssessment);
+    } else {
+      logger.info({
+        changeKinds: actionable.map((c) => c.kind),
+      }, 'lqc-knowledge-drift: semantic-diff downgraded to none — proposal skipped');
+    }
   }
 
   // Always persist the new snapshot as the next-run baseline.
