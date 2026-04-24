@@ -1,11 +1,10 @@
 import logger from '../logger.js';
 import { getGroupConfig, getGroupLabel, getGroupMode } from '../group-registry.js';
 import { getRecentGroupMessages, formatTranscript } from '../topic-scan.js';
-import { gatherIntelligence } from '../cortex.js';
-import { getGroupModeResponse } from '../claude.js';
+import { getClawdResponseResult } from '../claude.js';
 import { filterResponse, getBlockedResponse } from '../output-filter.js';
 import { logConversation } from '../memory.js';
-import { pushMessage, buildContext } from '../buffer.js';
+import { pushMessage } from '../buffer.js';
 import { broadcastSSE } from '../sse.js';
 import { isInCooldown, isMuted, recordGroupResponse } from '../engagement.js';
 import { cacheSentMessage } from '../message-cache.js';
@@ -17,12 +16,11 @@ import { getParticipationProfile } from '../participation/policy-service.js';
 import { planContribution } from '../participation/contribution-planner.js';
 import {
   detectAlreadyAnswered,
-  finalizeAgencyDecision,
   getAmbientAgencyConfig,
   isAmbientAgencyEligible,
   scoreAmbientOpportunity,
 } from './policy.js';
-import { classifyAmbientOpportunity } from './model.js';
+import { prefilterAmbientOpportunity } from './model.js';
 import { logAgencyDecision } from './log.js';
 
 const interventionHistory = new Map();
@@ -61,35 +59,11 @@ function noteIntervention(groupJid, now) {
   interventionHistory.set(groupJid, recent);
 }
 
-function buildAmbientPrompt(opts) {
-  return `You are Clint, contributing unprompted to a live professional group conversation.
-
-You are speaking because a separate intervention policy already decided your contribution is likely useful.
-
-Rules:
-- Be brief, direct, and high-signal. One or two sentences max.
-- Only contribute if you can add information, synthesis, or a perspective that NOBODY in the conversation has offered yet.
-- If the conversation is handling itself fine, output exactly: [NO_CONTRIBUTION]
-- If someone (human OR you) has already answered the question being discussed, output exactly: [NO_CONTRIBUTION]
-- Do not repeat, rephrase, or elaborate on answers already given.
-- Do not say you were "not asked" or mention internal policy.
-- No emojis.
-- No tool calls or promises to take actions.
-- Ground yourself in the conversation and the context provided.
-- If the highest-value move is a correction, be precise.
-- If the highest-value move is synthesis, compress the discussion.
-- If the highest-value move is issue spotting, point to the missing premise or tension.
-- If the highest-value move is action-item capture, state the action items and owners succinctly.
-
-Group: ${opts.groupLabel || 'unknown'}
-Intervention type: ${opts.interventionType || 'unspecified'}
-Why now: ${opts.rationale || 'useful intervention detected'}
-
-${opts.memoryFragment}
-
-Recent conversation:
-${opts.transcript}`;
-}
+// buildAmbientPrompt removed 2026-04-24 — the 27B now gets the same
+// system prompt as a direct-mention response (via getSystemPrompt in
+// prompt.js) with a small "ambient participation protocol" suffix
+// appended by claude.js when options.ambient=true. No separate
+// shortened prompt, no separate call path.
 
 function includesSignal(signals, signal) {
   return signals.includes(signal);
@@ -285,44 +259,60 @@ export async function maybeRunAmbientAgency(opts) {
     });
   }
 
-  if (heuristic.total < policy.minHeuristicScore) {
-    return rejectAmbientDecision({
-      chatJid: opts.chatJid,
-      groupLabel,
-      senderName: opts.senderName,
-      text: opts.text,
-      reason: 'heuristic_below_threshold',
-      heuristic,
-      profile,
-      participationContext,
-      participationPlan: contributionPlan,
-      plannedRole: contributionPlan.role,
-    });
-  }
-
-  const modelVerdict = await classifyAmbientOpportunity({
+  // 2026-04-24 redesign: the heuristic threshold gate is GONE. It was
+  // rejecting every LQCore message at score 2-3, and the downstream 4B
+  // classifier was rejecting the rest with confidence 0.00. Replaced
+  // with a simple binary 4B pre-filter + single-call 27B decision.
+  //
+  // The heuristic signals are still computed (above) for telemetry —
+  // useful for post-hoc "what did we nearly miss?" analysis — but no
+  // longer block the pipeline.
+  const prefilter = await prefilterAmbientOpportunity({
     text: opts.text,
     transcript,
     groupLabel,
-  });
-  const decision = finalizeAgencyDecision({
-    eligibleVerdict,
-    heuristicScore: heuristic.total,
-    modelVerdict,
-    policy,
-    cooldownActive: false,
   });
   const decisionParticipationContext = getParticipationContext(
     opts.chatJid,
     opts.replyTarget,
     profile.posture,
   );
-  logParticipationDecision({
-    chatJid: opts.chatJid,
-    finalDecision: decision,
-    ...decisionParticipationContext,
-    plannedRole: contributionPlan.role,
-  });
+
+  if (!prefilter.worth) {
+    logAgencyDecision({
+      chatJid: opts.chatJid,
+      groupLabel,
+      senderName: opts.senderName,
+      text: opts.text.slice(0, 300),
+      groupConfig,
+      heuristic,
+      prefilter,
+      participationProfile: profile,
+      participationContext: { ...decisionParticipationContext, inFollowUpExchange },
+      participationPlan: contributionPlan,
+      finalDecision: { shouldIntervene: false, reason: 'prefilter_no' },
+    });
+    return false;
+  }
+
+  // Pre-lock the cooldown BEFORE the 27B call to prevent race conditions
+  // where two fast messages both pass the cooldown check before either finishes.
+  noteIntervention(opts.chatJid, Date.now());
+
+  // One call: the 27B decides speak-or-silent AND composes the response
+  // in a single pass. Uses the full claude.js pipeline (cortex, memory,
+  // tools, group identity) — the exact same plumbing as a direct @mention,
+  // differing only in the `ambient: true` flag that injects the SILENT
+  // opt-out protocol into the system prompt.
+  const responseResult = await getClawdResponseResult(
+    opts.text,
+    'direct',
+    opts.senderJid,
+    null,                      // no image
+    opts.chatJid,
+    { ambient: true },
+  );
+  const rawResponse = responseResult?.text ?? null;
 
   logAgencyDecision({
     chatJid: opts.chatJid,
@@ -331,47 +321,22 @@ export async function maybeRunAmbientAgency(opts) {
     text: opts.text.slice(0, 300),
     groupConfig,
     heuristic,
-    modelVerdict,
+    prefilter,
     participationProfile: profile,
-    participationContext: {
-      ...decisionParticipationContext,
-      inFollowUpExchange,
-    },
+    participationContext: { ...decisionParticipationContext, inFollowUpExchange },
     participationPlan: contributionPlan,
-    finalDecision: decision,
+    finalDecision: {
+      shouldIntervene: !!rawResponse,
+      reason: rawResponse ? 'speak' : (responseResult?.meta?.providerReason || 'no_response'),
+      providerReason: responseResult?.meta?.providerReason || null,
+    },
   });
 
-  if (!decision.shouldIntervene) return false;
-
-  // Pre-lock the cooldown BEFORE async LLM calls to prevent race conditions
-  // where two fast messages both pass the cooldown check before either finishes.
-  noteIntervention(opts.chatJid, Date.now());
-
-  const context = buildContext(opts.chatJid, opts.text);
-  const { memoryFragment, route } = await gatherIntelligence(context, false, true, {
-    disableWebPrefetch: true,
-    chatJid: opts.chatJid,
-  });
-  const systemPrompt = buildAmbientPrompt({
-    transcript,
-    groupLabel,
-    interventionType: decision.interventionType,
-    rationale: decision.rationale,
-    memoryFragment,
-  });
-  const rawResponse = await getGroupModeResponse(
-    systemPrompt,
-    'Write the single most useful unprompted intervention for this group right now.',
-    false,
-    opts.senderJid,
-    opts.chatJid,
-  );
-
-  if (!rawResponse?.trim()) return false;
-
-  // LLM self-censored — it decided it had nothing novel to add.
-  if (rawResponse.includes('[NO_CONTRIBUTION]')) {
-    logger.info({ chatJid: opts.chatJid, groupLabel }, 'ambient LLM self-censored — no novel contribution');
+  if (!rawResponse?.trim()) {
+    // 27B chose SILENT or produced no output — respect that signal.
+    // The pre-locked cooldown persists: if the 27B doesn't speak this
+    // time, we still pause before the next attempt to avoid burning
+    // rate-limit on a topic it already declined.
     return false;
   }
 
@@ -411,6 +376,7 @@ export async function maybeRunAmbientAgency(opts) {
     hasImage: false,
     isBot: true,
   });
+  const responseMeta = responseResult?.meta || {};
   broadcastSSE('message', {
     sender: 'Clint',
     text: finalResponse,
@@ -418,8 +384,8 @@ export async function maybeRunAmbientAgency(opts) {
     chatJid: opts.chatJid,
     isBot: true,
     isGroup: true,
-    category: route.category,
-    model: 'ambient-group',
+    category: responseMeta.category || null,
+    model: 'ambient-27b',
   });
   logInteraction({
     sender: { name: opts.senderName, jid: opts.senderJid },
@@ -427,10 +393,10 @@ export async function maybeRunAmbientAgency(opts) {
     input: { text: opts.text, hadImage: false, ambient: true },
     routing: {
       mode: 'ambient',
-      category: route.category,
-      model: 'ambient-group',
-      classifySource: route.source,
-      routeForceClaude: route.forceClaude,
+      category: responseMeta.category || null,
+      model: responseMeta.modelName || 'ambient-27b',
+      classifySource: responseMeta.classifySource || null,
+      routeForceClaude: responseMeta.routeForceClaude || false,
     },
     toolsCalled: [],
     response: { text: finalResponse, chars: finalResponse.length },
@@ -446,8 +412,8 @@ export async function maybeRunAmbientAgency(opts) {
   logger.info({
     chatJid: opts.chatJid,
     groupLabel,
-    interventionType: decision.interventionType,
-    category: route.category,
+    plannedRole: contributionPlan.role,
+    category: responseMeta.category || null,
   }, 'ambient agency intervention sent');
   return true;
 }

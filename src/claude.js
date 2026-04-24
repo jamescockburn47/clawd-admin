@@ -355,11 +355,29 @@ class LLMService {
         i === claudeTools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t,
       );
 
+      // Ambient mode (invoked by maybeRunAmbientAgency for non-mention
+      // group messages in LQCore-style open groups). The 27B makes the
+      // "speak or stay silent" judgment itself — no separate 4B
+      // classifier gate. When it has nothing useful to add it outputs
+      // the sentinel `SILENT` and the caller discards the response.
+      const ambientSuffix = options.ambient
+        ? '\n\n## Ambient participation protocol\n'
+          + 'You are NOT being directly addressed. You may choose to contribute '
+          + 'unprompted only when you have something genuinely useful — a factual '
+          + 'correction, a synthesis of a long thread, a specific fact or tool '
+          + 'result someone would want, or an issue/constraint the group has not '
+          + 'named. Stay silent on pure reactions, agreement, banter, or topics '
+          + 'handled adequately by other participants.\n\n'
+          + 'If you have nothing substantive to add, your ENTIRE response must '
+          + 'be exactly the single word: SILENT\n'
+          + 'Otherwise respond normally and the group will see your message.'
+        : '';
       const system = [{
         type: 'text',
         text: getSystemPrompt(mode, isOwner, isGroup, category, chatJid)
           + projectScopeFragment
-          + memoryFragment,
+          + memoryFragment
+          + ambientSuffix,
         cache_control: { type: 'ephemeral' },
       }];
       const userContent = [];
@@ -391,6 +409,26 @@ class LLMService {
 
       const textBlocks = response.content.filter(b => b.type === 'text');
       let text = textBlocks.map(b => b.text).join('\n');
+
+      // Ambient-mode SILENT sentinel: 27B opted not to contribute. Treat
+      // as "no response" for the caller (maybeRunAmbientAgency logs it as
+      // a deliberate silence, not an error). Accept any variant in case
+      // the model wraps it ("SILENT.", "SILENT\n", " SILENT ").
+      if (options.ambient && text && /^\s*SILENT\.?\s*$/.test(text)) {
+        return {
+          text: null,
+          meta: {
+            category,
+            classifySource,
+            routeReason,
+            routeForceClaude: forceClaude,
+            provider,
+            providerReason: 'ambient_silent',
+            modelName,
+          },
+        };
+      }
+
       if (!text) {
         return {
           text: null,
