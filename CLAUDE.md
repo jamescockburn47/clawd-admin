@@ -116,9 +116,7 @@ These are constraints the agent cannot infer from code. Do not revisit, reverse,
 - **Wake phrase ack is "Yes?"** via Piper. Single-word only.
 
 ### Group Behaviour
-- **Groups are @mention/prefix only.** No passive engagement. `clawd ...` or `@clawd` for advisory mode, `clawdsec` for secretary/admin mode (skips planner).
-- **Ambient agency is opt-in by group.** `LQCore` may receive unsolicited participation when Clint judges a contribution genuinely useful; default posture elsewhere remains silent unless addressed.
-- **Ambient agency is speak-only.** No unsolicited tool actions, writes, or private-owner/admin actions. Ambient group contributions may use only non-private context.
+- **Groups are @mention/prefix only.** No passive engagement, no ambient/unsolicited participation in any group — including LQCore and SOVREN. `clawd ...` or `@clawd` for advisory mode, `clawdsec` for secretary/admin mode (skips planner). Native replies to Clint's own messages and the short follow-up window after he replies also count as direct address.
 - **Three security modes: open, project, colleague.** Unregistered groups default to colleague (most restrictive). James sets modes in-group.
 - **Project-scoped groups are allowed.** A group may be bound to specific project IDs (for example `sovren`) with `single_project_only` scope and `soft_redirect` off-topic behaviour; in those groups, Clint prioritises allowed project knowledge ahead of general memories.
 - **Project knowledge sync supports git sources.** Nightly `project-sync` can pull a project mirror from its configured Git repo (for example SOVREN) and ingest changed docs into memory.

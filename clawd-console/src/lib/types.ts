@@ -419,16 +419,6 @@ export interface ParticipationDecisionsResponse {
 
 // --- Participation config (combined read + write) ---
 
-export interface AgencyPolicyConfig {
-  enabled: boolean;
-  policyName: string;
-  minHeuristicScore: number;
-  minModelConfidence: number;
-  cooldownMs: number;
-  maxInterventionsPerHour: number;
-  maxFollowUpTurns: number;
-}
-
 export interface ParticipationGroupConfig {
   chatJid: string;
   label: string;
@@ -441,7 +431,6 @@ export interface ParticipationGroupConfig {
     followUpWindowMs: number;
     cooldownMs: number;
   };
-  agency: AgencyPolicyConfig;
 }
 
 export interface ParticipationConfigResponse {
@@ -455,7 +444,6 @@ export interface ParticipationConfigResponse {
       followUpWindowMs: number;
       cooldownMs: number;
     };
-    agency: Record<string, AgencyPolicyConfig>;
   };
 }
 
@@ -466,13 +454,4 @@ export interface ParticipationOverridePatch {
   maxUnsolicitedPerHour?: number;
   followUpWindowMs?: number;
   cooldownMs?: number;
-}
-
-export interface AgencyPolicyPatch {
-  enabled?: boolean;
-  minHeuristicScore?: number;
-  minModelConfidence?: number;
-  cooldownMs?: number;
-  maxInterventionsPerHour?: number;
-  maxFollowUpTurns?: number;
 }

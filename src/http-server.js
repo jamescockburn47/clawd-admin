@@ -21,7 +21,7 @@ import { getSystemHealth } from './scheduler.js';
 import { getQualitySummary, getRecentFeedback } from './interaction-log.js';
 import { getWorkingMemoryState } from './lquorum-rag.js';
 import { getRegisteredGroups } from './group-registry.js';
-import { getParticipationProfile, mergeParticipationProfile, mergeAgencyPolicy } from './participation/policy-service.js';
+import { getParticipationProfile, mergeParticipationProfile } from './participation/policy-service.js';
 import { getRecentParticipationDecisions } from './participation/log-store.js';
 import {
   buildParticipationSummary,
@@ -29,7 +29,6 @@ import {
   PARTICIPATION_DECISIONS_RESPONSE_CAP,
   serializeParticipationDecisionsForApi,
 } from './participation/http.js';
-import { AGENCY_DEFAULTS, getAmbientAgencyConfig } from './agency/policy.js';
 import { PARTICIPATION_DEFAULTS } from './participation/constants.js';
 import { handleVoiceLocal, handleVoiceCommand, handleDashboardChat } from './voice-handler.js';
 import { handleDebate } from './debate-handler.js';
@@ -412,7 +411,6 @@ export function startHttpServer(port, deps) {
         const registered = getRegisteredGroups();
         const groups = registered.map((g) => {
           const profile = getParticipationProfile({ chatJid: g.jid, groupLabel: g.label || g.jid, groupMode: g.mode });
-          const agency = getAmbientAgencyConfig({ groupLabel: g.label || '' });
           return {
             chatJid: g.jid,
             label: g.label || g.jid,
@@ -425,18 +423,9 @@ export function startHttpServer(port, deps) {
               followUpWindowMs: profile.followUpWindowMs,
               cooldownMs: profile.cooldownMs,
             },
-            agency: {
-              enabled: agency.enabled,
-              policyName: agency.policyName,
-              minHeuristicScore: agency.minHeuristicScore,
-              minModelConfidence: agency.minModelConfidence,
-              cooldownMs: agency.cooldownMs,
-              maxInterventionsPerHour: agency.maxInterventionsPerHour,
-              maxFollowUpTurns: agency.maxFollowUpTurns,
-            },
           };
         });
-        return json(res, 200, { groups, defaults: { participation: PARTICIPATION_DEFAULTS, agency: AGENCY_DEFAULTS } });
+        return json(res, 200, { groups, defaults: { participation: PARTICIPATION_DEFAULTS } });
       } catch (err) {
         return json(res, 500, { error: err.message });
       }
@@ -465,33 +454,6 @@ export function startHttpServer(port, deps) {
         const registered = getRegisteredGroups().find((g) => g.jid === jid);
         const updated = getParticipationProfile({ chatJid: jid, groupLabel: registered?.label || jid, groupMode: registered?.mode || 'colleague' });
         return json(res, 200, { ok: true, profile: updated });
-      } catch (err) {
-        return json(res, 500, { error: err.message });
-      }
-    }
-
-    // --- PATCH agency policy for a group label ---
-    if (req.method === 'PATCH' && path.startsWith('/api/participation/agency/')) {
-      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      try {
-        const label = decodeURIComponent(path.slice('/api/participation/agency/'.length)).toLowerCase();
-        if (!label) return json(res, 400, { error: 'Missing group label' });
-        const body = JSON.parse(await readBody(req));
-        const VALID_FIELDS = new Set(['enabled', 'minHeuristicScore', 'minModelConfidence', 'cooldownMs', 'maxInterventionsPerHour', 'maxFollowUpTurns']);
-        const patch = {};
-        for (const [k, v] of Object.entries(body)) {
-          if (!VALID_FIELDS.has(k)) return json(res, 400, { error: `Unknown field: ${k}` });
-          if (k === 'enabled' && typeof v !== 'boolean') return json(res, 400, { error: 'enabled must be boolean' });
-          if (k === 'minHeuristicScore' && (typeof v !== 'number' || v < 1 || v > 10)) return json(res, 400, { error: 'minHeuristicScore must be 1-10' });
-          if (k === 'minModelConfidence' && (typeof v !== 'number' || v < 0.5 || v > 1.0)) return json(res, 400, { error: 'minModelConfidence must be 0.5-1.0' });
-          if (k === 'cooldownMs' && (typeof v !== 'number' || v < 60000 || v > 600000)) return json(res, 400, { error: 'cooldownMs must be 60000-600000' });
-          if (k === 'maxInterventionsPerHour' && (typeof v !== 'number' || v < 1 || v > 20)) return json(res, 400, { error: 'maxInterventionsPerHour must be 1-20' });
-          if (k === 'maxFollowUpTurns' && (typeof v !== 'number' || v < 1 || v > 5)) return json(res, 400, { error: 'maxFollowUpTurns must be 1-5' });
-          patch[k] = v;
-        }
-        mergeAgencyPolicy(label, patch);
-        const updated = getAmbientAgencyConfig({ groupLabel: label });
-        return json(res, 200, { ok: true, policy: updated });
       } catch (err) {
         return json(res, 500, { error: err.message });
       }

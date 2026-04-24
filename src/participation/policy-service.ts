@@ -5,8 +5,6 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PARTICIPATION_DEFAULTS } from './constants.js';
 import type {
-  AgencyPolicy,
-  AgencyPolicyOverride,
   ParticipationOverride,
   ParticipationProfile,
   ParticipationProfileInput,
@@ -21,11 +19,10 @@ const PERSIST_VERSION = 1 as const;
 interface PersistedFile {
   version: typeof PERSIST_VERSION;
   overrides: Record<string, ParticipationOverride>;
-  agencyPolicies?: Record<string, AgencyPolicyOverride>;
 }
 
 function emptyPersisted(): PersistedFile {
-  return { version: PERSIST_VERSION, overrides: {}, agencyPolicies: {} };
+  return { version: PERSIST_VERSION, overrides: {} };
 }
 
 function isPlainObject(x: unknown): x is Record<string, unknown> {
@@ -96,22 +93,6 @@ class ParticipationPolicyService {
     this.writePersisted(data);
   }
 
-  /** Returns the raw agency policy override for a group label, or null if none stored. */
-  getAgencyPolicyOverride(groupLabel: string): AgencyPolicyOverride | null {
-    const data = this.loadPersisted();
-    return data.agencyPolicies?.[groupLabel.toLowerCase()] ?? null;
-  }
-
-  /** Merges a partial agency policy override for a group label and persists. */
-  mergeAgencyPolicy(groupLabel: string, patch: AgencyPolicyOverride): void {
-    const data = this.loadPersisted();
-    if (!data.agencyPolicies) data.agencyPolicies = {};
-    const key = groupLabel.toLowerCase();
-    const prev = data.agencyPolicies[key] ?? {};
-    data.agencyPolicies[key] = { ...prev, ...patch };
-    this.writePersisted(data);
-  }
-
   resetForTest(): string {
     this.writePersisted(emptyPersisted());
     return this.storeFile;
@@ -158,19 +139,6 @@ export function mergeParticipationProfile(
   patch: ParticipationOverride,
 ): void {
   activeService.mergeParticipationProfile(chatJid, patch);
-}
-
-/** Returns the raw agency policy override for a group label from the persisted store. */
-export function getAgencyPolicyOverride(groupLabel: string): AgencyPolicyOverride | null {
-  return activeService.getAgencyPolicyOverride(groupLabel);
-}
-
-/** Merges a partial agency policy for a group label and persists to disk. */
-export function mergeAgencyPolicy(
-  groupLabel: string,
-  patch: AgencyPolicyOverride,
-): void {
-  activeService.mergeAgencyPolicy(groupLabel, patch);
 }
 
 /**

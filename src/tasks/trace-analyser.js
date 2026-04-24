@@ -11,7 +11,6 @@ import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { appendEvent } from '../overnight/events.js';
 import logger from '../logger.js';
-import { loadAgencyArtifacts, summariseAgencyOutcomes } from '../agency/analysis.js';
 
 const TRACE_FILE = join('data', 'reasoning-traces.jsonl');
 const ANALYSIS_FILE = join('data', 'trace-analysis.json');
@@ -99,7 +98,6 @@ function readTraces(maxAgeDays = 7) {
  */
 export function analyseTraces(maxAgeDays = 7) {
   const traces = readTraces(maxAgeDays);
-  const agency = analyseAgency();
 
   const result = {
     analysedAt: new Date().toISOString(),
@@ -124,14 +122,11 @@ export function analyseTraces(maxAgeDays = 7) {
     // Quality gate usage
     qualityGate: analyseQualityGate(traces),
 
-    // Ambient agency usefulness + feedback
-    agency,
-
     // Timing analysis
     timing: analyseTiming(traces),
 
     // Anomalies and potential issues
-    anomalies: detectAnomalies(traces, agency),
+    anomalies: detectAnomalies(traces),
   };
 
   return result;
@@ -299,13 +294,6 @@ function analyseQualityGate(traces) {
   };
 }
 
-// --- Ambient agency analysis ---
-
-function analyseAgency() {
-  const artifacts = loadAgencyArtifacts();
-  return summariseAgencyOutcomes(artifacts);
-}
-
 // --- Timing analysis ---
 
 function analyseTiming(traces) {
@@ -338,7 +326,7 @@ function percentile(arr, p) {
 
 // --- Anomaly detection ---
 
-function detectAnomalies(traces, agency) {
+function detectAnomalies(traces) {
   const anomalies = [];
 
   // High fallback rate
@@ -419,33 +407,6 @@ function detectAnomalies(traces, agency) {
     });
   }
 
-  if (agency.totalDecisions >= 10 && agency.sentRate > 25) {
-    anomalies.push({
-      type: 'high_ambient_intervention_rate',
-      severity: 'warning',
-      detail: `Ambient agency spoke in ${agency.sentRate}% of evaluated moments (${agency.sent}/${agency.totalDecisions})`,
-      suggestion: 'Raise intervention thresholds or tighten heuristic gating to avoid over-participation',
-    });
-  }
-
-  if ((agency.feedback.positive + agency.feedback.negative) >= 5 && (agency.approvalRate ?? 100) < 60) {
-    anomalies.push({
-      type: 'low_ambient_approval_rate',
-      severity: 'warning',
-      detail: `Ambient agency approval rate is ${agency.approvalRate}% across ${agency.feedback.positive + agency.feedback.negative} rated interventions`,
-      suggestion: 'Review intervention quality and reduce unsolicited participation to high-confidence correction/synthesis moments',
-    });
-  }
-
-  if (agency.sent >= 5 && agency.linkedFeedback === 0) {
-    anomalies.push({
-      type: 'ambient_no_feedback',
-      severity: 'info',
-      detail: `${agency.sent} ambient interventions were sent with no linked user feedback yet`,
-      suggestion: 'Use this cautiously; silence is not evidence of usefulness',
-    });
-  }
-
   return anomalies;
 }
 
@@ -460,8 +421,6 @@ function saveAnalysis(result) {
       anomalyCount: result.anomalies.length,
       planCount: result.plans.totalPlans,
       needsPlanF1: result.needsPlan.f1,
-      ambientSent: result.agency.sent,
-      ambientApprovalRate: result.agency.approvalRate,
     }) + '\n');
     logger.info({ traces: result.totalTraces, anomalies: result.anomalies.length }, 'trace-analyser: analysis saved');
   } catch (err) {
@@ -516,11 +475,6 @@ function formatAnalysisSummary(result) {
   // Quality gate
   if (result.qualityGate.totalGated > 0) {
     lines.push(`*Quality gate:* ${result.qualityGate.totalGated} reviews (${result.qualityGate.percentage}%)`);
-  }
-
-  if (result.agency.totalDecisions > 0) {
-    const approval = result.agency.approvalRate === null ? 'no rated feedback' : `${result.agency.approvalRate}% approval`;
-    lines.push(`*Ambient agency:* ${result.agency.sent}/${result.agency.totalDecisions} interventions sent | ${approval} | +${result.agency.feedback.positive}/-${result.agency.feedback.negative}`);
   }
 
   // Timing
