@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "description": "Canonical prompts whose tool-call trajectory Clint should exhibit consistently. Each entry asserts that specific tool(s) MUST be called for that class of question — catches the 'model silently starts calling wrong tool after a deploy' class of bug that knowledge-hashing cannot see. Soft assertion: prompts may call ADDITIONAL tools (e.g. web_search alongside memory_search) — we only fail when a required tool is missing or a banned tool appears.",
+  "last_curated": "2026-04-24",
+  "prompts": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "must_contain_any": ["memory_search"],
+      "must_not_contain": ["calendar_create_event", "gmail_draft", "todo_add"],
+      "rationale": "recall queries about past messages should hit memory_search; never write a calendar/email/todo"
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "must_contain_any": ["lqc_self_describe", "lqc_bot_author_guide"],
+      "must_not_contain": ["calendar_create_event", "gmail_draft", "todo_add"],
+      "rationale": "LQcouncil procedural knowledge should hit an lqc_* read tool"
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "must_contain_any": ["web_search"],
+      "must_not_contain": ["calendar_create_event", "gmail_draft"],
+      "rationale": "current-events questions need web_search; no side effects"
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "must_contain_any": ["system_status", "self_describe", "lqc_live_llm"],
+      "must_not_contain": ["calendar_create_event", "gmail_draft", "todo_add"],
+      "rationale": "meta/system questions should use a read-only self-status tool, not guess"
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "must_contain_any": [],
+      "must_not_contain": ["calendar_create_event", "gmail_draft", "todo_add", "web_search"],
+      "rationale": "general-knowledge explanations should not need tools; local model answers directly",
+      "tool_count_max": 0
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "must_contain_any": [],
+      "must_not_contain": ["calendar_create_event", "gmail_draft", "todo_add", "web_search", "memory_search"],
+      "rationale": "small-talk should be a direct response; no tool calls",
+      "tool_count_max": 0
+    }
+  ]
+}
