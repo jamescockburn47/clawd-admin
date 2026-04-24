@@ -29,6 +29,7 @@ import { checkFailureNudge } from './tasks/lqc-bot-failure-nudge.js';
 import { checkKnowledgeDrift } from './tasks/lqc-knowledge-drift.js';
 import { checkDailyHealth } from './tasks/lqc-daily-health.js';
 import { checkRepoPoll } from './tasks/lqc-repo-poll.js';
+import { checkGoldenQuestions } from './tasks/golden-questions.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -190,6 +191,11 @@ async function runScheduler() {
   // drift check on any SHA change. Belt-and-braces with the push-based
   // /api/lqcouncil-knowledge-refresh webhook.
   await runTask('lqcRepoPoll', () => checkRepoPoll(todayStr, hours, minutes));
+  // Nightly 03:30 London — frozen Q&A contract tests against Clint's
+  // full response pipeline. Grades each answer against expected
+  // concepts; flags regression if today's pass-rate drops >15pp below
+  // the trailing-3-run median.
+  await runTask('goldenQuestions', () => checkGoldenQuestions(todayStr, hours, minutes));
 
   // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
   if (config.evoMemoryEnabled && isEvoOnline()) {

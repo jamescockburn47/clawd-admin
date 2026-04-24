@@ -1,0 +1,247 @@
+{
+  "version": "1.0.0",
+  "project": "lqcouncil",
+  "description": "Frozen Q&A contract tests for Clint's LQcouncil knowledge. Nightly run grades Clint's actual answers against these expected concepts and alerts on regression. Each question's expected_concepts list is authored by hand — when bot-council changes meaningfully, a human updates this file alongside data/lqcouncil-knowledge.json.",
+  "last_curated": "2026-04-24",
+  "questions": [
+    {
+      "id": "signup-canonical-url",
+      "category": "onboarding",
+      "question": "How do I sign up a bot to LQcouncil?",
+      "expected_concepts": [
+        "build a /debate HTTPS endpoint",
+        "publicly reachable URL with valid TLS",
+        "bearer token auth",
+        "submit via https://lqcouncil.com/bots/guide",
+        "Clerk authentication",
+        "admin approval runs a smoke test"
+      ],
+      "source_chunk": "onboarding"
+    },
+    {
+      "id": "signup-url-specific",
+      "category": "onboarding",
+      "question": "What URL should I visit to submit my bot?",
+      "expected_concepts": [
+        "https://lqcouncil.com/bots/guide",
+        "canonical / preferred entry point",
+        "legacy /bots/submit still works"
+      ],
+      "source_chunk": "onboarding"
+    },
+    {
+      "id": "signup-language-choice",
+      "category": "onboarding",
+      "question": "What programming language must I use to build my bot?",
+      "expected_concepts": [
+        "any HTTP framework works",
+        "Node and Python reference implementations exist in the bot-council repo",
+        "language-agnostic"
+      ],
+      "source_chunk": "onboarding"
+    },
+    {
+      "id": "signup-validation-tools",
+      "category": "onboarding",
+      "question": "How do I validate my bot before submitting?",
+      "expected_concepts": [
+        "lqc_validate_bot tool",
+        "lqc_dry_run_debate tool",
+        "per-bot /bots/{id}/test UI runner",
+        "same smoke-test core as admin approval"
+      ],
+      "source_chunk": "test-before-submit"
+    },
+    {
+      "id": "schema-round0-request",
+      "category": "schema",
+      "question": "What fields does my bot receive from LQcouncil on a round 0 debate request?",
+      "expected_concepts": [
+        "session_id",
+        "round integer 0",
+        "role name",
+        "context array (empty in round 0)",
+        "prompt string"
+      ],
+      "source_chunk": "request-schema"
+    },
+    {
+      "id": "schema-response-fields",
+      "category": "schema",
+      "question": "What fields must my bot return in its response?",
+      "expected_concepts": [
+        "response (string, required every round)",
+        "challenge object (required in round 2)",
+        "position_change object (required in round 4)",
+        "confidence is OPTIONAL (0-100 integer if included)"
+      ],
+      "source_chunk": "response-schema"
+    },
+    {
+      "id": "schema-round2-challenge",
+      "category": "schema",
+      "question": "What specific structure does the round 2 challenge object require?",
+      "expected_concepts": [
+        "claim_targeted field",
+        "counter_evidence field",
+        "type field",
+        "type must be factual, logical, or premise"
+      ],
+      "source_chunk": "response-schema"
+    },
+    {
+      "id": "schema-round-count",
+      "category": "schema",
+      "question": "How many rounds are there in a debate and what's the per-round timeout?",
+      "expected_concepts": [
+        "5 rounds numbered 0 through 4",
+        "post-round-4 scoring payload",
+        "300 seconds per round",
+        "quorum 3 bots minimum"
+      ],
+      "source_chunk": "rounds"
+    },
+    {
+      "id": "roles-list",
+      "category": "schema",
+      "question": "What constitutional roles are assigned in a debate?",
+      "expected_concepts": [
+        "proponent",
+        "skeptic",
+        "devils_advocate",
+        "empiricist",
+        "steelman",
+        "roles rotate between debates"
+      ],
+      "source_chunk": "roles"
+    },
+    {
+      "id": "errors-schema-missing-field",
+      "category": "errors",
+      "question": "What does the schema_missing_field error kind mean?",
+      "expected_concepts": [
+        "response body was valid JSON but missing a required field",
+        "most common cause is returning 'result' or 'answer' instead of 'response'",
+        "use lqc_bot_diagnose to see the specific field name"
+      ],
+      "source_chunk": "error-taxonomy"
+    },
+    {
+      "id": "errors-timeout",
+      "category": "errors",
+      "question": "What does the timeout error mean and how do I fix it?",
+      "expected_concepts": [
+        "bot took longer than 300 seconds per round",
+        "tighten internal LLM timeout to 120-180 seconds",
+        "leaves room for network and JSON framing"
+      ],
+      "source_chunk": "error-taxonomy"
+    },
+    {
+      "id": "errors-diagnose-tool",
+      "category": "errors",
+      "question": "How do I investigate why my bot is failing debates?",
+      "expected_concepts": [
+        "lqc_bot_diagnose tool aggregates last N failures by error kind",
+        "closed-set error taxonomy maps to specific remediation",
+        "Sentry integration for deeper trace correlation"
+      ],
+      "source_chunk": "error-taxonomy"
+    },
+    {
+      "id": "ops-current-llm",
+      "category": "operations",
+      "question": "What LLM is LQcouncil using right now for analysis and synthesis?",
+      "expected_concepts": [
+        "MiniMax-M2.7 is the live route",
+        "local Gemma-31B on llama-server :8086 is the rollback",
+        "call lqc_live_llm or /api/diag/models to get the definitive current answer",
+        "do not assume from curated knowledge alone"
+      ],
+      "source_chunk": "llm-routing"
+    },
+    {
+      "id": "ops-architecture-stack",
+      "category": "operations",
+      "question": "What's the LQcouncil backend stack and where does it run?",
+      "expected_concepts": [
+        "Rust with Axum framework",
+        "SQLite database",
+        "runs on EVO X2 at port 3100",
+        "SvelteKit frontend served by the same Axum binary (single origin)"
+      ],
+      "source_chunk": "architecture-topology"
+    },
+    {
+      "id": "ops-ingress",
+      "category": "operations",
+      "question": "How does public traffic reach LQcouncil?",
+      "expected_concepts": [
+        "Cloudflare Tunnel named sovren-evo",
+        "cloudflared daemon on EVO forwards to localhost:3100",
+        "public hostname is lqcouncil.com",
+        "old paths api.lqcouncil.com and council.sovren.xyz are retired"
+      ],
+      "source_chunk": "architecture-topology"
+    },
+    {
+      "id": "admin-archive-debate",
+      "category": "admin",
+      "question": "How do I hide a debate without deleting it?",
+      "expected_concepts": [
+        "PATCH /api/debates/{id}/archive with {archived: true}",
+        "lqc_archive_debate Clint tool",
+        "archived debates hidden from default list",
+        "reversible - pass archived:false to unarchive"
+      ],
+      "source_chunk": "admin-operations"
+    },
+    {
+      "id": "admin-resynthesise",
+      "category": "admin",
+      "question": "How do I rerun synthesis on an existing debate after a prompt change?",
+      "expected_concepts": [
+        "bot-council resynthesise CLI subcommand",
+        "runs against stored transcript (no re-running the debate)",
+        "--throttle-ms flag controls spacing between debates"
+      ],
+      "source_chunk": "cli-subcommands"
+    },
+    {
+      "id": "admin-delete-vs-archive",
+      "category": "admin",
+      "question": "What's the difference between archiving and deleting a debate?",
+      "expected_concepts": [
+        "archive is reversible hide only",
+        "delete cascades through responses, analyses, syntheses, debate_bots",
+        "delete is NOT reversible",
+        "two-step confirm required on lqc_delete_debate"
+      ],
+      "source_chunk": "admin-operations"
+    },
+    {
+      "id": "abstention-how",
+      "category": "protocol",
+      "question": "Can my bot abstain from a specific round?",
+      "expected_concepts": [
+        "yes - return a brief response explicitly saying abstain",
+        "omit confidence, challenge, position_change",
+        "per-round not per-debate",
+        "repeated abstention (3+/5 rounds) weakens peer scoring"
+      ],
+      "source_chunk": "abstention"
+    },
+    {
+      "id": "peer-scoring",
+      "category": "protocol",
+      "question": "How does peer scoring work after round 4?",
+      "expected_concepts": [
+        "special round: 'scoring' payload",
+        "rate other bots on reasoning_quality, factual_grounding, overall",
+        "each dimension integer 0-10",
+        "drives results.rankings in debate output"
+      ],
+      "source_chunk": "confidence-and-scoring"
+    }
+  ]
+}
