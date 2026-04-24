@@ -16,6 +16,12 @@ LimitMEMLOCK=infinity
 #      keep hot tensors resident. -c 32768 (one slot, full 32K ctx).
 #   5. --flash-attn on retained — minimal on Vulkan RADV (+1%) but free and
 #      material on ROCm, so keeping for when we swap backends.
+#   6. KV cache kept at f16 (NOT q8_0). Quantized KV is incompatible with
+#      speculative decoding in this llama.cpp build — the first deploy
+#      logged "common_speculative_is_compat: the target context does not
+#      support partial sequence removal" and spec-decode was silently
+#      disabled. f16 KV costs ~4-6 GB more vs q8_0 at 32K ctx — plenty
+#      of headroom (30+ GB free on the GPU).
 #
 # ROCm 7.2.1 + rocWMMA swap is a separate PR — needs kyuz0 toolbox install
 # and a different llama-server build path.
@@ -37,9 +43,7 @@ ExecStart=/home/james/llama.cpp/build/bin/llama-server \
   --no-mmap \
   --cont-batching \
   --batch-size 512 \
-  --ubatch-size 128 \
-  --cache-type-k q8_0 \
-  --cache-type-v q8_0
+  --ubatch-size 128
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=600
