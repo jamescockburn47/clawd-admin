@@ -153,6 +153,16 @@ const ConfigSchema = z.object({
   LQC_SENTRY_PROJECT_BACKEND: z.string().optional().default(''),
   LQC_SENTRY_PROJECT_FRONTEND: z.string().optional().default(''),
   LQC_SENTRY_WEBHOOK_SECRET: z.string().optional().default(''),
+  // Clint-side Sentry (optional): when SENTRY_DSN is set, Clint reports
+  // its own errors to Sentry via native-fetch envelope ingest (no SDK
+  // dependency). src/sentry.js wires uncaught-exception + unhandled-
+  // rejection handlers and scheduler task-failure captureException
+  // calls. Distributed-trace headers are injected on outbound
+  // bot-council requests so the two services share a trace ID. No-op
+  // when DSN unset — every call path has a cheap short-circuit.
+  SENTRY_DSN: z.string().optional().default(''),
+  SENTRY_ENVIRONMENT: z.string().optional().default('production'),
+  SENTRY_RELEASE: z.string().optional().default(''),
   // Shared secret for the on-demand knowledge-refresh webhook. A GitHub
   // Action in bot-council repo uses this to trigger Clint's drift check
   // out-of-band when the source changes. HMAC-SHA256 over the body.

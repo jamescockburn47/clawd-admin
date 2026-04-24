@@ -72,10 +72,15 @@ async function request(method, path, { body = null, query = null, timeoutMs = DE
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const headers = {
+    // Inject Sentry distributed-trace headers when Clint-side Sentry
+    // is enabled — lets bot-council's own Sentry events link to the
+    // Clint trace in the unified Sentry view. No-op when disabled.
+    const { injectTraceHeaders } = await import('../sentry.js');
+    const baseHeaders = injectTraceHeaders({
       'accept': 'application/json',
       'authorization': `Bearer ${config.lqcAdminToken}`,
-    };
+    });
+    const headers = baseHeaders;
     const init = { method, headers, signal: controller.signal };
     if (body !== null && body !== undefined) {
       headers['content-type'] = 'application/json';
