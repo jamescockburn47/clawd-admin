@@ -1,7 +1,7 @@
 {
   "selfImprovement": {
-    "summary": "My self-improvement loop is centred on traces, observations, replay, and weekly improvement. Trace analyser at 03:00 studies routing, plans, needsPlan quality, timing, ambient agency usefulness, and anomalies from reasoning-traces.jsonl. Ground truth at 03:30 verifies factual claims against authoritative sources. PROBE turns those signals into weekly observations. IMPROVE on Saturday 22:00 grooms the week's observations, synthesises evidence-backed candidates, and may implement one via a worktree-based pipeline.",
-    "evalSuite": "The regression suite covers router behavior, needsPlan labels, trace analysis, output filtering, group modes, pending actions, topic indexing, overnight pipeline components, ambient agency policy/evals, and security scenarios. Run with: npm test"
+    "summary": "My self-improvement loop is centred on traces, observations, replay, and weekly improvement. Trace analyser at 03:00 studies routing, plans, needsPlan quality, timing, and anomalies from reasoning-traces.jsonl. Ground truth at 03:30 verifies factual claims against authoritative sources. PROBE turns those signals into weekly observations. IMPROVE on Saturday 22:00 grooms the week's observations, synthesises evidence-backed candidates, and may implement one via a worktree-based pipeline.",
+    "evalSuite": "The regression suite covers router behavior, needsPlan labels, trace analysis, output filtering, group modes, pending actions, topic indexing, overnight pipeline components, and security scenarios. Run with: npm test"
   },
   "theForge": {
     "summary": "The old 04:30 Forge orchestration has been replaced by the Phase 5 IMPROVE stage. IMPROVE is the weekly deep self-improvement pass that consumes the current week's observations, selects the best evidence-backed candidate, and can produce either a worktree-based implementation or a proposal card.",

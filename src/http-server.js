@@ -21,7 +21,7 @@ import { getSystemHealth } from './scheduler.js';
 import { getQualitySummary, getRecentFeedback } from './interaction-log.js';
 import { getWorkingMemoryState } from './lquorum-rag.js';
 import { getRegisteredGroups } from './group-registry.js';
-import { getParticipationProfile, mergeParticipationProfile, mergeAgencyPolicy } from './participation/policy-service.js';
+import { getParticipationProfile, mergeParticipationProfile } from './participation/policy-service.js';
 import { getRecentParticipationDecisions } from './participation/log-store.js';
 import {
   buildParticipationSummary,
@@ -29,7 +29,6 @@ import {
   PARTICIPATION_DECISIONS_RESPONSE_CAP,
   serializeParticipationDecisionsForApi,
 } from './participation/http.js';
-import { AGENCY_DEFAULTS, getAmbientAgencyConfig } from './agency/policy.js';
 import { PARTICIPATION_DEFAULTS } from './participation/constants.js';
 import { handleVoiceLocal, handleVoiceCommand, handleDashboardChat } from './voice-handler.js';
 import { handleDebate } from './debate-handler.js';
@@ -58,7 +57,7 @@ function urlPath(req) { return new URL(req.url, 'http://localhost').pathname; }
 export function startHttpServer(port, deps) {
   const { getActiveSock, sendProactiveMessage, getLastActivity } = deps;
 
-  createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
     const path = urlPath(req);
 
     // --- Bot Council debate endpoint (no dashboard-token auth — council sends
@@ -531,7 +530,6 @@ export function startHttpServer(port, deps) {
         const registered = getRegisteredGroups();
         const groups = registered.map((g) => {
           const profile = getParticipationProfile({ chatJid: g.jid, groupLabel: g.label || g.jid, groupMode: g.mode });
-          const agency = getAmbientAgencyConfig({ groupLabel: g.label || '' });
           return {
             chatJid: g.jid,
             label: g.label || g.jid,
@@ -544,18 +542,9 @@ export function startHttpServer(port, deps) {
               followUpWindowMs: profile.followUpWindowMs,
               cooldownMs: profile.cooldownMs,
             },
-            agency: {
-              enabled: agency.enabled,
-              policyName: agency.policyName,
-              minHeuristicScore: agency.minHeuristicScore,
-              minModelConfidence: agency.minModelConfidence,
-              cooldownMs: agency.cooldownMs,
-              maxInterventionsPerHour: agency.maxInterventionsPerHour,
-              maxFollowUpTurns: agency.maxFollowUpTurns,
-            },
           };
         });
-        return json(res, 200, { groups, defaults: { participation: PARTICIPATION_DEFAULTS, agency: AGENCY_DEFAULTS } });
+        return json(res, 200, { groups, defaults: { participation: PARTICIPATION_DEFAULTS } });
       } catch (err) {
         return json(res, 500, { error: err.message });
       }
@@ -584,33 +573,6 @@ export function startHttpServer(port, deps) {
         const registered = getRegisteredGroups().find((g) => g.jid === jid);
         const updated = getParticipationProfile({ chatJid: jid, groupLabel: registered?.label || jid, groupMode: registered?.mode || 'colleague' });
         return json(res, 200, { ok: true, profile: updated });
-      } catch (err) {
-        return json(res, 500, { error: err.message });
-      }
-    }
-
-    // --- PATCH agency policy for a group label ---
-    if (req.method === 'PATCH' && path.startsWith('/api/participation/agency/')) {
-      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
-      try {
-        const label = decodeURIComponent(path.slice('/api/participation/agency/'.length)).toLowerCase();
-        if (!label) return json(res, 400, { error: 'Missing group label' });
-        const body = JSON.parse(await readBody(req));
-        const VALID_FIELDS = new Set(['enabled', 'minHeuristicScore', 'minModelConfidence', 'cooldownMs', 'maxInterventionsPerHour', 'maxFollowUpTurns']);
-        const patch = {};
-        for (const [k, v] of Object.entries(body)) {
-          if (!VALID_FIELDS.has(k)) return json(res, 400, { error: `Unknown field: ${k}` });
-          if (k === 'enabled' && typeof v !== 'boolean') return json(res, 400, { error: 'enabled must be boolean' });
-          if (k === 'minHeuristicScore' && (typeof v !== 'number' || v < 1 || v > 10)) return json(res, 400, { error: 'minHeuristicScore must be 1-10' });
-          if (k === 'minModelConfidence' && (typeof v !== 'number' || v < 0.5 || v > 1.0)) return json(res, 400, { error: 'minModelConfidence must be 0.5-1.0' });
-          if (k === 'cooldownMs' && (typeof v !== 'number' || v < 60000 || v > 600000)) return json(res, 400, { error: 'cooldownMs must be 60000-600000' });
-          if (k === 'maxInterventionsPerHour' && (typeof v !== 'number' || v < 1 || v > 20)) return json(res, 400, { error: 'maxInterventionsPerHour must be 1-20' });
-          if (k === 'maxFollowUpTurns' && (typeof v !== 'number' || v < 1 || v > 5)) return json(res, 400, { error: 'maxFollowUpTurns must be 1-5' });
-          patch[k] = v;
-        }
-        mergeAgencyPolicy(label, patch);
-        const updated = getAmbientAgencyConfig({ groupLabel: label });
-        return json(res, 200, { ok: true, policy: updated });
       } catch (err) {
         return json(res, 500, { error: err.message });
       }
@@ -726,7 +688,20 @@ export function startHttpServer(port, deps) {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end('<html><head><meta http-equiv="refresh" content="3"></head><body style="text-align:center;padding:40px;font-family:sans-serif"><h2>Waiting for QR...</h2><p style="color:#888">Auto-refreshing</p></body></html>');
     }
-  }).listen(port, () => logger.info({ port }, 'HTTP server started'));
+  });
+
+  // Bot Council smoke-tests and debate rounds send up to five back-to-back
+  // POSTs to /debate with a single pooled HTTP client. Node's default
+  // keepAliveTimeout (5s) is far shorter than a tool-heavy debate response
+  // (which can run 20-45s), so the pooled connection is stale by the next
+  // round and the caller's first attempt fails with "error sending request"
+  // before retrying. Extending the server-side idle window keeps the
+  // connection usable across the full 5-round gauntlet. headersTimeout
+  // must exceed keepAliveTimeout (Node invariant).
+  server.keepAliveTimeout = 120_000;
+  server.headersTimeout = 125_000;
+
+  server.listen(port, () => logger.info({ port }, 'HTTP server started'));
 
   startWidgetRefresh();
 }

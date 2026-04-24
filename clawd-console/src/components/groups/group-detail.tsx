@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import type { ParticipationDecision, ParticipationGroupSummary, ParticipationPosture } from '@/lib/types';
 import { formatDecisionHighlights, formatDurationMs, formatGroupMode, formatPosture } from '@/lib/participation/view-models';
-import { patchParticipationGroup, patchAgencyPolicy } from '@/lib/api';
+import { patchParticipationGroup } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -35,13 +35,6 @@ export function GroupDetail({
     if (!group) return;
     await patchParticipationGroup(group.chatJid, { posture });
     flash('posture');
-    onGroupUpdated?.();
-  }, [group, flash, onGroupUpdated]);
-
-  const handleAmbientToggle = useCallback(async (enabled: boolean) => {
-    if (!group) return;
-    await patchAgencyPolicy(group.groupLabel.toLowerCase(), { enabled });
-    flash('ambient');
     onGroupUpdated?.();
   }, [group, flash, onGroupUpdated]);
 

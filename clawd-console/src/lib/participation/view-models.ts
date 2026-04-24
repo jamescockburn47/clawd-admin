@@ -93,11 +93,11 @@ export function formatGroupMode(mode: ParticipationGroupMode): string {
 export function formatPosture(posture: ParticipationPosture): string {
   switch (posture) {
     case 'direct_only':
-      return 'direct-only (ambient speech disabled)';
+      return 'direct-only';
     case 'rare_high_confidence':
-      return 'rare, high-confidence ambient contributions only';
+      return 'rare, high-confidence only';
     case 'active_participant':
-      return 'active participant (higher ambient allowance)';
+      return 'active participant';
     default: {
       const _exhaustive: never = posture;
       return _exhaustive;
@@ -158,7 +158,7 @@ export function buildRolePlaybookLines(posture: ParticipationPosture): string[] 
     case 'direct_only':
       return [
         'Speak only when explicitly addressed (mention, prefix, or clear reply thread).',
-        'Do not initiate ambient contributions; planner skips proactive roles.',
+        'Do not initiate unsolicited contributions; planner skips proactive roles.',
         'Quoted reply preferred when answering a specific message.',
       ];
     case 'rare_high_confidence':

@@ -42,24 +42,3 @@ export interface ParticipationOverride {
   followUpWindowMs?: number;
   cooldownMs?: number;
 }
-
-/** Runtime-tunable agency policy for a group label (e.g. 'lqcore', 'sovren'). */
-export interface AgencyPolicyOverride {
-  enabled?: boolean;
-  minHeuristicScore?: number;
-  minModelConfidence?: number;
-  cooldownMs?: number;
-  maxInterventionsPerHour?: number;
-  maxFollowUpTurns?: number;
-}
-
-/** Fully resolved agency policy (all fields present). */
-export interface AgencyPolicy {
-  enabled: boolean;
-  policyName: string;
-  minHeuristicScore: number;
-  minModelConfidence: number;
-  cooldownMs: number;
-  maxInterventionsPerHour: number;
-  maxFollowUpTurns: number;
-}

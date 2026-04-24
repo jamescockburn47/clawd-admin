@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { fetchParticipationConfig, fetchParticipationDecisions, patchParticipationGroup, patchAgencyPolicy } from '@/lib/api';
+import { fetchParticipationConfig, fetchParticipationDecisions, patchParticipationGroup } from '@/lib/api';
 import type {
   ParticipationGroupConfig,
   ParticipationConfigResponse,
@@ -42,21 +42,6 @@ function NumberStepper({ value, min, max, step = 1, onChange }: {
   );
 }
 
-function ConfidenceSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        type="range"
-        min={50} max={100} step={5}
-        value={Math.round(value * 100)}
-        onChange={(e) => onChange(Number(e.target.value) / 100)}
-        className="w-24"
-      />
-      <span className="tabular-nums text-sm font-medium w-12">{(value * 100).toFixed(0)}%</span>
-    </div>
-  );
-}
-
 function MsDropdown({ value, onChange, options }: {
   value: number; onChange: (v: number) => void;
   options?: { label: string; value: number }[];
@@ -79,30 +64,20 @@ function GroupSettingsCard({
   group,
   saved,
   onPatchParticipation,
-  onPatchAgency,
 }: {
   group: ParticipationGroupConfig;
   saved: string | null;
   onPatchParticipation: (jid: string, field: string, patch: Record<string, unknown>) => void;
-  onPatchAgency: (label: string, field: string, patch: Record<string, unknown>) => void;
 }) {
   const p = group.participation;
-  const a = group.agency;
-  const label = group.label.toLowerCase();
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">{group.label}</CardTitle>
-          <Badge variant={a.enabled ? 'default' : 'secondary'}>
-            {a.enabled ? 'ambient on' : 'ambient off'}
-          </Badge>
-        </div>
-        <p className="font-mono text-xs text-muted-foreground">{group.mode} mode</p>
+        <CardTitle className="text-base">{group.label}</CardTitle>
+        <p className="font-mono text-xs text-muted-foreground">{group.mode} mode — @mention / prefix / reply only</p>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Participation */}
         <div>
           <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Participation</p>
           <div className="grid gap-3 sm:grid-cols-2 text-sm">
@@ -149,43 +124,6 @@ function GroupSettingsCard({
             </div>
           </div>
         </div>
-
-        <Separator />
-
-        {/* Agency */}
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Agency policy</p>
-          <div className="grid gap-3 sm:grid-cols-2 text-sm">
-            <div className="flex items-center gap-3">
-              <label className="text-muted-foreground">Ambient enabled</label>
-              <input type="checkbox" checked={a.enabled} onChange={(e) => onPatchAgency(label, `${label}-enabled`, { enabled: e.target.checked })} />
-              <SaveFlash field={`${label}-enabled`} saved={saved} />
-            </div>
-            <div>
-              <label className="text-muted-foreground block mb-1">Min heuristic score (1-10) <SaveFlash field={`${label}-heuristic`} saved={saved} /></label>
-              <NumberStepper value={a.minHeuristicScore} min={1} max={10} onChange={(v) => onPatchAgency(label, `${label}-heuristic`, { minHeuristicScore: v })} />
-            </div>
-            <div>
-              <label className="text-muted-foreground block mb-1">Min confidence <SaveFlash field={`${label}-confidence`} saved={saved} /></label>
-              <ConfidenceSlider value={a.minModelConfidence} onChange={(v) => onPatchAgency(label, `${label}-confidence`, { minModelConfidence: v })} />
-            </div>
-            <div>
-              <label className="text-muted-foreground block mb-1">Agency cooldown <SaveFlash field={`${label}-agencyCooldown`} saved={saved} /></label>
-              <MsDropdown
-                value={a.cooldownMs}
-                onChange={(v) => onPatchAgency(label, `${label}-agencyCooldown`, { cooldownMs: v })}
-              />
-            </div>
-            <div>
-              <label className="text-muted-foreground block mb-1">Max interventions/hr <SaveFlash field={`${label}-maxInterventions`} saved={saved} /></label>
-              <NumberStepper value={a.maxInterventionsPerHour} min={1} max={20} onChange={(v) => onPatchAgency(label, `${label}-maxInterventions`, { maxInterventionsPerHour: v })} />
-            </div>
-            <div>
-              <label className="text-muted-foreground block mb-1">Max follow-up turns <SaveFlash field={`${label}-maxFollowUp`} saved={saved} /></label>
-              <NumberStepper value={a.maxFollowUpTurns} min={1} max={5} onChange={(v) => onPatchAgency(label, `${label}-maxFollowUp`, { maxFollowUpTurns: v })} />
-            </div>
-          </div>
-        </div>
       </CardContent>
     </Card>
   );
@@ -224,16 +162,6 @@ export default function SettingsPage() {
     }
   }, [flash, loadData]);
 
-  const handlePatchAgency = useCallback(async (label: string, field: string, patch: Record<string, unknown>) => {
-    try {
-      await patchAgencyPolicy(label, patch);
-      flash(field);
-      loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
-    }
-  }, [flash, loadData]);
-
   const rejectDecisions = decisions.filter((d) => !d.shouldIntervene);
 
   return (
@@ -259,7 +187,6 @@ export default function SettingsPage() {
               group={g}
               saved={saved}
               onPatchParticipation={handlePatchParticipation}
-              onPatchAgency={handlePatchAgency}
             />
           ))}
 

@@ -168,8 +168,8 @@ function ParticipationLearningCard({
           Participation learning
         </p>
         <p className="mb-3 text-xs text-muted-foreground leading-relaxed">
-          Overnight events whose inputs or phases mention group participation, ambient speech, or
-          follow-up tuning. Full log remains under Events.
+          Overnight events whose inputs or phases mention group participation or follow-up tuning.
+          Full log remains under Events.
         </p>
         {loading && (
           <div className="flex flex-col gap-2">

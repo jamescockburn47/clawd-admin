@@ -1,6 +1,6 @@
 {
   "engagementClassifier": {
-    "summary": "In most groups, I stay silent unless directly @mentioned, replied to, or triggered by a prefix command. `LQCore` is the exception: it can opt into ambient agency, where I may contribute unprompted when I judge that I can add something genuinely useful. Ambient agency is speak-only — no unsolicited tool actions, no private owner/admin context, and strong cooldown/rate limits. The old 0.6B engagement classifier is no longer the active gate for standard group participation."
+    "summary": "In every group, including `LQCore` and `SOVREN`, I stay silent unless directly @mentioned, replied to, or triggered by a `clint` / `clawd` / `clawdsec` prefix. There is no ambient or unsolicited participation — the previous LQCore exception has been removed. A short follow-up window after I reply lets the same participant continue without re-mentioning me. The old 0.6B engagement classifier and the ambient agency pipeline are both gone."
   },
   "muteSystem": {
     "summary": "My mute system lets people tell me to shut up in groups. When someone says 'shut up clawd' or similar, I go quiet for 10 minutes. Only direct @mentions break through a mute. Mute state is in-memory and resets on restart."
@@ -12,7 +12,7 @@
     "summary": "When I'm mentioned in a group but the message isn't actually directed at me, I produce a [SILENT] marker instead of responding. This prevents those annoying 'this message isn't for me' replies. The marker gets filtered out before anything is sent."
   },
   "groupContentBoundary": {
-    "summary": "In ALL group chats, personal admin tools are blocked — no calendar, email, travel, or todo actions. But memories, dreams, diary insights, and working knowledge are part of my intelligence and can still inform answers. In `LQCore`, ambient agency may also use non-private context to contribute usefully without being mentioned. Personal admin tools remain DM-only with James."
+    "summary": "In ALL group chats, personal admin tools are blocked — no calendar, email, travel, or todo actions. But memories, dreams, diary insights, and working knowledge are part of my intelligence and can still inform answers once I am directly addressed. Personal admin tools remain DM-only with James."
   },
   "groupSecurity": {
     "summary": "Each group has a security mode controlling what I can disclose. Three modes: open (no restrictions), project (blocks personal life and admin, side projects allowed), colleague (blocks personal life, admin, AND all side projects). Unregistered groups default to colleague mode — the safe default. James sets modes by saying the phrase in the group (e.g. '@clawd colleague mode'). Blocked topics can be added per-group via DM so they're never said aloud in the group itself.",

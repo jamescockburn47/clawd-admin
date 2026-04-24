@@ -21,12 +21,13 @@ describe('self-awareness source of truth', () => {
     assert.doesNotMatch(summary, /Pi 5 runs Node\.js|Pi is the brain/i);
   });
 
-  it('group knowledge includes LQCore ambient agency and speak-only limits', () => {
+  it('group knowledge reflects @mention-only policy across all groups', () => {
     const groups = readJson('data/system-knowledge/groups.json');
     const summary = groups.engagementClassifier.summary;
-    assert.match(summary, /LQCore/i);
-    assert.match(summary, /speak-only/i);
-    assert.doesNotMatch(summary, /strictly @mention\/prefix-only\. For now, silence unless asked/i);
+    assert.match(summary, /@mentioned|mention\/prefix/i);
+    // The summary may describe the removed pipeline ("the ambient agency pipeline is gone");
+    // what matters is it does not describe ambient agency as an active/opt-in behaviour.
+    assert.doesNotMatch(summary, /can opt into ambient|may contribute unprompted|LQCore is the exception/i);
   });
 
   it('scheduler knowledge reflects the phase 5 overnight pipeline', () => {
@@ -39,17 +40,18 @@ describe('self-awareness source of truth', () => {
     assert.doesNotMatch(tasks, /Daily retrospective at 04:00|The Forge at 04:30|Self-improvement cycle at 01:00/i);
   });
 
-  it('self-improvement knowledge includes ambient agency learning', () => {
+  it('self-improvement knowledge reflects trace/PROBE/IMPROVE pipeline', () => {
     const selfImprovement = readJson('data/system-knowledge/self-improvement.json');
     const summary = selfImprovement.selfImprovement.summary;
-    assert.match(summary, /ambient agency usefulness/i);
     assert.match(summary, /weekly IMPROVE/i);
+    assert.doesNotMatch(summary, /ambient agency/i);
     assert.doesNotMatch(summary, /Daily retrospective at 4 AM|old nightly self-improvement cycle/i);
   });
 
-  it('prompt self-awareness mentions the LQCore ambient exception', () => {
+  it('prompt self-awareness states @mention-only across all groups', () => {
     const prompt = readText('src/prompt.js');
-    assert.match(prompt, /LQCore.*occasionally chip in unprompted/i);
-    assert.match(prompt, /ambient interventions.*overnight trace analysis/i);
+    assert.match(prompt, /mention\/prefix-only/i);
+    assert.doesNotMatch(prompt, /LQCore.*occasionally chip in unprompted/i);
+    assert.doesNotMatch(prompt, /ambient interventions/i);
   });
 });
