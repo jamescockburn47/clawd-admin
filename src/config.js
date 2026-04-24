@@ -77,18 +77,22 @@ const ConfigSchema = z.object({
   // Model labels for system_status tool
   EVO_MAIN_MODEL_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (llama-server :8080, EVO X2, default chat)'),
   EVO_CLASSIFIER_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (shared with main on :8080 — 0.6B retired 2026-04-23)'),
-  EVO_PLANNER_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (shared with main on :8080 — 4B retired 2026-04-23)'),
+  EVO_PLANNER_LABEL: z.string().optional().default('qwen3-4b-instruct-2507-q4_k_m (llama-server :8085, restored 2026-04-24 — hot-path classifier)'),
 
   // Local models via llama.cpp — bot runs on EVO, all localhost
   EVO_LLM_URL: z.string().url().optional().default('http://localhost:8080'),
-  // Classifier + planner now share the main Qwen3.6-27B on :8080
-  // (2026-04-23 consolidation). The separate 0.6B classifier service
-  // (:8081) and 4B planner service (:8085) were retired because running
-  // classification on the 27B gives materially better routing decisions
-  // and the single-model topology is simpler to reason about. Overrides
-  // remain available if a dedicated small model is ever brought back.
+  // Classifier and planner URLs — 2026-04-24 rebalance:
+  //   - 4B planner restored on :8085 for the hot-path classifier call
+  //     (classifyVia4B). Qwen3-4B-Instruct at Q4_K_M classifies in
+  //     <1 s, vs 6-7 s when classification ran on the 27B. Most
+  //     messages still end up on the 27B for the actual response
+  //     generation; the 4B only decides "which category, needsPlan?".
+  //   - Engagement classifier (classifyViaEvo, rarely invoked post
+  //     @mention-only invariant) stays pointed at :8080 — no separate
+  //     0.6B process, and the path is cold enough that latency is
+  //     irrelevant.
   EVO_CLASSIFIER_URL: z.string().url().optional().default('http://localhost:8080'),
-  EVO_PLANNER_URL: z.string().url().optional().default('http://localhost:8080'),
+  EVO_PLANNER_URL: z.string().url().optional().default('http://localhost:8085'),
   EVO_TOOL_ENABLED: boolFromEnv.default('true'),
   EVO_EMBED_URL: z.string().url().optional().default('http://localhost:8083'),
   EVO_DOCLING_URL: z.string().url().optional().default('http://localhost:8084'),
