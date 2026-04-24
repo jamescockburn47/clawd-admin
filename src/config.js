@@ -75,7 +75,7 @@ const ConfigSchema = z.object({
   DASHBOARD_TOKEN: z.string().optional().default(''),
 
   // Model labels for system_status tool
-  EVO_MAIN_MODEL_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (llama-server :8080, EVO X2, default chat)'),
+  EVO_MAIN_MODEL_LABEL: z.string().optional().default('qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)'),
   EVO_CLASSIFIER_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (shared with main on :8080 — 0.6B retired 2026-04-23)'),
   EVO_PLANNER_LABEL: z.string().optional().default('qwen3-4b-instruct-2507-q4_k_m (llama-server :8085, restored 2026-04-24 — hot-path classifier)'),
 
