@@ -12,6 +12,7 @@ import { dirname, join } from 'path';
 
 import config from './config.js';
 import logger from './logger.js';
+import { initSentry, setUser as setSentryUser } from './sentry.js';
 import { loadBuffers, saveBuffers, pushMessage, flushBufferTimer, rehydrateGroupBuffers } from './buffer.js';
 import { flushUsage } from './claude.js';
 import { stopWidgetRefresh } from './widgets.js';
@@ -69,6 +70,11 @@ async function sendDocument(jid, buffer, fileName, mimetype = 'text/markdown', c
 
 async function startBot() {
   printBanner();
+
+  // Initialise Sentry first so the uncaught-exception hooks are wired
+  // before anything that might throw is loaded. No-op when SENTRY_DSN
+  // is unset — safe to always call.
+  initSentry();
 
   // Load persisted message buffers before connecting
   await loadBuffers();
@@ -160,6 +166,9 @@ async function startBot() {
       // Start scheduler (once only, guard against reconnects)
       if (config.ownerJid && !schedulerStarted) {
         schedulerStarted = true;
+        // Attribute subsequent Sentry events to James (owner JID) for
+        // easy filtering in the Sentry UI.
+        setSentryUser({ id: config.ownerJid, username: 'James' });
         initScheduler(async (text) => sendProactiveMessage(config.ownerJid, text));
         // LQ Council monitor needs the raw proactive sender so it can
         // target LQC_DEV_GROUP_JID rather than always the owner.

@@ -137,6 +137,15 @@ async function runTask(name, fn) {
     await fn();
   } catch (err) {
     logger.error({ task: name, err: err.message }, 'scheduler task failed');
+    // Capture-and-continue: scheduler tasks that throw don't block the
+    // next task (that's runTask's whole point), but we want the error
+    // surfaced in Sentry rather than lost to the journal. No-op when
+    // Sentry unconfigured. Dynamic import so the scheduler module can
+    // load before Sentry is initialised.
+    try {
+      const { captureException } = await import('./sentry.js');
+      await captureException(err, { tags: { subsystem: 'scheduler', task: name } });
+    } catch { /* intentional: sentry-capture failures must not cascade */ }
   } finally {
     const durationMs = Math.round(performance.now() - started);
     recordTaskStat(name, durationMs);
