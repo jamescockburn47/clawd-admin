@@ -96,8 +96,27 @@ sync_unit() {
 
 clawdbot_changed=0
 llama_main_changed=0
+llama_planner_changed=0
 sync_unit "$REPO_DIR/evo-system/clawdbot.service" "/etc/systemd/system/${UNIT}.service" clawdbot_changed
 sync_unit "$REPO_DIR/evo-system/llama-server-main.service" "/etc/systemd/system/llama-server-main.service" llama_main_changed
+sync_unit "$REPO_DIR/evo-system/llama-server-planner.service" "/etc/systemd/system/llama-server-planner.service" llama_planner_changed
+
+# Ensure the 4B planner service is enabled + active (restored 2026-04-24
+# as the fast-path classifier in front of the 27B chat model).
+# Idempotent: enable + start are no-ops if already in place.
+if [ -f "/etc/systemd/system/llama-server-planner.service" ]; then
+  if ! sudo systemctl is-enabled --quiet llama-server-planner.service 2>/dev/null; then
+    echo "Enabling llama-server-planner.service..."
+    sudo systemctl enable llama-server-planner.service 2>/dev/null || true
+  fi
+  if ! sudo systemctl is-active --quiet llama-server-planner.service 2>/dev/null; then
+    echo "Starting llama-server-planner.service..."
+    sudo systemctl start llama-server-planner.service || true
+  elif [ "$llama_planner_changed" = "1" ]; then
+    echo "Restarting llama-server-planner.service (new unit)..."
+    sudo systemctl restart llama-server-planner.service || true
+  fi
+fi
 
 # Retire services that are no longer referenced in evo-system/. Idempotent:
 # only fires when the live unit is present (so a fresh EVO with no legacy
@@ -118,7 +137,6 @@ retire_unit() {
 }
 for legacy in \
     llama-server-classifier.service \
-    llama-server-planner.service \
     llama-server-coder.service \
     llama-swap-main.service llama-swap-main.timer \
     llama-swap-coder.service llama-swap-coder.timer; do
