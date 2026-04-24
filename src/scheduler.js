@@ -30,6 +30,7 @@ import { checkKnowledgeDrift } from './tasks/lqc-knowledge-drift.js';
 import { checkDailyHealth } from './tasks/lqc-daily-health.js';
 import { checkRepoPoll } from './tasks/lqc-repo-poll.js';
 import { checkGoldenQuestions } from './tasks/golden-questions.js';
+import { checkTrajectorySnapshots } from './tasks/trajectory-snapshot.js';
 import config from './config.js';
 import logger from './logger.js';
 
@@ -196,6 +197,9 @@ async function runScheduler() {
   // concepts; flags regression if today's pass-rate drops >15pp below
   // the trailing-3-run median.
   await runTask('goldenQuestions', () => checkGoldenQuestions(todayStr, hours, minutes));
+  // Nightly 03:45 London — tool-trajectory assertions against canonical
+  // prompts. Catches classifier re-routing and tool-loop degradation.
+  await runTask('trajectorySnapshot', () => checkTrajectorySnapshots(todayStr, hours, minutes));
 
   // Sync cache every 30 minutes (at :00 and :30) when EVO memory is online
   if (config.evoMemoryEnabled && isEvoOnline()) {
