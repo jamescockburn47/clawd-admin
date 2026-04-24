@@ -1,10 +1,20 @@
 import { getAgencyPolicyOverride } from '../participation/policy-service.js';
 
 /** Hardcoded defaults — runtime overrides from group-participation.json merge on top. */
+// 2026-04-24 recalibration: minHeuristicScore 6→3.
+// Evidence from data/agency-decisions.jsonl over the 2026-04-20 → 04-24 window:
+// every LQCore decision at threshold 6 was rejected as heuristic_below_threshold.
+// Typical LQCore messages score 2-3 from a single signal (action_items, question),
+// 4+ only on deliberately composed posts. Threshold 6 required 2-3 strong signals
+// per message — a bar real chat rarely clears. That matched the "stop over-
+// participating" concern from d39b80b but over-corrected into silent. Threshold
+// 3 matches the SOVREN default and lets real signal through while still
+// requiring AT LEAST one substantive heuristic hit; second-stage model judge
+// (minModelConfidence 0.85) is a separate gate that catches the remaining noise.
 const DEFAULT_LQCORE_POLICY = {
   enabled: true,
   policyName: 'lqcore-default',
-  minHeuristicScore: 6,
+  minHeuristicScore: 3,
   minModelConfidence: 0.85,
   cooldownMs: 300000,
   maxInterventionsPerHour: 3,
