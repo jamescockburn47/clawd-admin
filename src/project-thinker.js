@@ -38,11 +38,18 @@ const THINKER_MODELS = {
   },
 };
 
-// Anthropic client (reusing the shared API key)
-const anthropic = new Anthropic({ apiKey: config.anthropicApiKey });
+// Anthropic client (optional — null when ANTHROPIC_API_KEY is unset).
+const anthropic = config.anthropicApiKey
+  ? new Anthropic({ apiKey: config.anthropicApiKey })
+  : null;
 
-// Call Anthropic model (Sonnet, Opus, etc.)
+// Call Anthropic model (Sonnet, Opus, etc.) — skipped with a clear
+// marker when no Anthropic key is configured, so downstream
+// project-thinker flows don't crash.
 async function callAnthropic(model, systemPrompt, userMessage, opts = {}) {
+  if (!anthropic) {
+    return { text: `[SKIPPED — ANTHROPIC_API_KEY unset, cannot run ${model}]`, usage: null, model };
+  }
   const params = {
     model,
     max_tokens: opts.maxTokens || 4000,

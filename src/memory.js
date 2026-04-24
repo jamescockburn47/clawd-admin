@@ -307,12 +307,25 @@ class MemoryClient {
 
   // --- Retrieval helpers ---
 
-  async getRelevantMemories(messageText) {
+  async getRelevantMemories(messageText, opts = {}) {
     if (!messageText || messageText.length < 5) return [];
     const tokens = messageText.toLowerCase().split(/\W+/).filter(t => t.length > 2);
     if (tokens.length === 0) return [];
 
-    const results = await this.search(messageText, null, 8);
+    // Project-scoped recall pulls more candidates (20 vs 8) AND drops the
+    // relevance floor to near-zero (0.02 vs 0.12). Rationale: in a group
+    // bound to a specific project, the user wants Clint to remember
+    // everything said in that context — not just the top-8 hottest hits.
+    // Recency decay + the project boost below re-rank; showing a broader
+    // set to the LLM beats over-filtering and missing a weak-signal
+    // memory that was actually relevant.
+    const projectBoostKeys = Array.isArray(opts.projectBoostKeys)
+      ? new Set(opts.projectBoostKeys.filter(Boolean))
+      : null;
+    const searchLimit = projectBoostKeys ? 20 : 8;
+    const scoreFloor = projectBoostKeys ? 0.02 : 0.12;
+
+    const results = await this.search(messageText, null, searchLimit);
 
     const docPattern = /\b(document|doc|file|pdf|report|analysis|the\s+\w+\.(?:md|pdf|docx|csv))\b/i;
     if (docPattern.test(messageText)) {
@@ -329,9 +342,18 @@ class MemoryClient {
       }
     }
 
+    // Project-scope boost: when invoked from a group bound to a specific
+    // project, memories whose chatJid matches either the group JID (live
+    // conversation extractions) or the project:<id> synthetic JID (docs
+    // ingested by project-sync) get a significant score bump so they
+    // outrank generic memories. Applied here rather than as a filter so
+    // un-scoped recall still works; the bias just surfaces the right
+    // content first.
+    const PROJECT_BOOST = 0.25;
+
     const now = Date.now();
     return results
-      .filter(r => (r.score ?? 0) >= 0.12)
+      .filter(r => (r.score ?? 0) >= scoreFloor)
       .map(r => {
         const mem = r.memory || r;
         let recencyBoost = 0;
@@ -342,7 +364,11 @@ class MemoryClient {
           else if (ageDays < 3) recencyBoost = 0.10;
           else if (ageDays < 7) recencyBoost = 0.05;
         }
-        return { memory: mem, adjustedScore: (r.score ?? 0) + recencyBoost };
+        const projectBoost =
+          projectBoostKeys && mem.chatJid && projectBoostKeys.has(mem.chatJid)
+            ? PROJECT_BOOST
+            : 0;
+        return { memory: mem, adjustedScore: (r.score ?? 0) + recencyBoost + projectBoost };
       })
       .sort((a, b) => b.adjustedScore - a.adjustedScore)
       .map(r => r.memory);
@@ -631,7 +657,7 @@ export const deleteMemory = async (id) => {
 export const archiveMemory = (id) => client.archive(id);
 export const getMemoryStats = () => client.getStats();
 export const listMemories = () => client.list();
-export const getRelevantMemories = (t) => client.getRelevantMemories(t);
+export const getRelevantMemories = (t, opts) => client.getRelevantMemories(t, opts);
 export const getDreamMemories = (g, l) => client.getDreamMemories(g, l);
 export const getIdentityMemories = () => client.getIdentityMemories();
 export const getOvernightInsights = (d) => client.getOvernightInsights(d);

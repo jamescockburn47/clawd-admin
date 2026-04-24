@@ -9,8 +9,14 @@ const intFromEnv = (fallback) => z.string().optional().transform(v => parseInt(v
 const floatFromEnv = (fallback) => z.string().optional().transform(v => parseFloat(v) || fallback).pipe(z.number());
 
 const ConfigSchema = z.object({
-  // Required
-  ANTHROPIC_API_KEY: z.string().min(1, 'ANTHROPIC_API_KEY is required'),
+  // Cloud LLM providers. Clint needs AT LEAST ONE of {MINIMAX_API_KEY,
+  // ANTHROPIC_API_KEY} to function. MiniMax is the primary provider;
+  // Anthropic is an optional explicit-opt-in path. When ANTHROPIC_API_KEY
+  // is unset/empty, the Claude client is not constructed, all
+  // forceClaude routing gracefully routes to MiniMax, and the
+  // MiniMax-failed fallback returns a \"temporarily unavailable\"
+  // message instead of cascading to Claude.
+  ANTHROPIC_API_KEY: z.string().optional().default(''),
 
   // Cloud models
   CLAUDE_MODEL: z.string().optional().default('claude-sonnet-4-6'),
@@ -47,6 +53,12 @@ const ConfigSchema = z.object({
 
   // Web search
   BRAVE_API_KEY: z.string().optional().default(''),
+  // Tavily — LLM-native search API (1k free calls/month). Primary provider
+  // when set; SearXNG remains the fallback when Tavily is missing, errors,
+  // or returns no results.
+  TAVILY_API_KEY: z.string().optional().default(''),
+  TAVILY_BASE_URL: z.string().url().optional().default('https://api.tavily.com'),
+  TAVILY_SEARCH_DEPTH: z.enum(['basic', 'advanced']).optional().default('basic'),
 
   // Perplexity Sonar (grounded research — Search API + Agent API)
   PERPLEXITY_API_KEY: z.string().optional().default(''),
@@ -63,13 +75,23 @@ const ConfigSchema = z.object({
   DASHBOARD_TOKEN: z.string().optional().default(''),
 
   // Model labels for system_status tool
-  EVO_MAIN_MODEL_LABEL: z.string().optional().default('llama-server :8080 (EVO X2, main LLM)'),
-  EVO_CLASSIFIER_LABEL: z.string().optional().default('llama-server :8081 (EVO X2, classifier)'),
-  EVO_PLANNER_LABEL: z.string().optional().default('llama-server :8085 (EVO X2, 4B planner/classifier)'),
+  EVO_MAIN_MODEL_LABEL: z.string().optional().default('qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)'),
+  EVO_CLASSIFIER_LABEL: z.string().optional().default('qwen3.6-27b-q8_0 (shared with main on :8080 — 0.6B retired 2026-04-23)'),
+  EVO_PLANNER_LABEL: z.string().optional().default('qwen3-4b-instruct-2507-q4_k_m (llama-server :8085, restored 2026-04-24 — hot-path classifier)'),
 
   // Local models via llama.cpp — bot runs on EVO, all localhost
   EVO_LLM_URL: z.string().url().optional().default('http://localhost:8080'),
-  EVO_CLASSIFIER_URL: z.string().url().optional().default('http://localhost:8081'),
+  // Classifier and planner URLs — 2026-04-24 rebalance:
+  //   - 4B planner restored on :8085 for the hot-path classifier call
+  //     (classifyVia4B). Qwen3-4B-Instruct at Q4_K_M classifies in
+  //     <1 s, vs 6-7 s when classification ran on the 27B. Most
+  //     messages still end up on the 27B for the actual response
+  //     generation; the 4B only decides "which category, needsPlan?".
+  //   - Engagement classifier (classifyViaEvo, rarely invoked post
+  //     @mention-only invariant) stays pointed at :8080 — no separate
+  //     0.6B process, and the path is cold enough that latency is
+  //     irrelevant.
+  EVO_CLASSIFIER_URL: z.string().url().optional().default('http://localhost:8080'),
   EVO_PLANNER_URL: z.string().url().optional().default('http://localhost:8085'),
   EVO_TOOL_ENABLED: boolFromEnv.default('true'),
   EVO_EMBED_URL: z.string().url().optional().default('http://localhost:8083'),
@@ -122,10 +144,34 @@ const ConfigSchema = z.object({
   // Sentry API access (for Phase 4 lqc_recent_errors / webhook). Unused
   // while tools are in their Phase 2 scope but defined here so it's ready.
   LQC_SENTRY_API_TOKEN: z.string().optional().default(''),
+  // Regional API base. US tenant: https://sentry.io/api/0. EU (DE) tenant
+  // (bot-council's case — DSN host is o...ingest.de.sentry.io): use
+  // https://de.sentry.io/api/0. A user auth token scoped to an EU org
+  // returns empty lists against the US endpoint.
+  LQC_SENTRY_API_URL: z.string().url().optional().default('https://sentry.io/api/0'),
   LQC_SENTRY_ORG: z.string().optional().default(''),
   LQC_SENTRY_PROJECT_BACKEND: z.string().optional().default(''),
   LQC_SENTRY_PROJECT_FRONTEND: z.string().optional().default(''),
   LQC_SENTRY_WEBHOOK_SECRET: z.string().optional().default(''),
+  // Clint-side Sentry (optional): when SENTRY_DSN is set, Clint reports
+  // its own errors to Sentry via native-fetch envelope ingest (no SDK
+  // dependency). src/sentry.js wires uncaught-exception + unhandled-
+  // rejection handlers and scheduler task-failure captureException
+  // calls. Distributed-trace headers are injected on outbound
+  // bot-council requests so the two services share a trace ID. No-op
+  // when DSN unset — every call path has a cheap short-circuit.
+  SENTRY_DSN: z.string().optional().default(''),
+  SENTRY_ENVIRONMENT: z.string().optional().default('production'),
+  SENTRY_RELEASE: z.string().optional().default(''),
+  // Shared secret for the on-demand knowledge-refresh webhook. A GitHub
+  // Action in bot-council repo uses this to trigger Clint's drift check
+  // out-of-band when the source changes. HMAC-SHA256 over the body.
+  LQCOUNCIL_REFRESH_SECRET: z.string().optional().default(''),
+  // Consolidate store mode: 'promoted' writes validated candidates to EVO
+  // memory (post-cutover default); 'shadow' writes to shadow-candidates-*
+  // for review without touching memory. Flag exists so a regression can
+  // be flipped back to shadow without a code change.
+  CONSOLIDATE_MODE: z.enum(['shadow', 'promoted']).optional().default('promoted'),
 });
 
 // --- Parse & validate ---
@@ -172,6 +218,10 @@ const config = {
   googleRefreshToken: env.GOOGLE_REFRESH_TOKEN,
 
   braveApiKey: env.BRAVE_API_KEY,
+
+  tavilyApiKey: env.TAVILY_API_KEY,
+  tavilyBaseUrl: env.TAVILY_BASE_URL,
+  tavilySearchDepth: env.TAVILY_SEARCH_DEPTH,
 
   perplexityApiKey: env.PERPLEXITY_API_KEY,
   perplexityEnabled: env.PERPLEXITY_ENABLED,
@@ -225,10 +275,13 @@ const config = {
   lqcAdminToken: env.LQC_ADMIN_TOKEN,
   lqcDevGroupJid: env.LQC_DEV_GROUP_JID,
   lqcSentryApiToken: env.LQC_SENTRY_API_TOKEN,
+  lqcSentryApiUrl: env.LQC_SENTRY_API_URL,
   lqcSentryOrg: env.LQC_SENTRY_ORG,
   lqcSentryProjectBackend: env.LQC_SENTRY_PROJECT_BACKEND,
   lqcSentryProjectFrontend: env.LQC_SENTRY_PROJECT_FRONTEND,
   lqcSentryWebhookSecret: env.LQC_SENTRY_WEBHOOK_SECRET,
+  lqcouncilRefreshSecret: env.LQCOUNCIL_REFRESH_SECRET,
+  consolidateMode: env.CONSOLIDATE_MODE,
 };
 
 Object.freeze(config);

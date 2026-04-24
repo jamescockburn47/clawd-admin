@@ -23,7 +23,21 @@ import { getCachedIdentityMemories, runPhase2Streams } from './cortex-cache.js';
 import { warmFromQuery, getWorkingKnowledge } from './lquorum-rag.js';
 import { getLiveSystemSnapshot } from './system-knowledge.js';
 import { webSearch } from './tools/search.js';
+import { getGroupConfig } from './group-registry.js';
 import logger from './logger.js';
+
+/**
+ * Derive a project id for classifier bias + tool filtering.
+ * Returns the first entry of `allowedProjects` when the chat is bound to
+ * a single project, else null. A colleague/open-mode group returns null.
+ */
+function resolveGroupProject(chatJid) {
+  if (!chatJid) return null;
+  const cfg = getGroupConfig(chatJid);
+  const allowed = cfg?.allowedProjects;
+  if (!Array.isArray(allowed) || allowed.length === 0) return null;
+  return allowed[0];
+}
 
 // Categories where web prefetch is worth the cost (SearXNG is free, just latency)
 const WEB_LIKELY = new Set([
@@ -72,12 +86,13 @@ const SECTION_BUDGETS = {
  */
 export async function gatherIntelligence(context, hasImage, isGroup, options = {}) {
   const t0 = Date.now();
+  const groupProject = isGroup ? resolveGroupProject(options.chatJid) : null;
 
   // ── Phase 1: Classification + identity (always needed, both fast) ──
   // Identity uses a cached lookup (5-min TTL) — eliminates a repeat HTTP call
   // per message when identity memories haven't changed.
   const [route, identityMems] = await Promise.all([
-    classifyMessage(context, hasImage, isGroup),
+    classifyMessage(context, hasImage, isGroup, groupProject),
     config.evoMemoryEnabled ? getCachedIdentityMemories() : [],
   ]);
 
@@ -96,9 +111,17 @@ export async function gatherIntelligence(context, hasImage, isGroup, options = {
   // LQuorum — synchronous, near-instant, always worth doing
   warmFromQuery(context);
 
-  // Relevant memories — only for categories that use them
-  if (config.evoMemoryEnabled && needsMemories(category)) {
-    streams.relevant = getRelevantMemories(context).catch(err => {
+  // Relevant memories — always fetched when in a project-bound group so
+  // that group-specific docs + prior-conversation insights surface on
+  // every message, regardless of category. In non-project-bound chats
+  // the existing category gate applies.
+  const projectBoostKeys = [];
+  if (groupProject) projectBoostKeys.push(`project:${groupProject}`);
+  if (isGroup && options.chatJid) projectBoostKeys.push(options.chatJid);
+
+  if (config.evoMemoryEnabled && (needsMemories(category) || groupProject)) {
+    const memOpts = projectBoostKeys.length > 0 ? { projectBoostKeys } : undefined;
+    streams.relevant = getRelevantMemories(context, memOpts).catch(err => {
       logger.warn({ err: err.message }, 'cortex: relevant memories failed');
       return [];
     });

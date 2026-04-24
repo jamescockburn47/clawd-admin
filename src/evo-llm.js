@@ -548,20 +548,65 @@ export async function classifyViaEvo(text, systemPrompt) {
   }
 }
 
-// Keep-alive ping — exercises inference path to prevent any idle-state degradation
-export async function keepEvoWarm() {
+// Keep-alive ping — exercises inference path every scheduler tick (60 s)
+// to prevent GPU power-state downclock during idle periods. With
+// Qwen3.6-27B now on :8080 as the default chat AND classifier model, the
+// prompt cache being warm matters for first-response latency.
+//
+// Strategy: 60 s cadence (set by scheduler.js), max_tokens=1, and a
+// short realistic prompt so the token path is exercised rather than a
+// health-check shortcut. Cost per ping is ~100-200 ms on warm
+// hardware; on cold GPU the first ping after a quiet period is ~1 s
+// (exactly what we want — it's the cost we're paying to keep the
+// follow-up user request cheap).
+//
+// cache_prompt=true instructs llama-server to hold the KV-cache prefix
+// across calls. The ping itself primes the system-prompt-less short
+// path; real traffic uses its own prefixes on top. The main value of
+// this call is GPU-clock warming, not cache priming.
+// 2026-04-24 redesign: warm BOTH llama-server instances we depend on
+// every 60 s. Previous version only pinged :8080, leaving :8085 (4B
+// classifier) cold — which caused the 5 s timeouts on classifyVia4B
+// after idle windows (PR #40 bumped the timeout but the real fix is
+// keeping the process warm).
+//
+// Each ping uses a short system prompt matching the SHAPE of a real
+// classifier / chat system prompt. Combined with cache_prompt=true,
+// this keeps the KV-cache prefix warm so the first real user request
+// pays only the user-message-delta prefill, not the full 13K cortex
+// prefill.
+//
+// max_tokens=1 means we decode exactly one token per ping — cheap
+// enough to run every minute even on Q6_K 27B. Net saving on
+// user-visible latency after a quiet window: ~0.5-1 s per cold-start.
+const CLINT_WARM_SYSTEM_27B = 'You are Clint, a WhatsApp admin assistant. Respond briefly.';
+const CLASSIFIER_WARM_SYSTEM_4B = 'You are a message classifier. Output JSON only. Respond briefly.';
+
+async function warmOne(url, systemText, label) {
   try {
-    await evoFetch(`${config.evoLlmUrl}/v1/chat/completions`, {
+    await evoFetch(`${url}/v1/chat/completions`, {
       method: 'POST',
       body: JSON.stringify({
-        messages: [{ role: 'user', content: 'ping' }],
+        messages: [
+          { role: 'system', content: systemText },
+          { role: 'user', content: 'ok' },
+        ],
         max_tokens: 1,
+        temperature: 0,
         cache_prompt: true,
       }),
       timeout: TIMEOUTS.EVO_HEALTH_CHECK,
     });
-    logger.info('evo model kept warm');
+    logger.info({ label }, 'warm ping ok');
   } catch {
-    // EVO offline — ignore
+    // Target offline — scheduler retries next tick. No warn-spam.
   }
+}
+
+export async function keepEvoWarm() {
+  // Parallel so the tick cost is one cold-start worst-case, not two.
+  await Promise.all([
+    warmOne(config.evoLlmUrl, CLINT_WARM_SYSTEM_27B, 'evo-main-27b'),
+    warmOne(config.evoPlannerUrl, CLASSIFIER_WARM_SYSTEM_4B, 'evo-planner-4b'),
+  ]);
 }

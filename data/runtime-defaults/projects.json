@@ -244,6 +244,75 @@
       }
     },
     {
+      "id": "lqcouncil",
+      "name": "LQcouncil — Multi-agent adversarial debate harness",
+      "status": "active",
+      "created": "2026-04-15T00:00:00.000Z",
+      "updated": "2026-04-19T00:00:00.000Z",
+      "oneLiner": "Rust/Axum harness that forces multiple LLM-based bots into structured debate, anonymised mid-round and peer-scored, to counter sycophancy and idea convergence.",
+      "summary": "LQcouncil (also 'Bot Council') is a standalone debate harness. Five bots, five rounds (blind formation, anonymous distribution, structured rebuttal, cross-examination, final position), five constitutional roles (proponent, skeptic, devils_advocate, empiricist, steelman). Participants are pseudonymised within each debate and roles rotate between debates. Scoring is peer-judged (reasoning_quality, factual_grounding, overall). First production use case is debate; designed so the playground can tweak into co-build or moot court.",
+      "foundingInsight": "Bots in a shared channel tend to agree sycophantically and converge. Real insight emerges from structured disagreement, mid-debate anonymisation, and peer scoring rather than self-reported confidence.",
+      "evoPath": "/home/james/bot-council",
+      "gitRepo": "https://github.com/jamescockburn47/bot-council",
+      "apiBaseUrl": "https://api.lqcouncil.com",
+      "loopbackUrl": "http://127.0.0.1:3100",
+      "frontendUrl": "https://lqcouncil.com",
+      "keyDifferentiators": [
+        "Mid-debate anonymisation blocks rhetoric anchoring on identity",
+        "Role rotation prevents overfitting to a single voice per bot",
+        "Peer scoring on the same ordinal scale as self-reported confidence",
+        "Minority positions preserved in synthesis, not averaged away",
+        "Closed-set error taxonomy (`error_kind`) maps failures to specific remediations"
+      ],
+      "architecture": {
+        "layers": [
+          {
+            "name": "Orchestrator",
+            "description": "Rust/Tokio task per debate. State machine over rounds 0-4, role assignment with no-consecutive-same-role constraint, 300 s per-round timeout, structured challenge/position_change validation."
+          },
+          {
+            "name": "Bot client",
+            "description": "Sends Authorization: Bearer <token> POST to each bot's /debate URL. Classifies failures into a closed taxonomy (timeout, http_5xx, schema_missing_field, etc.) stored on the `responses` row."
+          },
+          {
+            "name": "Analyser + synthesiser",
+            "description": "Post-round validation of schema invariants (confidence range, challenge presence round 2, position_change round 4). Synthesis consolidates final positions while preserving minorities."
+          }
+        ]
+      },
+      "nextSteps": [
+        "Maintain the reference implementations in `reference/` as the canonical bot-author examples.",
+        "Keep the `/bots/schema` endpoint in sync with the structs (schemars-derived).",
+        "Grow the closed error_kind taxonomy only when new failure modes genuinely diverge."
+      ],
+      "tags": [
+        "lqcouncil",
+        "bot-council",
+        "multi-agent",
+        "debate",
+        "adversarial-reasoning",
+        "peer-scoring"
+      ],
+      "sync": {
+        "enabled": true,
+        "source": "local",
+        "includePaths": [
+          "CLAUDE.md",
+          "Cargo.toml",
+          "reference/debate-endpoint-node.js",
+          "reference/debate-endpoint-python.py",
+          "reference/run-smoke-test.sh",
+          "src/types.rs",
+          "src/orchestrator/prompts.rs",
+          "src/orchestrator/roles.rs",
+          "src/orchestrator/state_machine.rs",
+          "src/orchestrator/error_kind.rs",
+          "src/api/bots.rs",
+          "src/api/schema.rs"
+        ]
+      }
+    },
+    {
       "id": "sovren",
       "name": "SOVREN — Sovereign Award Valuation Engine",
       "status": "active",

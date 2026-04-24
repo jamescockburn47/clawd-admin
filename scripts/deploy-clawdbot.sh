@@ -81,6 +81,106 @@ if [ "$DRY_RUN" = "1" ]; then
   exit 0
 fi
 
+# Sync the tracked systemd unit files into /etc/systemd/system/ when they
+# drift from the repo copies. Keeps every live unit in step with its
+# evo-system/ source of truth.
+sync_unit() {
+  local src="$1" dest="$2" needs_restart_var="$3"
+  if [ -f "$src" ] && ! sudo cmp -s "$src" "$dest"; then
+    echo "Installing updated $dest from $src..."
+    sudo cp "$src" "$dest"
+    sudo systemctl daemon-reload
+    eval "$needs_restart_var=1"
+  fi
+}
+
+clawdbot_changed=0
+llama_main_changed=0
+llama_planner_changed=0
+sync_unit "$REPO_DIR/evo-system/clawdbot.service" "/etc/systemd/system/${UNIT}.service" clawdbot_changed
+sync_unit "$REPO_DIR/evo-system/llama-server-main.service" "/etc/systemd/system/llama-server-main.service" llama_main_changed
+sync_unit "$REPO_DIR/evo-system/llama-server-planner.service" "/etc/systemd/system/llama-server-planner.service" llama_planner_changed
+
+# Ensure the 4B planner service is enabled + active (restored 2026-04-24
+# as the fast-path classifier in front of the 27B chat model).
+# Idempotent: enable + start are no-ops if already in place.
+if [ -f "/etc/systemd/system/llama-server-planner.service" ]; then
+  if ! sudo systemctl is-enabled --quiet llama-server-planner.service 2>/dev/null; then
+    echo "Enabling llama-server-planner.service..."
+    sudo systemctl enable llama-server-planner.service 2>/dev/null || true
+  fi
+  if ! sudo systemctl is-active --quiet llama-server-planner.service 2>/dev/null; then
+    echo "Starting llama-server-planner.service..."
+    sudo systemctl start llama-server-planner.service || true
+  elif [ "$llama_planner_changed" = "1" ]; then
+    echo "Restarting llama-server-planner.service (new unit)..."
+    sudo systemctl restart llama-server-planner.service || true
+  fi
+fi
+
+# Retire services that are no longer referenced in evo-system/. Idempotent:
+# only fires when the live unit is present (so a fresh EVO with no legacy
+# state is a no-op). Preserves unit files under /etc/systemd/system/ so
+# operators can inspect them — `disable` removes the WantedBy symlinks,
+# `stop` terminates the running instance, unit file stays in place.
+retire_unit() {
+  local unit="$1"
+  if sudo systemctl list-unit-files "$unit" --no-legend --no-pager 2>/dev/null | grep -q .; then
+    if sudo systemctl is-active --quiet "$unit" 2>/dev/null; then
+      echo "Retiring $unit (stop + disable)..."
+      sudo systemctl stop "$unit" || true
+    fi
+    if sudo systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+      sudo systemctl disable "$unit" || true
+    fi
+  fi
+}
+for legacy in \
+    llama-server-classifier.service \
+    llama-server-coder.service \
+    llama-swap-main.service llama-swap-main.timer \
+    llama-swap-coder.service llama-swap-coder.timer; do
+  retire_unit "$legacy"
+done
+
+# If the llama-server-main unit changed, restart it so the new binary/args
+# take effect. Rolls the Qwen3.6-27B loader (~45 s startup) before Clint
+# tries to talk to it on restart.
+if [ "$llama_main_changed" = "1" ]; then
+  echo "Restarting llama-server-main.service (new unit)..."
+  sudo systemctl restart llama-server-main.service || true
+  sleep 3
+  if ! sudo systemctl is-active --quiet llama-server-main.service; then
+    echo "WARN: llama-server-main.service not active after restart — check journalctl -u llama-server-main.service" >&2
+  fi
+fi
+
+# Pre-flight: surface any non-systemd process holding :3000. The unit's
+# ExecStartPre reclaims the port automatically, but we want operators to
+# see when that happens so the source of the orphan can be diagnosed.
+# Orphans typically arise when something starts the bot via `nohup node ...`
+# over SSH — the tsx process is reparented to init after the SSH session
+# closes and outlives any systemctl-driven restart.
+port_pid=$(sudo ss -tlnpH sport = :3000 2>/dev/null | awk -F 'pid=' 'NR==1 {split($2, a, ","); print a[1]}')
+if [ -n "${port_pid:-}" ] && [ -r "/proc/$port_pid/cgroup" ]; then
+  cg=$(awk 'NR==1' "/proc/$port_pid/cgroup" 2>/dev/null || true)
+  case "$cg" in
+    *"system.slice/${UNIT}.service"*) ;;  # expected: systemd-managed
+    *)
+      cmd=$(tr '\0' ' ' < "/proc/$port_pid/cmdline" 2>/dev/null || true)
+      etime=$(ps -p "$port_pid" -o etime= 2>/dev/null | tr -d ' ' || true)
+      cat <<EOF >&2
+WARN: non-systemd process holds :3000 before restart — will be reclaimed
+  by ExecStartPre. Investigate how it started (see feedback_no_nohup_for_clawdbot.md).
+    pid:    $port_pid
+    etime:  ${etime:-unknown}
+    cmd:    ${cmd:-<unreadable>}
+    cgroup: $cg
+EOF
+      ;;
+  esac
+fi
+
 echo "Restarting $UNIT..."
 sudo systemctl restart "$UNIT"
 sleep 3

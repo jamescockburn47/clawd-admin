@@ -10,12 +10,16 @@
 // external clients. In production the factory builds real clients from
 // memory.js / topic-index.js. In tests, mocks are passed directly.
 
+import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import logger from '../logger.js';
 import { OvernightRunner } from './runner.js';
 import { makeConsolidateStage } from './consolidate.js';
 import { ShadowSink } from './consolidate-shadow-sink.js';
+import { PromotedSink, type PromotedSinkDeps } from './consolidate-promoted-sink.js';
 import { synthesizeSources } from './consolidate-source-synthesizer.js';
+import type { StoreClient } from './consolidate-store.js';
 import type { ExtractClient } from './consolidate-extract.js';
 import type { MaintenanceClient, TopicIndexClient } from './consolidate-maintenance.js';
 import type { MemoryCandidate } from './consolidate-validate.js';
@@ -33,9 +37,72 @@ const DEFAULT_LOG_DIR = join(DEFAULT_REPO_ROOT, 'data', 'conversation-logs');
 /** Module-level idempotency guard: one run per YYYY-MM-DD. */
 let lastShadowDate: string | null = null;
 
+/**
+ * Per-run counter for extract-debug file writes. Caps disk usage on a
+ * completely broken extractor that would otherwise produce one debug entry
+ * per conversation. Reset at the start of each run in checkConsolidateShadow.
+ */
+let extractDebugWritesThisRun = 0;
+const EXTRACT_DEBUG_MAX_PER_RUN = 5;
+
 /** Reset guard state. Test-only. */
 export function resetShadowTaskStateForTests(): void {
   lastShadowDate = null;
+  extractDebugWritesThisRun = 0;
+}
+
+/**
+ * Wrap an ExtractClient so that zero-candidate responses get logged with
+ * input/output context and (for the first N per run) persisted to
+ * data/overnight/extract-debug-<date>.jsonl for root-cause analysis.
+ * Exported for testing. Does not alter the happy path at all — a non-empty
+ * candidates array is returned unchanged.
+ */
+export function withExtractDebug(
+  inner: ExtractClient,
+  overnightDir: string,
+  todayStr: string,
+): ExtractClient {
+  return {
+    extractCandidates: async (conversation, source) => {
+      const result = await inner.extractCandidates(conversation, source);
+      if (result.candidates.length > 0) return result;
+
+      const conversationLength = conversation.length;
+      const sample = conversation.slice(0, 500);
+
+      logger.info(
+        {
+          source,
+          conversation_length: conversationLength,
+          sample,
+        },
+        'consolidate extract returned zero candidates',
+      );
+
+      if (extractDebugWritesThisRun < EXTRACT_DEBUG_MAX_PER_RUN) {
+        extractDebugWritesThisRun++;
+        try {
+          await mkdir(overnightDir, { recursive: true });
+          const file = join(overnightDir, `extract-debug-${todayStr}.jsonl`);
+          const entry = {
+            timestamp: new Date().toISOString(),
+            source,
+            conversation_length: conversationLength,
+            sample,
+          };
+          await appendFile(file, JSON.stringify(entry) + '\n', 'utf8');
+        } catch (err) {
+          logger.warn(
+            { err: (err as Error).message },
+            'failed to write extract-debug entry',
+          );
+        }
+      }
+
+      return result;
+    },
+  };
 }
 
 export interface ShadowTaskDeps {
@@ -45,6 +112,38 @@ export interface ShadowTaskDeps {
   extractClient: ExtractClient;
   memoryClient: MaintenanceClient;
   topicClient: TopicIndexClient;
+  /**
+   * Optional PromotedSink deps. When supplied AND CONSOLIDATE_MODE !=
+   * 'shadow', the promoted sink is used instead of ShadowSink so
+   * validated candidates are written to EVO memory directly.
+   */
+  promotedSinkDeps?: PromotedSinkDeps;
+}
+
+/**
+ * Select the store client for a given task invocation based on the
+ * CONSOLIDATE_MODE env var. Exposed for tests.
+ *   - `shadow` (legacy): ShadowSink → shadow-candidates-<date>.jsonl.
+ *   - `promoted` (default): PromotedSink → EVO memory.
+ * Falls back to ShadowSink if promoted is requested but promotedSinkDeps
+ * is missing, so a misconfigured environment does not break the task.
+ */
+export function selectStoreClient(
+  deps: ShadowTaskDeps,
+  todayStr: string,
+): StoreClient {
+  const mode = (process.env.CONSOLIDATE_MODE || 'promoted').toLowerCase();
+  if (mode === 'shadow') {
+    return new ShadowSink({ overnightDir: deps.overnightDir, todayStr });
+  }
+  if (!deps.promotedSinkDeps) {
+    logger.warn(
+      { mode },
+      'consolidate: CONSOLIDATE_MODE=promoted but promotedSinkDeps missing — falling back to ShadowSink',
+    );
+    return new ShadowSink({ overnightDir: deps.overnightDir, todayStr });
+  }
+  return new PromotedSink({ deps: deps.promotedSinkDeps });
 }
 
 /**
@@ -76,7 +175,7 @@ function withSynthesizedSources(inner: ExtractClient): ExtractClient {
  * loading them (and don't trip config validation on missing env vars).
  */
 async function buildDefaultDeps(): Promise<ShadowTaskDeps> {
-  const { extractWithoutStoring, triggerMaintenance } = await import('../memory.js');
+  const { extractWithoutStoring, triggerMaintenance, storeMemory } = await import('../memory.js');
   const { indexDayTopics, pruneTopicIndex } = await import('../topic-index.js');
 
   // Raw extract client — just forwards to EVO. Source synthesis is applied
@@ -112,6 +211,14 @@ async function buildDefaultDeps(): Promise<ShadowTaskDeps> {
     },
   };
 
+  const promotedSinkDeps: PromotedSinkDeps = {
+    storeMemory: async (fact, category, tags, confidence, source) => {
+      const result = await storeMemory(fact, category, tags, confidence, source);
+      // `storeMemory` returns undefined on some offline paths — normalise.
+      return result ?? { queued: true };
+    },
+  };
+
   return {
     overnightDir: DEFAULT_OVERNIGHT_DIR,
     logDir: DEFAULT_LOG_DIR,
@@ -119,6 +226,7 @@ async function buildDefaultDeps(): Promise<ShadowTaskDeps> {
     extractClient,
     memoryClient,
     topicClient,
+    promotedSinkDeps,
   };
 }
 
@@ -143,18 +251,25 @@ export async function checkConsolidateShadow(
   if (hours !== SHADOW_TASK_HOUR || minutes !== SHADOW_TASK_MINUTE) return;
   if (lastShadowDate === todayStr) return;
   lastShadowDate = todayStr;
+  extractDebugWritesThisRun = 0;
 
   const resolvedDeps = deps ?? (await buildDefaultDeps());
 
-  const shadowSink = new ShadowSink({
-    overnightDir: resolvedDeps.overnightDir,
+  const storeClient = selectStoreClient(resolvedDeps, todayStr);
+
+  // Wrap extract client with debug layer (outermost) → source synthesis (inner).
+  // Debug observes the raw zero-candidate result before synthesis attaches sources,
+  // which is the state we actually need to diagnose.
+  const debugWrapped = withExtractDebug(
+    resolvedDeps.extractClient,
+    resolvedDeps.overnightDir,
     todayStr,
-  });
+  );
 
   const stage = makeConsolidateStage({
     logDir: resolvedDeps.logDir,
-    extractClient: withSynthesizedSources(resolvedDeps.extractClient),
-    storeClient: shadowSink,
+    extractClient: withSynthesizedSources(debugWrapped),
+    storeClient,
     memoryClient: resolvedDeps.memoryClient,
     topicClient: resolvedDeps.topicClient,
     yesterdayFor,

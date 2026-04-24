@@ -17,7 +17,13 @@ export const CATEGORY = Object.freeze({
 // Timeout constants (milliseconds)
 export const TIMEOUTS = Object.freeze({
   EVO_REQUEST: 60000,          // General EVO LLM request timeout
-  EVO_CLASSIFIER: 5000,        // Classifier (small model, fast)
+  // EVO_CLASSIFIER was 5000 ms when the classifier was a 0.6B/4B model
+  // on a separate llama-server. Post-2026-04-23 consolidation onto
+  // Qwen3.6-27B-Q8_0, a short classification takes ~2.5 s on a warm
+  // cache and longer on the first call after GPU idle. 15 s gives
+  // headroom for cold-start without leaving users waiting absurdly
+  // long when the upstream is genuinely stuck.
+  EVO_CLASSIFIER: 15000,       // Qwen3.6-27B classifier on :8080
   EVO_HEALTH_CHECK: 3000,      // Health endpoint check
   MEMORY_HEALTH_CHECK: 5000,   // Memory service health check
   MEMORY_DEFAULT: 10000,       // Default memory service request

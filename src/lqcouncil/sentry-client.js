@@ -4,11 +4,54 @@
 // debate/bot context with the Sentry events those runs emitted. Kept
 // independent of lqcouncil/client.js because it talks to a different
 // upstream with different auth.
+//
+// Region note: bot-council's Sentry org (Legal Quants, slug
+// `legal-quants`) lives in the EU (DE) tenant — DSN host ends in
+// `.ingest.de.sentry.io`. The regional API host is `de.sentry.io`, not
+// `sentry.io`. A user auth token scoped to an EU org returns empty
+// results against the US endpoint. Set `LQC_SENTRY_API_URL` to the
+// correct regional root (`https://de.sentry.io/api/0`).
 
 import config from '../config.js';
 import logger from '../logger.js';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+
+/**
+ * Build the Sentry issues-search URL. Exported as a pure helper so the
+ * region + query-param composition is unit-testable without fighting the
+ * config singleton (zod parses env at first import; subsequent imports
+ * with different env do not re-parse).
+ */
+/**
+ * Sentry's statsPeriod parameter accepts a narrow set of bucket strings
+ * (this project rejects anything other than '', '24h', '14d'). The
+ * search query's `age:` filter does the real time-range work; statsPeriod
+ * only controls stats graphs. Map any requested age to the nearest valid
+ * bucket so we never 400 on a custom lookback.
+ */
+function statsPeriodFor(age) {
+  if (!age) return '24h';
+  // Parse the magnitude from strings like '-30m', '-1h', '-7d'.
+  const m = String(age).match(/-?(\d+)([mhd])/);
+  if (!m) return '24h';
+  const n = parseInt(m[1], 10);
+  const unit = m[2];
+  // Convert everything to hours for comparison.
+  const hours = unit === 'm' ? n / 60 : unit === 'd' ? n * 24 : n;
+  if (hours <= 24) return '24h';
+  return '14d';
+}
+
+export function buildIssuesUrl({ apiUrl, org, project, query = '', limit = 10, age = '-24h' }) {
+  const base = (apiUrl || 'https://sentry.io/api/0').replace(/\/+$/, '');
+  const u = new URL(`${base}/projects/${encodeURIComponent(org)}/${encodeURIComponent(project)}/issues/`);
+  const q = [`age:${age}`, query].filter(Boolean).join(' ');
+  if (q) u.searchParams.set('query', q);
+  u.searchParams.set('limit', String(Math.min(Math.max(limit, 1), 100)));
+  u.searchParams.set('statsPeriod', statsPeriodFor(age));
+  return u.toString();
+}
 
 /** True when all three Sentry env vars are set. */
 export function isSentryConfigured() {
@@ -26,25 +69,31 @@ export function isSentryConfigured() {
  * @param {string} [params.query]  — Sentry search query (e.g. "tag:debate_id:abc")
  * @param {number} [params.limit]  — max issues (Sentry caps at 100)
  * @param {string} [params.age]    — e.g. "-1h", "-24h". Default -24h.
+ * @param {string} [params.project]  — override project slug (defaults to
+ *                                      config.lqcSentryProjectBackend).
+ *                                      Pass config.lqcSentryProjectFrontend
+ *                                      to search the frontend project.
  * @returns {Promise<Array<object>>} parsed issues
  */
-export async function searchIssues({ query = '', limit = 10, age = '-24h' } = {}) {
+export async function searchIssues({ query = '', limit = 10, age = '-24h', project = null } = {}) {
   if (!isSentryConfigured()) {
     throw new Error('Sentry not configured — set LQC_SENTRY_API_TOKEN, LQC_SENTRY_ORG, LQC_SENTRY_PROJECT_BACKEND.');
   }
 
-  const url = new URL(
-    `https://sentry.io/api/0/projects/${encodeURIComponent(config.lqcSentryOrg)}/${encodeURIComponent(config.lqcSentryProjectBackend)}/issues/`,
-  );
-  const q = [`age:${age}`, query].filter(Boolean).join(' ');
-  if (q) url.searchParams.set('query', q);
-  url.searchParams.set('limit', String(Math.min(Math.max(limit, 1), 100)));
-  url.searchParams.set('statsPeriod', age.replace(/^-/, ''));
+  const projectSlug = project || config.lqcSentryProjectBackend;
+  const url = buildIssuesUrl({
+    apiUrl: config.lqcSentryApiUrl,
+    org: config.lqcSentryOrg,
+    project: projectSlug,
+    query,
+    limit,
+    age,
+  });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
   try {
-    const resp = await fetch(url.toString(), {
+    const resp = await fetch(url, {
       headers: {
         authorization: `Bearer ${config.lqcSentryApiToken}`,
         accept: 'application/json',

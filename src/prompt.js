@@ -1,5 +1,6 @@
 import { getSoulPromptFragment } from './tools/soul.js';
-import { getGroupRestrictions, getGroupMode } from './group-registry.js';
+import { getGroupRestrictions, getGroupMode, getGroupConfig } from './group-registry.js';
+import { buildKnowledgeIndexBlock } from './lqcouncil/knowledge.js';
 import { getCanaryToken } from './output-filter.js';
 import config from './config.js';
 
@@ -410,11 +411,23 @@ CRITICAL SILENCE RULES:
 - NEVER say "Going quiet" unless someone literally told you to shut up.`;
   }
 
-  // LQ Bot Council — only in the configured dev group. Owner DM does
+  // LQ Bot Council — inject the tool-selection guide in any group bound
+  // to the lqcouncil project, or the legacy dev group. Owner DM does
   // NOT get the fragment: the tools themselves are enough for DM use,
   // and sparing the token budget matters for the high-volume DM path.
-  if (isGroup && chatJid && config.lqcEnabled && chatJid === config.lqcDevGroupJid) {
-    prompt += LQC_KNOWLEDGE_FRAGMENT;
+  // Also inject the curated knowledge index so the LLM knows what
+  // `lqc_knowledge` topics it can pull from.
+  if (isGroup && chatJid && config.lqcEnabled) {
+    const groupConfig = getGroupConfig(chatJid);
+    const isLqBound =
+      chatJid === config.lqcDevGroupJid ||
+      (Array.isArray(groupConfig?.allowedProjects) &&
+        groupConfig.allowedProjects.includes('lqcouncil'));
+    if (isLqBound) {
+      prompt += LQC_KNOWLEDGE_FRAGMENT;
+      const indexBlock = buildKnowledgeIndexBlock();
+      if (indexBlock) prompt += '\n\n' + indexBlock;
+    }
   }
 
   // Soul fragment — learned behaviours

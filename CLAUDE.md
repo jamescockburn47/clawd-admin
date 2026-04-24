@@ -43,8 +43,12 @@ That script:
 - Does **not** stash untracked files — `data/overnight/*.jsonl` and similar are written live by the service; snapshotting them mid-write risks corruption on pop.
 - `git fetch` + `git pull --ff-only origin main`.
 - `git stash pop` — if it hits conflicts, WIP stays in `git stash list` and the script exits non-zero. Investigate manually, do not `--force`.
+- Syncs `evo-system/clawdbot.service` → `/etc/systemd/system/clawdbot.service` (copy + `daemon-reload`) if the tracked file differs from live. The tracked unit is the source of truth — edit it there, not in `/etc/systemd/`.
+- Pre-flight-warns if a non-systemd process holds `:3000` (PID / etime / cgroup logged). The unit's `ExecStartPre=fuser -k -TERM 3000/tcp` reclaims the port automatically, but the warning still fires so the orphan's origin can be diagnosed.
 - `sudo systemctl restart clawdbot`.
 - Verifies `systemctl is-active clawdbot` and prints the last few journal lines.
+
+**Never start clawdbot outside systemd.** Use only `sudo systemctl restart clawdbot` or this script. Do **not** run `ssh james@... 'nohup node ... src/index.js &'` or any equivalent manual-background start. Orphans reparent to init, survive SSH session close, and block the next deploy with `EADDRINUSE :::3000` (2026-04-19 incident). The `ExecStartPre` is a safety net, not a licence.
 
 Variants:
 
@@ -89,7 +93,7 @@ WhatsApp admin assistant bot ("Clint", previously "Clawd") running on EVO X2, wi
 
 **Who uses it:** James (owner, full access) and MG (wife — calendar reading, todos, travel, web search only).
 
-**Tech:** Node.js 20+ ESM (migrating to TypeScript file-by-file, `tsx` runner), Baileys (WhatsApp), three-tier AI (local EVO free → MiniMax cheap → Claude premium), Rust dashboard on Pi, JSON file persistence. No database.
+**Tech:** Node.js 20+ ESM (migrating to TypeScript file-by-file, `tsx` runner), Baileys (WhatsApp), Qwen3.6-27B-Q8_0 local on EVO as default chat model (language + coding) with MiniMax as cloud fallback + vision path, Rust dashboard on Pi, JSON file persistence. No database.
 
 ## Architectural Invariants — BINDING
 
@@ -103,11 +107,13 @@ These are constraints the agent cannot infer from code. Do not revisit, reverse,
 - **Tailscale on all machines.** Pi `cnc`, EVO `james-nucbox-evo-x2`.
 - **All EVO servers run 24/7.** No sleep/wake timers.
 
-### Model Routing
-- **MiniMax M2.7 is the default cloud model.** ~8% of Claude's cost. All chat responses.
-- **Claude Opus 4.6 only on explicit request** ("ask claude", "use opus") or as quality gate for PLANNING, LEGAL, long EMAIL.
-- **EVO local models for vision, doc summarisation, and classification ONLY.** Never generate chat responses.
-- **4B classifier is the PRIMARY routing layer.** Keywords are fallback only (EVO down).
+### Model Routing (2026-04-23 Qwen3.6-27B swap)
+- **Qwen3.6-27B-Q8_0 local on EVO `:8080` is the DEFAULT chat model.** Handles every non-image chat response — language AND coding. Dense 27B, Apache 2.0, ~28 GB weights on GPU + ~4 GB KV cache, Q8_0 quant for near-reference quality. Replaces the previous "MiniMax default" + day/night swap scheme. One always-on model, no scheduled model swaps.
+- **MiniMax M2.7 is the FALLBACK path.** Invoked automatically when Qwen local is unreachable (llama-server crash, GPU hang, model-load failure) AND on every image-bearing message (dense 27B has no vision head; MiniMax's vision endpoint handles photos).
+- **Claude / Opus is OPTIONAL and dormant.** `ANTHROPIC_API_KEY` is no longer set by default. If re-added it only fires on explicit "ask claude" / "use opus" invocation. No automatic cascade.
+- **4B classifier on `:8085` is the primary routing layer (restored 2026-04-24).** Qwen3-4B-Instruct Q4_K_M. Hot-path classification in <1 s — the 27B was taking 6–7 s per message which became the floor on every reply. The 4B decides category + needsPlan; the 27B then generates the actual response. Most messages still end up on the 27B for the body, so the quality-vs-latency trade-off is only on the routing layer.
+- **Keywords remain the fallback when EVO is down.** Unchanged semantics.
+- **EVO llama-server inventory (post-2026-04-24 speed tune).** `:8080` Qwen3.6-27B-**Q6_K** (chat + tools + coding, default chat path) with **speculative decoding** against a Qwen3.5-0.8B-Q4_K_M draft for 50-80% tg speedup on the dense target. `--parallel 1 -c 32768`, batch/ubatch `512/128` (chat-workload tuning, not llama-bench throughput). `:8085` Qwen3-4B-Instruct-2507 Q4_K_M (classifier + planner hot-path). `:8083` Qwen3-Embedding-8B (memory). `:8084` granite-docling (PDF/doc parsing). `:8086` gemma-4-31B (bot-council rollback, not Clint's concern). Retired services — do not re-enable without cause: `:8081` 0.6B classifier, `llama-server-coder.service`, `llama-swap-{main,coder}.{service,timer}`.
 
 ### Voice Pipeline
 - **Piper TTS for everything.** Every voice command MUST produce audible output.

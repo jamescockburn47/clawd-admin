@@ -1,0 +1,52 @@
+[Unit]
+Description=llama.cpp main server (Qwen3.6-27B Q6_K) — default chat, language + coding, with speculative decoding
+After=network.target
+
+[Service]
+Type=simple
+User=james
+LimitMEMLOCK=infinity
+# 2026-04-24 speed tuning — stacked wins documented in research brief:
+#   1. Q8_0 → Q6_K requant: ~25% bandwidth saving, <0.1 ppl delta on dense Qwen3.
+#   2. Speculative decoding with Qwen3.5-0.8B-Q4_K_M draft: 50-80% tg speedup
+#      on dense target (vs MoE targets which break). Shared Qwen3 tokenizer.
+#   3. Batch / ubatch retune from 1024/512 → 512/128 — tuned for the single-
+#      stream 13K-prefix chat workload, not llama-bench throughput shape.
+#   4. --parallel 4 → 1 — mostly single-user. Frees KV slots for the GPU to
+#      keep hot tensors resident. -c 32768 (one slot, full 32K ctx).
+#   5. --flash-attn on retained — minimal on Vulkan RADV (+1%) but free and
+#      material on ROCm, so keeping for when we swap backends.
+#   6. KV cache kept at f16 (NOT q8_0). Quantized KV is incompatible with
+#      speculative decoding in this llama.cpp build — the first deploy
+#      logged "common_speculative_is_compat: the target context does not
+#      support partial sequence removal" and spec-decode was silently
+#      disabled. f16 KV costs ~4-6 GB more vs q8_0 at 32K ctx — plenty
+#      of headroom (30+ GB free on the GPU).
+#
+# ROCm 7.2.1 + rocWMMA swap is a separate PR — needs kyuz0 toolbox install
+# and a different llama-server build path.
+ExecStart=/home/james/llama.cpp/build/bin/llama-server \
+  -m /mnt/storage/models/qwen36-27b/Qwen_Qwen3.6-27B-Q6_K.gguf \
+  --model-draft /mnt/storage/models/qwen35-0.8b-draft/Qwen_Qwen3.5-0.8B-Q4_K_M.gguf \
+  --draft-max 8 \
+  --draft-min 2 \
+  --draft-p-min 0.6 \
+  -ngl 999 \
+  -ngld 999 \
+  -cd 4096 \
+  --host 0.0.0.0 --port 8080 \
+  -c 32768 \
+  --parallel 1 \
+  --reasoning off \
+  --flash-attn on \
+  --mlock \
+  --no-mmap \
+  --cont-batching \
+  --batch-size 512 \
+  --ubatch-size 128
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
