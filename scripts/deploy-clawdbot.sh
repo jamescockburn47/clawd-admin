@@ -194,3 +194,11 @@ else
   sudo journalctl -u "$UNIT" -n 30 --no-pager >&2
   exit 1
 fi
+
+echo "Refreshing system knowledge..."
+if node --env-file=.env --input-type=module -e "const m = await import('./src/system-knowledge.js'); const r = await m.refreshSystemKnowledge(); if (!r.refreshed) { console.error(JSON.stringify(r)); process.exit(1); } console.log(JSON.stringify(r));"; then
+  echo "OK: system knowledge refreshed."
+else
+  echo "ERROR: system knowledge refresh failed after deploy." >&2
+  exit 1
+fi
