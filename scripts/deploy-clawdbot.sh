@@ -196,7 +196,7 @@ else
 fi
 
 echo "Refreshing system knowledge..."
-if node --env-file=.env --input-type=module -e "const m = await import('./src/system-knowledge.js'); const r = await m.refreshSystemKnowledge(); if (!r.refreshed) { console.error(JSON.stringify(r)); process.exit(1); } console.log(JSON.stringify(r));"; then
+if node --env-file=.env --input-type=module -e "const memory = await import('./src/memory.js'); await memory.checkEvoHealth(); const m = await import('./src/system-knowledge.js'); const r = await m.refreshSystemKnowledge(); if (!r.refreshed) { console.error(JSON.stringify(r)); process.exit(1); } console.log(JSON.stringify(r));"; then
   echo "OK: system knowledge refreshed."
 else
   echo "ERROR: system knowledge refresh failed after deploy." >&2
