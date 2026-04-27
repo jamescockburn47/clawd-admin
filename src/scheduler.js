@@ -62,9 +62,46 @@ let lastCacheSyncMinute = null;
 
 export function initScheduler(sendMessage) {
   sendFn = sendMessage;
-  runScheduler();
-  setInterval(runScheduler, 60 * 1000);
+  runSchedulerOnce();
+  setInterval(runSchedulerOnce, 60 * 1000);
   logger.info('scheduler started (60s interval)');
+}
+
+export function createSchedulerTickRunner({ runTick, logger: tickLogger }) {
+  let running = false;
+  let startedAt = null;
+  let overlapSkips = 0;
+
+  return {
+    async run() {
+      if (running) {
+        overlapSkips += 1;
+        tickLogger.warn({
+          overlapSkips,
+          runningForMs: startedAt ? Date.now() - startedAt : null,
+        }, 'scheduler tick skipped because previous tick is still running');
+        return { skipped: true };
+      }
+
+      running = true;
+      startedAt = Date.now();
+      try {
+        await runTick();
+        return { skipped: false };
+      } finally {
+        running = false;
+        startedAt = null;
+      }
+    },
+    getState() {
+      return {
+        running,
+        startedAt,
+        overlapSkips,
+        runningForMs: running && startedAt ? Date.now() - startedAt : 0,
+      };
+    },
+  };
 }
 
 // Expose subsystem status for dashboard admin panel
@@ -91,6 +128,7 @@ export function getSystemHealth() {
       lastTickStats,
       slowTaskWarnMs: SLOW_TASK_WARN_MS,
       tickOverlapWarnMs: TICK_OVERLAP_WARN_MS,
+      ...schedulerTickRunner.getState(),
     },
   };
 }
@@ -214,7 +252,9 @@ async function runScheduler() {
   if (config.evoMemoryEnabled && isEvoOnline()) {
     if (minutes % 30 === 0 && lastCacheSyncMinute !== minutes) {
       lastCacheSyncMinute = minutes;
-      syncCache().catch(() => {});
+      syncCache().catch((err) => {
+        logger.warn({ err: err.message }, 'scheduler cache sync failed');
+      });
     }
   }
 
@@ -225,7 +265,9 @@ async function runScheduler() {
   // the classifier prompt cache primed without meaningful cost
   // (max_tokens=1, ~100-200 ms per ping).
   if (config.evoToolEnabled) {
-    keepEvoWarm().catch(() => {});
+    keepEvoWarm().catch((err) => {
+      logger.warn({ err: err.message }, 'scheduler EVO warm ping failed');
+    });
   }
 
   // Tick-wide timing. Warn on overlap risk (>45s) so we see tick
@@ -245,4 +287,10 @@ async function runScheduler() {
     // because every task short-circuits immediately via its time gate.
     logger.info({ tickMs: lastTickMs, topSlow: perTaskThisTick.slice(0, 3) }, 'scheduler tick');
   }
+}
+
+const schedulerTickRunner = createSchedulerTickRunner({ runTick: runScheduler, logger });
+
+export function runSchedulerOnce() {
+  return schedulerTickRunner.run();
 }

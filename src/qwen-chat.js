@@ -18,6 +18,19 @@
 import logger from './logger.js';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_RECENT_TELEMETRY = 100;
+const recentQwenTelemetry = [];
+
+function recordQwenTelemetry(entry) {
+  recentQwenTelemetry.push(entry);
+  if (recentQwenTelemetry.length > MAX_RECENT_TELEMETRY) {
+    recentQwenTelemetry.splice(0, recentQwenTelemetry.length - MAX_RECENT_TELEMETRY);
+  }
+}
+
+export function getRecentQwenTelemetry() {
+  return [...recentQwenTelemetry].reverse();
+}
 
 /**
  * Flatten an Anthropic `system` value to a single string. Supports the
@@ -166,7 +179,7 @@ export function createQwenChatClient({ baseUrl, defaultModel = 'qwen3.6-27b', ti
   if (!baseUrl) throw new Error('createQwenChatClient: baseUrl required');
   const normalisedBase = baseUrl.replace(/\/+$/, '');
 
-  async function create({ model, max_tokens = 1024, system, messages, tools } = {}) {
+  async function create({ model, max_tokens = 1024, system, messages, tools, requestId } = {}) {
     const url = `${normalisedBase}/v1/chat/completions`;
     const oaiMessages = [];
     const sys = flattenSystem(system);
@@ -201,7 +214,7 @@ export function createQwenChatClient({ baseUrl, defaultModel = 'qwen3.6-27b', ti
       });
     } catch (err) {
       // Surface as the Anthropic-ish null that LLMService handles.
-      logger.warn({ err: err.message, url }, 'qwen-chat: request failed');
+      logger.warn({ requestId: requestId || null, err: err.message, url }, 'qwen-chat: request failed');
       throw err;
     } finally {
       clearTimeout(timer);
@@ -209,18 +222,23 @@ export function createQwenChatClient({ baseUrl, defaultModel = 'qwen3.6-27b', ti
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      logger.warn({ status: res.status, body: body.slice(0, 200) }, 'qwen-chat: non-2xx');
+      logger.warn({ requestId: requestId || null, status: res.status, body: body.slice(0, 200) }, 'qwen-chat: non-2xx');
       throw new Error(`qwen-chat ${res.status}: ${body.slice(0, 200)}`);
     }
     const oai = await res.json();
-    logger.info({
+    const telemetry = {
+      timestamp: new Date().toISOString(),
+      requestId: requestId || null,
       model: payload.model,
       toolCount: oaiTools?.length || 0,
       payloadChars: payloadText.length,
       elapsedMs: Date.now() - requestStarted,
+      maxTokens: max_tokens,
       promptTokens: oai?.usage?.prompt_tokens || 0,
       completionTokens: oai?.usage?.completion_tokens || 0,
-    }, 'qwen-chat request complete');
+    };
+    recordQwenTelemetry(telemetry);
+    logger.info(telemetry, 'qwen-chat request complete');
     return translateOpenAIResponseToAnthropic(oai);
   }
 
