@@ -64,6 +64,11 @@ describe('classifyByKeywords', () => {
     assert.equal(classifyByKeywords('evolution task fix the classifier'), 'planning');
     assert.equal(classifyByKeywords('self program a new feature'), 'planning');
   });
+
+  it('classifies explicit memory recall requests', () => {
+    assert.equal(classifyByKeywords('search your memory for what we decided about Qwen'), 'recall');
+    assert.equal(classifyByKeywords('from memory, summarise the local model routing'), 'recall');
+  });
 });
 
 describe('detectsWriteIntent', () => {

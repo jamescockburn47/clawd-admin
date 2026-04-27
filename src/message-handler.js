@@ -29,6 +29,7 @@ import { getDefaultFollowUpWindowMs } from './participation/engagement-service.j
 import { openFollowUpWindow, getConversationState, recordParticipantTurn } from './participation/conversation-state.js';
 import { applyProductionFollowUpTurn } from './participation/follow-up-runtime.js';
 import { quotedReplyTarget } from './participation/reply-target.js';
+import { createRequestId } from './request-id.js';
 
 // --- Owner JID resolution ---
 const ownerJids = new Set();
@@ -459,9 +460,10 @@ export async function handleIncomingMessage(sock, message, botJid) {
     }
 
     // Generate response
+    const requestId = createRequestId({ source: isGroup ? 'whatsapp_group' : 'whatsapp_dm' });
     const context = buildContext(chatJid, messageText);
     const responseStart = Date.now();
-    const responseResult = await getClawdResponseResult(context, trigger.mode, senderJid, imageData, chatJid, { secretaryMode: !!trigger.secretaryMode });
+    const responseResult = await getClawdResponseResult(context, trigger.mode, senderJid, imageData, chatJid, { secretaryMode: !!trigger.secretaryMode, requestId });
     const routingResult = responseResult?.meta ?? null;
     const response = responseResult?.text ?? null;
     const responseLatency = Date.now() - responseStart;
@@ -540,9 +542,11 @@ export async function handleIncomingMessage(sock, message, botJid) {
       category: routingResult?.category,
       model: routingResult?.provider,
       modelName: routingResult?.modelName,
+      requestId,
     });
 
     logInteraction({
+      requestId,
       sender: { name: senderName, jid: senderJid }, source: 'whatsapp',
       input: { text: messageText, hadImage: !!imageData },
       routing: {
@@ -565,7 +569,7 @@ export async function handleIncomingMessage(sock, message, botJid) {
       latencyMs: responseLatency, messageIds: sentMsgIds,
     });
 
-    logger.info({ mode: trigger.mode, chars: finalResponse.length, filtered: !filterResult.safe, latencyMs: responseLatency }, 'response sent');
+    logger.info({ requestId, mode: trigger.mode, chars: finalResponse.length, filtered: !filterResult.safe, latencyMs: responseLatency }, 'response sent');
   } catch (err) {
     logger.error({ err: err.message }, 'message handler error');
   }

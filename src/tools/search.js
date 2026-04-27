@@ -98,6 +98,9 @@ export async function webFetch({ url }) {
 
 const SEARCH_TIMEOUT_MS = 10_000;
 const MAX_CONTENT_CHARS = 1200;
+const TAVILY_COOLDOWN_MS = 15 * 60 * 1000;
+const TAVILY_COOLDOWN_STATUSES = new Set([401, 403, 429, 432]);
+let tavilyCooldownUntil = 0;
 
 function clampCount(count) {
   const raw = count == null ? 5 : Number(count);
@@ -122,6 +125,10 @@ function formatResults(results, query) {
  */
 async function searchTavily(query, n) {
   if (!config.tavilyApiKey) return null;
+  if (Date.now() < tavilyCooldownUntil) {
+    logger.warn({ cooldownUntil: new Date(tavilyCooldownUntil).toISOString() }, 'tavily search skipped during cooldown');
+    return null;
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
@@ -144,6 +151,9 @@ async function searchTavily(query, n) {
     if (!res.ok) {
       const bodyText = await res.text().catch(() => '');
       logger.warn({ status: res.status, body: bodyText.slice(0, 200) }, 'tavily search non-2xx');
+      if (TAVILY_COOLDOWN_STATUSES.has(res.status)) {
+        tavilyCooldownUntil = Date.now() + TAVILY_COOLDOWN_MS;
+      }
       return null;
     }
 

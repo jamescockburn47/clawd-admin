@@ -20,6 +20,7 @@ import { getEvoStatus, getMemoryStats, listMemories, searchMemory, storeNote, up
 import { getSystemHealth } from './scheduler.js';
 import { getQualitySummary, getRecentFeedback } from './interaction-log.js';
 import { getWorkingMemoryState } from './lquorum-rag.js';
+import { getRecentQwenTelemetry } from './qwen-chat.js';
 import { getRegisteredGroups } from './group-registry.js';
 import { getParticipationProfile, mergeParticipationProfile } from './participation/policy-service.js';
 import { getRecentParticipationDecisions } from './participation/log-store.js';
@@ -96,6 +97,10 @@ export function startHttpServer(port, deps) {
     if (path === '/api/usage') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       return json(res, 200, getUsageStats());
+    }
+    if (path === '/api/qwen-telemetry') {
+      if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
+      return json(res, 200, { requests: getRecentQwenTelemetry() });
     }
     if (path === '/api/working-memory') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
@@ -581,7 +586,7 @@ export function startHttpServer(port, deps) {
     if (path === '/api/evo' || path === '/api/ollama') {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       const evoOnline = await checkEvoLlmHealth();
-      return json(res, 200, { available: evoOnline, online: evoOnline, url: config.evoLlmUrl, model: evoOnline ? 'Qwen3-VL-30B' : null });
+      return json(res, 200, { available: evoOnline, online: evoOnline, url: config.evoLlmUrl, model: evoOnline ? config.evoMainModelLabel : null });
     }
 
     // --- Memory endpoints ---

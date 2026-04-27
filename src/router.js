@@ -43,6 +43,7 @@ const WRITE_LIKELY_CATEGORIES = new Set([CATEGORY.EMAIL]);
 const MEMORY_CATEGORIES = new Set([CATEGORY.TRAVEL, CATEGORY.RECALL, CATEGORY.PLANNING, CATEGORY.SYSTEM]);
 const CLAUDE_CATEGORIES = new Set([CATEGORY.EMAIL, CATEGORY.PLANNING, CATEGORY.RECALL, CATEGORY.SYSTEM]);
 const VALID_CATEGORIES = new Set(Object.values(CATEGORY));
+const EXPLICIT_RECALL_PATTERN = /\b(search|check|look in|query|use)\s+(?:your\s+)?memor(?:y|ies)\b|\bfrom memory\b|\b(?:do you remember|what did (?:i|we) (?:say|decide)|recall)\b/;
 
 const CLASSIFY_PROMPT = `Classify this WhatsApp message into exactly one category.
 Categories: calendar, task, travel, email, recall, planning, conversational, general_knowledge, system
@@ -125,6 +126,7 @@ class RouterService {
   classifyByKeywords(text) {
     if (!text) return null;
     const lower = text.toLowerCase().trim();
+    if (EXPLICIT_RECALL_PATTERN.test(lower)) return CATEGORY.RECALL;
     this._ensureLearnedRulesLoaded();
     const allRules = [...KEYWORD_RULES, ...this._learnedRules];
     const categories = [...new Set(allRules.filter(r => r.test(lower)).map(r => r.category))];

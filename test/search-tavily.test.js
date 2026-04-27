@@ -98,6 +98,30 @@ describe('webSearch — Tavily primary', () => {
     assert.ok(result.includes('SearXNG hit'));
   });
 
+  it('temporarily skips Tavily after a quota or rate-limit response', async () => {
+    const webSearch = await loadWithTavilyKey();
+    const urls = [];
+    globalThis.fetch = async (url) => {
+      urls.push(String(url));
+      if (String(url).includes('api.tavily.test')) {
+        return { ok: false, status: 432, text: async () => 'usage limit' };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          results: [{ title: 'SearXNG hit', url: 'https://example.com/s', content: 'x' }],
+        }),
+      };
+    };
+
+    await webSearch({ query: 'first' });
+    const second = await webSearch({ query: 'second' });
+
+    assert.ok(second.includes('SearXNG hit'));
+    assert.equal(urls.filter((url) => url.includes('api.tavily.test')).length, 1);
+    assert.equal(urls.filter((url) => url.includes('localhost:8888')).length, 2);
+  });
+
   it('falls through to SearXNG when Tavily throws', async () => {
     const webSearch = await loadWithTavilyKey();
     globalThis.fetch = async (url) => {

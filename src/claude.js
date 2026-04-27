@@ -15,6 +15,7 @@ import { buildProjectScopePrompt } from './project-access.js';
 import { filterToolsForChat } from './group-tool-policy.js';
 import { trackTokens, checkDailyLimit, incrementDailyCalls, getDailyCalls, recordCallInUsage, getUsageStats, flushUsage } from './usage-tracker.js';
 import { shouldCritique, runCritique } from './quality-gate.js';
+import { createRequestId } from './request-id.js';
 import logger from './logger.js';
 
 export { getUsageStats, flushUsage };
@@ -216,7 +217,7 @@ class LLMService {
   }
 
   /** Run the tool use loop, returning final response */
-  async _toolLoop(activeClient, activeModel, breaker, system, messages, cachedTools, isGroup, mode, senderJid, chatJid) {
+  async _toolLoop(activeClient, activeModel, breaker, system, messages, cachedTools, isGroup, mode, senderJid, chatJid, requestId) {
     let loopClient = activeClient;
     let loopModel = activeModel;
     let loopBreaker = breaker;
@@ -236,6 +237,7 @@ class LLMService {
           hasTools,
           defaultMaxTokens,
         }),
+        requestId,
         system,
         messages,
         ...(hasTools ? { tools: cachedTools } : {}),
@@ -288,10 +290,10 @@ class LLMService {
       messages.push({ role: 'assistant', content: response.content });
       const toolResults = [];
       for (const toolUse of toolUseBlocks) {
-        logger.info({ tool: toolUse.name, input: toolUse.input }, 'tool call');
+        logger.info({ requestId, tool: toolUse.name, input: toolUse.input }, 'tool call');
         this._lastToolsCalled.push(toolUse.name);
         let result = await executeTool(toolUse.name, toolUse.input, senderJid, chatJid);
-        logger.info({ tool: toolUse.name, chars: result.length }, 'tool result');
+        logger.info({ requestId, tool: toolUse.name, chars: result.length }, 'tool result');
         if (result.length > MAX_TOOL_RESULT) result = result.slice(0, MAX_TOOL_RESULT) + '\n[...truncated]';
         toolResults.push({ type: 'tool_result', tool_use_id: toolUse.id, content: result });
       }
@@ -303,7 +305,7 @@ class LLMService {
       );
       if (!response) break;
       trackTokens(response);
-      logger.info({ loop: loopCount, input: response.usage?.input_tokens, output: response.usage?.output_tokens, provider }, 'tool loop');
+      logger.info({ requestId, loop: loopCount, input: response.usage?.input_tokens, output: response.usage?.output_tokens, provider }, 'tool loop');
     }
 
     return { response, provider, modelName: loopModel, usedFallback };
@@ -312,9 +314,10 @@ class LLMService {
   /** Main entry point — handles routing, cortex, tools, quality gate */
   async getResponse(context, mode, senderJid, imageData = null, chatJid = null, options = {}) {
     this._lastToolsCalled = [];
+    const requestId = options.requestId || createRequestId({ source: 'llm' });
 
     if (!checkDailyLimit()) {
-      logger.warn({ limit: config.dailyCallLimit }, 'daily limit reached');
+      logger.warn({ requestId, limit: config.dailyCallLimit }, 'daily limit reached');
       return { text: null, meta: null };
     }
 
@@ -336,10 +339,10 @@ class LLMService {
     const userWantsClaude = CLAUDE_REQUEST_PATTERNS.test(context);
     const { activeClient, activeModel, breaker, droppedClaude, providerHint } = this._selectClient(userWantsClaude, !!imageData);
     if (droppedClaude) {
-      logger.info({ sender: senderJid }, 'user asked for Claude but ANTHROPIC_API_KEY unset — using MiniMax');
+      logger.info({ requestId, sender: senderJid }, 'user asked for Claude but ANTHROPIC_API_KEY unset — using MiniMax');
     }
 
-    logger.info({ category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid, model: activeModel, provider: providerHint, hasImage: !!imageData, explicitClaude: userWantsClaude, qwenAvailable: this._hasQwen(), claudeAvailable: this._hasClaude() }, 'routed');
+    logger.info({ requestId, category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid, model: activeModel, provider: providerHint, hasImage: !!imageData, explicitClaude: userWantsClaude, qwenAvailable: this._hasQwen(), claudeAvailable: this._hasClaude() }, 'routed');
 
     const categoryTools = getToolsForCategory(category, tools);
 
@@ -416,7 +419,7 @@ class LLMService {
       userContent.push({ type: 'text', text: context });
       const messages = [{ role: 'user', content: userContent }];
 
-      const toolLoopResult = await this._toolLoop(activeClient, activeModel, breaker, system, messages, cachedTools, isGroup, mode, senderJid, chatJid);
+      const toolLoopResult = await this._toolLoop(activeClient, activeModel, breaker, system, messages, cachedTools, isGroup, mode, senderJid, chatJid, requestId);
 
       if (!toolLoopResult) {
         return {
@@ -429,6 +432,7 @@ class LLMService {
             provider: 'unavailable',
             providerReason: 'api_unavailable',
             modelName: activeModel,
+            requestId,
           },
         };
       }
@@ -436,7 +440,7 @@ class LLMService {
 
       recordCallInUsage();
       const cacheInfo = response.usage?.cache_read_input_tokens ? ` (cache: ${response.usage.cache_read_input_tokens})` : '';
-      logger.info({ input: response.usage?.input_tokens, output: response.usage?.output_tokens, calls: `${dailyCalls}/${config.dailyCallLimit}`, hasImage: !!imageData }, `claude response${cacheInfo}`);
+      logger.info({ requestId, input: response.usage?.input_tokens, output: response.usage?.output_tokens, calls: `${dailyCalls}/${config.dailyCallLimit}`, hasImage: !!imageData }, `claude response${cacheInfo}`);
 
       const textBlocks = response.content.filter(b => b.type === 'text');
       let text = textBlocks.map(b => b.text).join('\n');
@@ -456,6 +460,7 @@ class LLMService {
             provider,
             providerReason: 'ambient_silent',
             modelName,
+            requestId,
           },
         };
       }
@@ -473,6 +478,7 @@ class LLMService {
               ? `${provider}_fallback`
               : (userWantsClaude ? 'explicit_request' : `${provider}_default`),
             modelName,
+            requestId,
           },
         };
       }
@@ -503,6 +509,7 @@ class LLMService {
         providerReason = 'claude_default';
       }
       logRouting({
+        requestId,
         category,
         confidence: route.confidence || null,
         model: provider,
@@ -514,6 +521,7 @@ class LLMService {
         text: context,
       });
       logReasoningTrace({
+        requestId,
         chatId: chatJid, sender: senderJid, engagement: null,
         routing: { category, layer: classifySource, needsPlan: route.needsPlan || false, planReason: route.planReason || null, forceClaude, writeIntent: !!routeReason?.includes('write'), confidence: route.confidence || null, timeMs: Date.now() - routeStart },
         model: { selected: provider, modelName, reason: providerReason, qualityGate: critiqueApplied, routeForceClaude: forceClaude },
@@ -530,19 +538,20 @@ class LLMService {
           provider,
           providerReason,
           modelName,
+          requestId,
         },
       };
     } catch (err) {
       const status = err?.status;
       if (status === 429) {
-        logger.error({ status }, 'rate limited');
+        logger.error({ requestId, status }, 'rate limited');
         return { text: 'Hit the API rate limit. Try again in a moment.', meta: null };
       }
       if (status === 529) {
-        logger.error({ status }, 'API overloaded');
+        logger.error({ requestId, status }, 'API overloaded');
         return { text: 'Claude API is overloaded. Try again shortly.', meta: null };
       }
-      logger.error({ err: err.message, status }, 'API error');
+      logger.error({ requestId, err: err.message, status }, 'API error');
       return { text: null, meta: null };
     }
   }
