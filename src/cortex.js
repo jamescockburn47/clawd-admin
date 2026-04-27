@@ -48,6 +48,18 @@ const WEB_LIKELY = new Set([
 
 // Quick heuristic: does the message look like it wants current info?
 const WEB_HINT_PATTERN = /\b(search|google|look up|find out|latest|current|recent|news|price|weather|score|result|today|who is|what is|when is|where is)\b/i;
+const CURRENT_MESSAGE_MARKER = '[Current message]';
+
+function textForWebHint(context) {
+  const currentIdx = context.lastIndexOf(CURRENT_MESSAGE_MARKER);
+  if (currentIdx === -1) return context;
+  return context.slice(currentIdx + CURRENT_MESSAGE_MARKER.length);
+}
+
+export function shouldPrefetchWeb(context, category) {
+  const webHint = WEB_HINT_PATTERN.test(textForWebHint(context));
+  return webHint || WEB_LIKELY.has(category);
+}
 
 // Categories that benefit from dream context
 const DREAM_CATEGORIES = new Set([
@@ -157,8 +169,7 @@ export async function gatherIntelligence(context, hasImage, isGroup, options = {
   }
 
   // Speculative web prefetch — if heuristic or category suggests it
-  const webHint = WEB_HINT_PATTERN.test(context);
-  if (!options.disableWebPrefetch && (webHint || WEB_LIKELY.has(category))) {
+  if (!options.disableWebPrefetch && shouldPrefetchWeb(context, category)) {
     streams.webPrefetch = speculativeWebSearch(context).catch(() => null);
   }
 
@@ -295,9 +306,9 @@ async function speculativeWebSearch(context) {
   }
 
   let query = context;
-  const currentIdx = context.lastIndexOf('[Current message]');
+  const currentIdx = context.lastIndexOf(CURRENT_MESSAGE_MARKER);
   if (currentIdx !== -1) {
-    query = context.slice(currentIdx + 17).trim();
+    query = context.slice(currentIdx + CURRENT_MESSAGE_MARKER.length).trim();
   }
   query = query.replace(/^\w+:\s*/, '');
   query = query.slice(0, 200).trim();
