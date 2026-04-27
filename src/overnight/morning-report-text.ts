@@ -51,7 +51,11 @@ const KNOWN_OPS_PHASES = new Set([
   'trace-analyser',
   'system-refresh',
   'ground-truth',
+  'overnight-research',
 ]);
+
+const MAX_RESEARCH_TOPICS_IN_REPORT = 3;
+const MAX_FINDING_CHARS = 240;
 
 function renderOperationsSection(report: MorningReport): string {
   const lines: string[] = [];
@@ -106,6 +110,71 @@ function renderProbeSection(report: MorningReport): string | null {
   if (s.qualityFailuresThisWeek > 0) parts.push(`${s.qualityFailuresThisWeek} quality failures`);
   if (parts.length === 0) parts.push('no new observations');
   return `Probe:\n  ${parts.join(', ')}.`;
+}
+
+function renderResearchTopicCount(count: number): string {
+  return `${count} topic${count === 1 ? '' : 's'}`;
+}
+
+function oneLine(text: string): string {
+  return text.split('\n').join(' ');
+}
+
+function renderResearchLines(report: MorningReport): string[] {
+  const research = report.events.find((e) => e.stage === 'operations' && e.phase === 'overnight-research');
+
+  if (report.researchReport?.topics.length) {
+    const lines = [
+      `Research: researched ${renderResearchTopicCount(report.researchReport.topics.length)} using SearXNG.`,
+    ];
+    for (const topic of report.researchReport.topics.slice(0, MAX_RESEARCH_TOPICS_IN_REPORT)) {
+      lines.push(`  - ${topic.topic}: ${oneLine(topic.findings).slice(0, MAX_FINDING_CHARS)}`);
+      if (topic.sources[0]) lines.push(`    Source: ${topic.sources[0]}`);
+    }
+    return lines;
+  }
+
+  if (research) {
+    const lines = [`Research: ${research.reason}.`];
+    const topics = research.outputs
+      .filter((output) => output.startsWith('research:'))
+      .map((output) => output.slice('research:'.length));
+    for (const topic of topics.slice(0, MAX_RESEARCH_TOPICS_IN_REPORT)) {
+      lines.push(`  - ${topic}`);
+    }
+    return lines;
+  }
+
+  return ['Research: no overnight research report was produced.'];
+}
+
+function renderSelfImprovementLine(report: MorningReport): string {
+  const deploy = [...report.events]
+    .reverse()
+    .find((e) => e.stage === 'improve' && e.phase === 'deploy');
+
+  if (deploy) {
+    const branch = deploy.outputs.find((output) => output && output !== 'none') ?? 'branch not recorded';
+    if (/approval required|proposal/i.test(deploy.reason)) {
+      return `Self-improvement: branch ${branch} is awaiting approval. Nothing was merged automatically.`;
+    }
+    return `Self-improvement: ${deploy.reason}. Branch: ${branch}.`;
+  }
+
+  const improveEvents = report.events.filter((e) => e.stage === 'improve');
+  if (improveEvents.length > 0) {
+    const last = improveEvents[improveEvents.length - 1]!;
+    return `Self-improvement: stopped at ${last.phase}: ${last.reason}. Nothing was merged automatically.`;
+  }
+
+  return 'Self-improvement: no coding changes were attempted.';
+}
+
+function renderResearchAndSelfImprovementSection(report: MorningReport): string {
+  const lines = ['*Overnight research and self-improvement*'];
+  lines.push(...renderResearchLines(report));
+  lines.push(renderSelfImprovementLine(report));
+  return lines.join('\n');
 }
 
 function renderDriftSection(report: MorningReport): string | null {
@@ -171,6 +240,8 @@ export function renderReportAsText(report: MorningReport): string {
   if (errors) sections.push(errors);
 
   sections.push(renderMemorySection(report));
+
+  sections.push(renderResearchAndSelfImprovementSection(report));
 
   const ops = renderOperationsSection(report);
   if (ops) sections.push(ops);

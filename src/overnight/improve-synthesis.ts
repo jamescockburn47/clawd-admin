@@ -3,7 +3,7 @@
 //
 // Takes the groomed observation bundle and asks EVO 30B to synthesise a
 // short list of final candidates suitable for Opus selection. Each candidate:
-//   - carries ≥2 evidence_refs from this week's observations (ATLAS invariant)
+//   - carries ≥2 evidence_refs from this week's observations
 //   - has a concrete scope (file paths + rough intent)
 //   - carries a predicted benefit tied to a specific capability
 //   - is mission-aligned (no capability-reduction proposals)
@@ -191,7 +191,7 @@ export function parseSynthesisResponseWithRejections(response: string): {
       continue;
     }
 
-    // ≥2 evidence refs required (ATLAS invariant strict form)
+    // ≥2 evidence refs required.
     const rawRefs = Array.isArray(e.evidence_refs) ? e.evidence_refs : [];
     const evidence_refs = rawRefs.filter((x): x is string => typeof x === 'string');
     if (evidence_refs.length < 2) {

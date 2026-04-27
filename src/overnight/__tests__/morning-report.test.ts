@@ -213,4 +213,61 @@ describe('overnight/morning-report.renderReportAsText', () => {
     assert.match(text, /DEFERRED/i);
     assert.match(text, /cap cortex/);
   });
+
+  it('renders a clear standalone research and self-improvement section without legacy project wording', () => {
+    const events: OvernightEvent[] = [
+      makeEvent({
+        stage: 'operations',
+        phase: 'overnight-research',
+        outputs: ['research:AI agents with browser automation', 'source:https://example.com/agents'],
+        reason: 'researched 1 topic using SearXNG',
+      }),
+      makeEvent({
+        stage: 'improve',
+        phase: 'deploy',
+        outputs: ['forge/wt-test'],
+        verdict: 'ok',
+        reason: 'approval required: Tier B branch passed CI + replay',
+      }),
+    ];
+    const built = buildMorningReport({ date: '2026-04-11', events, observations: [], now });
+    const { text, ...report } = built;
+
+    assert.equal(text, renderReportAsText(report));
+    assert.match(text, /Overnight research and self-improvement/);
+    assert.match(text, /AI agents with browser automation/);
+    assert.match(text, /awaiting approval/i);
+    assert.doesNotMatch(text, new RegExp('A' + 'TLAS', 'i'));
+  });
+
+  it('renders overnight research findings and sources when the saved research report exists', () => {
+    const built = buildMorningReport({
+      date: '2026-04-11',
+      events: [
+        makeEvent({
+          stage: 'operations',
+          phase: 'overnight-research',
+          reason: 'researched 1 topic using SearXNG',
+        }),
+      ],
+      observations: [],
+      now,
+      researchReport: {
+        date: '2026-04-11',
+        source: 'searxng',
+        topics: [
+          {
+            topic: 'free web research for AI agents',
+            findings: 'SearXNG removes API credit limits; Playwright helps when result pages need interaction.',
+            sources: ['https://searxng.org/'],
+          },
+        ],
+      },
+    });
+    const { text, ...report } = built;
+
+    assert.equal(text, renderReportAsText(report));
+    assert.match(text, /SearXNG removes API credit limits/);
+    assert.match(text, /https:\/\/searxng\.org\//);
+  });
 });

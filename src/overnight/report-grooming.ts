@@ -4,7 +4,7 @@
 // Pure functions. Takes a list of observations, groups them by staleness
 // window, and classifies them into the six report sections: newThisWeek,
 // continuingWithFreshEvidence, driftAlerts, deferredCandidates, archive,
-// dropped. Applies the "ATLAS guard" invariant: a candidate cannot surface
+// dropped. Applies the fresh-evidence guard: a candidate cannot surface
 // as active unless at least one evidence_ref points to an observation
 // from the current week.
 
@@ -17,7 +17,7 @@ import type {
   QualityFailureObservation,
 } from './probe-observations.js';
 
-/** Days in the "current week" sliding window for the ATLAS guard. */
+/** Days in the "current week" sliding window for the fresh-evidence guard. */
 export const STALENESS_WINDOW_DAYS = 7;
 /** Weeks of archive retention. Anything older is dropped from active view. */
 export const MAX_ARCHIVE_WEEKS = 12;
@@ -86,7 +86,7 @@ export function groupByStalenessWindow(
 /**
  * Check whether a candidate's evidence_refs include at least one reference
  * that matches something dated within the current week. This is the
- * ATLAS-fix invariant: candidates without current-week evidence are filtered.
+ * Fresh-evidence invariant: candidates without current-week evidence are filtered.
  *
  * The matching is conservative: we look for references whose form includes
  * a date (e.g. "pattern:2026-04-11") or an identifier that appears in the
@@ -127,7 +127,7 @@ function candidateHasFreshEvidence(
 
 /**
  * Classify observations into the six REPORT sections plus counters.
- * Applies the staleness window and the ATLAS evidence-chain guard.
+ * Applies the staleness window and the fresh-evidence guard.
  */
 export function classifyObservations(
   observations: Observation[],
@@ -168,7 +168,7 @@ export function classifyObservations(
         break;
       case 'candidate':
         result.candidatesCurrentWeek += 1;
-        // ATLAS guard: candidate must reference current-week evidence
+        // Fresh-evidence guard: candidate must reference current-week evidence
         if (candidateHasFreshEvidence(obs, groups.currentWeek, currentWeekKey)) {
           result.deferredCandidates.push(obs);
         }

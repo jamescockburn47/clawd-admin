@@ -154,15 +154,18 @@ Authoritative spec: `docs/superpowers/specs/2026-04-10-compound-dream-overnight-
   5. skip on NULL
   6. implement in fresh worktree via Claude Code CLI (1 Opus, 2-hour wall-clock timeout)
   7. rolling replay regression check (20 stratified samples, grade via EVO 30B, any "worse" → reject)
-  8. branch-first deploy via `scripts/forge-ci.sh`, Tier A/B/C classification, auto-merge or proposal card
+ 8. branch-first CI via `scripts/forge-ci.sh`, Tier A/B/C classification, then **proposal-only** approval
   - Hard budget: 2 Opus sessions per deep night.
   - Proposal cards written to `data/overnight/proposals/` for morning report pickup.
+ - **No overnight code auto-merge.** Successful forge branches must wait for James's explicit approval before merge/deploy.
   - Banned files (`src/overnight/tiering.ts` BANNED_FILES): `src/router.js`, `src/cortex.js`, `src/memory.js`, `src/message-handler.js`, `CLAUDE.md`, `docs/superpowers/**`, `data/runtime/**`.
 
 ### Event log + morning briefing
 - **`data/overnight/events-<date>.jsonl`** is the single source of truth for what ran overnight. Every stage appends structured events. The morning report and the Clint Console `/overnight` page both read from here. "No event = did not happen" — the OvernightRunner writes a synthetic `verdict: failed` event if a stage completes silently.
 - **Four retrofitted operational tasks also write events:** `daily-backup`, `trace-analyser`, `system-refresh`, `ground-truth`. Stage is `'operations'`.
 - **Morning briefing** (07:00 London via `src/tasks/briefing.js`) reads the structured report and replaces the old 4-bullet "Overnight insights" block with plain-English per-section paragraphs. No LLM calls in the report path.
+- **Morning briefing must include one clear "Overnight research and self-improvement" section.** It should state what research ran, sources/findings, whether self-code created a branch/proposal, and that nothing merged automatically unless James approved it.
+- **Overnight research uses SearXNG-first.** The scheduled research task should use self-hosted SearXNG + page fetch + local EVO synthesis before any credit-limited research provider.
 
 ### Task Planner
 - **Goal reasoning, not mechanical decomposition.** Understand the goal first, then decompose.
