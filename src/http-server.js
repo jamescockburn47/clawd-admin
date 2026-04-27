@@ -33,6 +33,7 @@ import {
 import { PARTICIPATION_DEFAULTS } from './participation/constants.js';
 import { handleVoiceLocal, handleVoiceCommand, handleDashboardChat } from './voice-handler.js';
 import { handleDebate } from './debate-handler.js';
+import { triggerForgeNow } from './overnight/forge-now-http.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -326,22 +327,8 @@ export function startHttpServer(port, deps) {
       if (!checkAuth(req)) return json(res, 401, { error: 'Unauthorized' });
       try {
         const { checkImprove } = await import('./overnight/improve-task.js');
-        const now = new Date();
-        const parts = new Intl.DateTimeFormat('en-CA', {
-          timeZone: 'Europe/London',
-          year: 'numeric',
-          month: '2-digit',
-          day: '2-digit',
-        }).formatToParts(now);
-        const year = parts.find((p) => p.type === 'year').value;
-        const month = parts.find((p) => p.type === 'month').value;
-        const day = parts.find((p) => p.type === 'day').value;
-        const todayStr = `${year}-${month}-${day}`;
-        // Fire-and-forget so the HTTP request returns quickly
-        checkImprove(todayStr, 22, 0, undefined, { emergencyMode: true }).catch((err) => {
-          logger.error({ err: err.message }, 'forge-now: emergency improve failed');
-        });
-        return json(res, 202, { ok: true, message: 'emergency IMPROVE started', todayStr });
+        const result = await triggerForgeNow({ checkImprove, logger });
+        return json(res, result.status, result.body);
       } catch (err) {
         return json(res, 500, { error: err.message });
       }
