@@ -48,6 +48,7 @@ const WEB_LIKELY = new Set([
 
 // Quick heuristic: does the message look like it wants current info?
 const WEB_HINT_PATTERN = /\b(search|google|look up|find out|latest|current|recent|news|price|weather|score|result|today|who is|what is|when is|where is)\b/i;
+const TASK_WEB_HINT_PATTERN = /\b(search|google|look up|find out|latest|recent|news|price|weather|score|result|who is|what is|when is|where is)\b/i;
 const CURRENT_MESSAGE_MARKER = '[Current message]';
 
 function textForWebHint(context) {
@@ -57,7 +58,10 @@ function textForWebHint(context) {
 }
 
 export function shouldPrefetchWeb(context, category) {
-  const webHint = WEB_HINT_PATTERN.test(textForWebHint(context));
+  const text = textForWebHint(context);
+  const webHint = category === CATEGORY.TASK
+    ? TASK_WEB_HINT_PATTERN.test(text)
+    : WEB_HINT_PATTERN.test(text);
   return webHint || WEB_LIKELY.has(category);
 }
 
