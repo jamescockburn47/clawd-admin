@@ -52,6 +52,12 @@ export interface ImproveStageDeps {
 export interface ImproveStageOptions {
   /** Emergency mode: triggered on-demand outside the Saturday window. */
   emergencyMode?: boolean;
+  /** Test seam: override the code implementation boundary. */
+  runImplement?: typeof runImplementStage;
+  /** Test seam: override historical replay sampling. */
+  sampleHistoricalExchanges?: typeof sampleHistoricalExchanges;
+  /** Test seam: override branch deploy/proposal handling. */
+  runDeploy?: typeof runDeployStage;
 }
 
 /**
@@ -99,6 +105,9 @@ export function makeImproveStage(
     const now = new Date(ctx.date + 'T12:00:00Z');
     const currentWeek = isoWeekOf(now);
     const mode = opts.emergencyMode ? 'emergency' : 'deep';
+    const implementStage = opts.runImplement ?? runImplementStage;
+    const sampleExchanges = opts.sampleHistoricalExchanges ?? sampleHistoricalExchanges;
+    const deployStage = opts.runDeploy ?? runDeployStage;
 
     // --- Step 1: Read this week's observations -------------------------
     let observations: Awaited<ReturnType<typeof queryObservations>> = [];
@@ -264,7 +273,7 @@ export function makeImproveStage(
     // --- Step 6: Implement in worktree (1 Opus) -----------------------
     let implementResult: ImplementResult;
     try {
-      implementResult = await runImplementStage({
+      implementResult = await implementStage({
         candidate: selected,
         repoRoot: deps.repoRoot,
         client: deps.claudeCliClient,
@@ -304,9 +313,9 @@ export function makeImproveStage(
     }
 
     // --- Step 7: Rolling replay regression check ----------------------
-    let replayResult: Awaited<ReturnType<typeof runRollingReplay>> | null = null;
+    let replayResult: Awaited<ReturnType<typeof runRollingReplay>>;
     try {
-      const exchanges = await sampleHistoricalExchanges({
+      const exchanges = await sampleExchanges({
         logDir: deps.logDir,
         referenceDate: ctx.date,
         windowDays: 7,
@@ -352,10 +361,14 @@ export function makeImproveStage(
       budget: { opus_sessions: 0, tokens: 0 },
     });
 
+    if (replayResult.verdict === 'reject') {
+      return;
+    }
+
     // --- Step 8: Branch-first deploy ---------------------------------
     let deployResult;
     try {
-      deployResult = await runDeployStage({
+      deployResult = await deployStage({
         candidate: selected,
         artifacts: implementResult.artifacts,
         replay: replayResult,
