@@ -186,6 +186,8 @@ export function createQwenChatClient({ baseUrl, defaultModel = 'qwen3.6-27b', ti
       payload.tools = oaiTools;
       payload.tool_choice = 'auto';
     }
+    const payloadText = JSON.stringify(payload);
+    const requestStarted = Date.now();
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -194,16 +196,16 @@ export function createQwenChatClient({ baseUrl, defaultModel = 'qwen3.6-27b', ti
       res = await fetchFn(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: payloadText,
         signal: controller.signal,
       });
     } catch (err) {
-      clearTimeout(timer);
       // Surface as the Anthropic-ish null that LLMService handles.
       logger.warn({ err: err.message, url }, 'qwen-chat: request failed');
       throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    clearTimeout(timer);
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -211,6 +213,14 @@ export function createQwenChatClient({ baseUrl, defaultModel = 'qwen3.6-27b', ti
       throw new Error(`qwen-chat ${res.status}: ${body.slice(0, 200)}`);
     }
     const oai = await res.json();
+    logger.info({
+      model: payload.model,
+      toolCount: oaiTools?.length || 0,
+      payloadChars: payloadText.length,
+      elapsedMs: Date.now() - requestStarted,
+      promptTokens: oai?.usage?.prompt_tokens || 0,
+      completionTokens: oai?.usage?.completion_tokens || 0,
+    }, 'qwen-chat request complete');
     return translateOpenAIResponseToAnthropic(oai);
   }
 
