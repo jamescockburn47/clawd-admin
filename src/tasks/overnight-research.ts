@@ -8,6 +8,7 @@ const MAX_TOPICS = 3;
 const MAX_TRANSCRIPT_LINES = 80;
 const MAX_FETCHED_PAGES = 3;
 const URL_PATTERN = /^   (https?:\/\/\S+)/gm;
+const SEARCH_TIMEOUT_MS = 12_000;
 
 export interface ResearchTopicReport {
   topic: string;
@@ -43,8 +44,11 @@ async function importJsModule(specifier: string): Promise<Record<string, unknown
 }
 
 async function defaultSearch(input: { query: string; count?: number }): Promise<string> {
-  const mod = await importJsModule('../tools/search.js');
-  return (mod.webSearch as SearchFn)(input);
+  const config = (await importJsModule('../config.js')).default as { evoSearxngUrl?: string };
+  const searxng = await searchSearxng(input.query, input.count ?? MAX_FETCHED_PAGES, config.evoSearxngUrl);
+  if (searxng) return searxng;
+  const duckduckgo = await searchDuckDuckGoHtml(input.query, input.count ?? MAX_FETCHED_PAGES);
+  return duckduckgo ?? `No results found for "${input.query}".`;
 }
 
 async function defaultFetch(input: { url: string }): Promise<string> {
@@ -143,6 +147,101 @@ function extractSources(searchText: string): string[] {
     urls.add(match[1]!);
   }
   return [...urls].slice(0, MAX_FETCHED_PAGES);
+}
+
+function formatSearchResults(
+  query: string,
+  results: Array<{ title: string; url: string; content?: string }>,
+): string | null {
+  if (results.length === 0) return null;
+  return results
+    .map((result, index) => {
+      const snippet = result.content ? `\n   ${result.content.slice(0, 1200)}` : '';
+      return `${index + 1}. ${result.title || `Result for ${query}`}\n   ${result.url}${snippet}`;
+    })
+    .join('\n\n');
+}
+
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Clawdbot/1.0)' },
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function searchSearxng(
+  query: string,
+  count: number,
+  baseUrl = 'http://localhost:8888',
+): Promise<string | null> {
+  try {
+    const url = `${baseUrl}/search?q=${encodeURIComponent(query)}&format=json&pageno=1`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      results?: Array<{ title?: string; url?: string; content?: string }>;
+    };
+    const results = (data.results ?? [])
+      .filter((result): result is { title: string; url: string; content?: string } => (
+        typeof result.url === 'string' && typeof result.title === 'string'
+      ))
+      .slice(0, count);
+    return formatSearchResults(query, results);
+  } catch {
+    return null;
+  }
+}
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function stripHtml(value: string): string {
+  return decodeHtml(value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
+}
+
+function unwrapDuckDuckGoUrl(rawUrl: string): string {
+  const decoded = decodeHtml(rawUrl);
+  try {
+    const url = new URL(decoded, 'https://duckduckgo.com');
+    const wrapped = url.searchParams.get('uddg');
+    return wrapped ? decodeURIComponent(wrapped) : url.toString();
+  } catch {
+    return decoded;
+  }
+}
+
+async function searchDuckDuckGoHtml(query: string, count: number): Promise<string | null> {
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
+    const html = await res.text();
+    const resultPattern = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+    const results: Array<{ title: string; url: string; content?: string }> = [];
+    for (const match of html.matchAll(resultPattern)) {
+      results.push({
+        title: stripHtml(match[2] ?? ''),
+        url: unwrapDuckDuckGoUrl(match[1] ?? ''),
+        content: stripHtml(match[3] ?? ''),
+      });
+      if (results.length >= count) break;
+    }
+    return formatSearchResults(query, results);
+  } catch {
+    return null;
+  }
 }
 
 async function researchTopic(

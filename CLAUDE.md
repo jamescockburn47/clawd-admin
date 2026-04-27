@@ -165,7 +165,7 @@ Authoritative spec: `docs/superpowers/specs/2026-04-10-compound-dream-overnight-
 - **Four retrofitted operational tasks also write events:** `daily-backup`, `trace-analyser`, `system-refresh`, `ground-truth`. Stage is `'operations'`.
 - **Morning briefing** (07:00 London via `src/tasks/briefing.js`) reads the structured report and replaces the old 4-bullet "Overnight insights" block with plain-English per-section paragraphs. No LLM calls in the report path.
 - **Morning briefing must include one clear "Overnight research and self-improvement" section.** It should state what research ran, sources/findings, whether self-code created a branch/proposal, and that nothing merged automatically unless James approved it.
-- **Overnight research uses SearXNG-first.** The scheduled research task should use self-hosted SearXNG + page fetch + local EVO synthesis before any credit-limited research provider.
+- **Overnight research uses SearXNG-first.** The scheduled research task should use self-hosted SearXNG + no-credit web fallback + page fetch + local EVO synthesis before any credit-limited research provider.
 
 ### Task Planner
 - **Goal reasoning, not mechanical decomposition.** Understand the goal first, then decompose.
