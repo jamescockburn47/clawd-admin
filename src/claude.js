@@ -24,10 +24,19 @@ const OWNER_ONLY_TOOLS = new Set(['gmail_search', 'gmail_read', 'gmail_draft', '
 const GROUP_MODE_TOOLS = TOOL_DEFINITIONS.filter(t => ['memory_search', 'web_search', 'web_fetch'].includes(t.name));
 const MAX_TOOL_RESULT = 1500;
 const MAX_TOOL_LOOPS = 5;
+const QWEN_TOOL_SELECTION_MAX_TOKENS = 512;
 
 export function selectToolsForProvider({ provider, category, allTools, categoryTools }) {
   if (provider === 'qwen') return categoryTools;
   return mustUseClaude(category) ? categoryTools : allTools;
+}
+
+export function selectMaxTokensForToolLoop({ provider, isFirstRequest, hasTools, defaultMaxTokens }) {
+  const shouldCapQwenToolSelection = provider === 'qwen' && isFirstRequest && hasTools;
+  if (shouldCapQwenToolSelection) {
+    return Math.min(defaultMaxTokens, QWEN_TOOL_SELECTION_MAX_TOKENS);
+  }
+  return defaultMaxTokens;
 }
 
 // --- LLMService class ---
@@ -214,15 +223,27 @@ class LLMService {
     let provider = this._providerNameFor(loopClient);
     let usedFallback = false;
 
-    const callOpts = () => ({
-      model: loopModel,
-      max_tokens: (isGroup && mode === 'random') ? config.maxResponseTokens : config.maxResponseTokens * 4,
-      system, messages,
-      ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
-    });
+    const hasTools = cachedTools.length > 0;
+    const callOpts = (isFirstRequest = false) => {
+      const defaultMaxTokens = (isGroup && mode === 'random')
+        ? config.maxResponseTokens
+        : config.maxResponseTokens * 4;
+      return {
+        model: loopModel,
+        max_tokens: selectMaxTokensForToolLoop({
+          provider,
+          isFirstRequest,
+          hasTools,
+          defaultMaxTokens,
+        }),
+        system,
+        messages,
+        ...(hasTools ? { tools: cachedTools } : {}),
+      };
+    };
 
     let response = await loopBreaker.call(
-      () => loopClient.messages.create(callOpts()),
+      () => loopClient.messages.create(callOpts(true)),
       null,
     );
 
@@ -238,7 +259,7 @@ class LLMService {
       provider = 'minimax';
       usedFallback = true;
       response = await loopBreaker.call(
-        () => loopClient.messages.create(callOpts()),
+        () => loopClient.messages.create(callOpts(true)),
         null,
       );
     }
@@ -250,7 +271,7 @@ class LLMService {
       provider = 'claude';
       usedFallback = true;
       response = await loopBreaker.call(
-        () => loopClient.messages.create(callOpts()),
+        () => loopClient.messages.create(callOpts(true)),
         null,
       );
     }

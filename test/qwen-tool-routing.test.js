@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 process.env.EVO_LLM_URL = process.env.EVO_LLM_URL || 'http://localhost:8080';
 
-const { selectToolsForProvider } = await import('../src/claude.js');
+const { selectMaxTokensForToolLoop, selectToolsForProvider } = await import('../src/claude.js');
 
 const allTools = [
   { name: 'todo_list' },
@@ -73,5 +73,34 @@ describe('selectToolsForProvider', () => {
     });
 
     assert.deepEqual(selected.map((tool) => tool.name), ['web_search', 'web_fetch', 'memory_search']);
+  });
+});
+
+describe('selectMaxTokensForToolLoop', () => {
+  it('caps the first Qwen tool-selection request', () => {
+    assert.equal(selectMaxTokensForToolLoop({
+      provider: 'qwen',
+      isFirstRequest: true,
+      hasTools: true,
+      defaultMaxTokens: 4000,
+    }), 512);
+  });
+
+  it('keeps the full final-answer budget after tool results', () => {
+    assert.equal(selectMaxTokensForToolLoop({
+      provider: 'qwen',
+      isFirstRequest: false,
+      hasTools: true,
+      defaultMaxTokens: 4000,
+    }), 4000);
+  });
+
+  it('keeps non-Qwen provider budgets unchanged', () => {
+    assert.equal(selectMaxTokensForToolLoop({
+      provider: 'minimax',
+      isFirstRequest: true,
+      hasTools: true,
+      defaultMaxTokens: 4000,
+    }), 4000);
   });
 });
