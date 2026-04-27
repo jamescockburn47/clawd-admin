@@ -25,6 +25,11 @@ const GROUP_MODE_TOOLS = TOOL_DEFINITIONS.filter(t => ['memory_search', 'web_sea
 const MAX_TOOL_RESULT = 1500;
 const MAX_TOOL_LOOPS = 5;
 
+export function selectToolsForProvider({ provider, category, allTools, categoryTools }) {
+  if (provider === 'qwen') return categoryTools;
+  return mustUseClaude(category) ? categoryTools : allTools;
+}
+
 // --- LLMService class ---
 
 class LLMService {
@@ -350,9 +355,14 @@ class LLMService {
 
     try {
       const dailyCalls = incrementDailyCalls();
-      const claudeTools = mustUseClaude(category) ? categoryTools : tools;
-      const cachedTools = claudeTools.map((t, i) =>
-        i === claudeTools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t,
+      const selectedTools = selectToolsForProvider({
+        provider: providerHint,
+        category,
+        allTools: tools,
+        categoryTools,
+      });
+      const cachedTools = selectedTools.map((t, i) =>
+        i === selectedTools.length - 1 ? { ...t, cache_control: { type: 'ephemeral' } } : t,
       );
 
       // Ambient mode (invoked by maybeRunAmbientAgency for non-mention
