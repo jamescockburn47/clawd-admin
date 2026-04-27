@@ -11,12 +11,13 @@
 // in report-grooming.ts (staleness classification) and morning-report.ts
 // (structured + rendered output). This file is composition only.
 
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { StageContext, StageFn } from './runner.js';
 import { queryEvents } from './events.js';
 import { isoWeekOf, queryObservations } from './probe-observations.js';
 import { buildMorningReport, type MorningReport } from './morning-report.js';
+import type { OvernightResearchReport } from '../tasks/overnight-research.js';
 
 export interface ReportStageDeps {
   overnightDir: string;
@@ -29,6 +30,20 @@ export interface ReportStageResult {
   text: string;
   jsonPath: string;
   textPath: string;
+}
+
+async function loadResearchReport(
+  overnightDir: string,
+  date: string,
+): Promise<OvernightResearchReport | null> {
+  try {
+    const raw = await readFile(join(overnightDir, `research-${date}.json`), 'utf8');
+    return JSON.parse(raw) as OvernightResearchReport;
+  } catch {
+    // intentional: the research task is optional; missing or unreadable reports
+    // should not block the deterministic morning report.
+    return null;
+  }
 }
 
 /**
@@ -90,6 +105,7 @@ export function makeReportStage(deps: ReportStageDeps): StageFn {
       observations,
       now: nowDate,
       repoRoot: ctx.repoRoot,
+      researchReport: await loadResearchReport(deps.overnightDir, ctx.date),
     });
     const { text, ...report } = built;
 
@@ -151,6 +167,7 @@ export async function buildAndRenderReport(opts: {
     observations,
     now: nowDate,
     repoRoot,
+    researchReport: await loadResearchReport(opts.overnightDir, opts.date),
   });
   const { text, ...report } = built;
   return { report, text };

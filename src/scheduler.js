@@ -14,6 +14,7 @@ import { checkTodoReminders } from './tasks/todo-reminders.js';
 import { checkSideGigMeetings } from './tasks/meeting-alerts.js';
 import { checkMorningBriefing, checkWeeklyReview, getLastBriefingDate, getLastReviewDate } from './tasks/briefing.js';
 import { checkDailyBackup, getLastBackupDate } from './tasks/daily-backup.js';
+import { checkOvernightResearch } from './tasks/overnight-research.js';
 import { checkSystemKnowledgeRefresh, getLastKnowledgeRefreshDate } from './tasks/system-refresh.js';
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
 import { checkGroundTruth, getLastHarvestDate } from './tasks/ground-truth.js';
@@ -117,6 +118,7 @@ export function getSystemHealth() {
     projectSync: { enabled: true, lastRun: getLastProjectSyncDate() },
     weeklyReview: { enabled: true, lastRun: getLastReviewDate() },
     backup: { lastRun: getLastBackupDate() },
+    overnightResearch: { enabled: true, schedule: '03:45 London', source: 'data/overnight/research-<date>.json' },
     // New four-stage overnight pipeline — dates come from the event log,
     // not from module-level state, so we expose them as "see event log".
     consolidate: { enabled: true, source: 'data/overnight/events-<date>.jsonl' },
@@ -211,6 +213,7 @@ async function runScheduler() {
   // New four-stage overnight pipeline (spec §4)
   await runTask('consolidateShadow', () => checkConsolidateShadow(todayStr, hours, minutes));
   await runTask('probe', () => checkProbe(todayStr, hours, minutes));
+  await runTask('overnightResearch', () => checkOvernightResearch(todayStr, hours, minutes));
   await runTask('report', () => checkReport(todayStr, hours, minutes));
   await runTask('improve', () => checkImprove(todayStr, hours, minutes));
 

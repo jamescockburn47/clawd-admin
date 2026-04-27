@@ -1,14 +1,8 @@
 // src/overnight/improve-deploy.ts — branch-first deploy for IMPROVE (spec §5.3).
 //
 // Takes the artefacts from runImplementStage, classifies the change using
-// tiering.ts, and deploys via one of three paths:
-//   - Tier A (non-source text/prompt/config): auto-merge on green CI
-//   - Tier B (in-scope source): auto-merge on green CI AND green replay
-//   - Tier C (anything else): open a DM proposal card, no auto-merge
-//
-// The module does NOT directly merge — it calls an injected DeployClient
-// whose runCi/merge/openProposal methods the caller wires in. Keeps the
-// module testable and keeps the real CI script separate from the logic.
+// tiering.ts, pushes the branch, runs CI, and always opens an approval proposal.
+// No overnight-generated branch merges automatically; James approves explicitly.
 
 import { classifyTier, type Tier, type TierClassification, type DiffSummary } from './tiering.js';
 import type { FinalCandidate } from './improve-synthesis.js';
@@ -50,8 +44,6 @@ export function parseGitDiffStat(diffOutput: string): DiffSummary {
 }
 
 export type DeployVerdict =
-  | 'merged'
-  | 'merged_with_warning'
   | 'proposal_opened'
   | 'rejected'
   | 'ci_failed'
@@ -69,7 +61,7 @@ export interface DeployClient {
    */
   runCi(branchRef: string): Promise<{ ok: boolean; output: string }>;
   /**
-   * Merge the branch into main. Called after CI + replay checks pass.
+   * Retained for older callers; proposal-only deploys must not call this.
    */
   mergeBranch(branchRef: string): Promise<void>;
   /**
@@ -159,21 +151,31 @@ export async function runDeployStage(opts: DeployOptions): Promise<DeployResult>
     };
   }
 
-  // Tier gate
+  const openApprovalProposal = async (reason: string): Promise<DeployResult> => {
+    await opts.client.openProposal({
+      candidate: opts.candidate,
+      tier: tierResult.tier,
+      artifacts: opts.artifacts,
+      replay: opts.replay,
+      ciOutput: ci.output,
+      reason,
+    });
+    return {
+      verdict: 'proposal_opened',
+      tier: tierResult.tier,
+      branchRef: pushedRef,
+      reason,
+      ciOutput: ci.output,
+    };
+  };
+
+  // Tier gate. Even green Tier A/B branches require James's WhatsApp approval.
   switch (tierResult.tier) {
     case 'A': {
-      // Non-source changes (text/prompts/config) — auto-merge on green CI alone
-      await opts.client.mergeBranch(pushedRef);
-      return {
-        verdict: 'merged',
-        tier: 'A',
-        branchRef: pushedRef,
-        reason: 'Tier A (non-source) auto-merged on green CI',
-        ciOutput: ci.output,
-      };
+      return openApprovalProposal('approval required: Tier A branch passed CI');
     }
     case 'B': {
-      // Source changes — require green replay too
+      // Source changes still need replay, but a pass only opens an approval proposal.
       if (!opts.replay) {
         await opts.client.openProposal({
           candidate: opts.candidate,
@@ -209,24 +211,12 @@ export async function runDeployStage(opts: DeployOptions): Promise<DeployResult>
         };
       }
       if (opts.replay.verdict === 'pass_with_warning') {
-        await opts.client.mergeBranch(pushedRef);
-        return {
-          verdict: 'merged_with_warning',
-          tier: 'B',
-          branchRef: pushedRef,
-          reason: `merged despite warning: ${opts.replay.warning ?? 'unknown'}`,
-          ciOutput: ci.output,
-        };
+        return openApprovalProposal(
+          `approval required: Tier B replay passed with warning (${opts.replay.warning ?? 'unknown'})`,
+        );
       }
       // verdict === 'pass' or 'skipped'
-      await opts.client.mergeBranch(pushedRef);
-      return {
-        verdict: 'merged',
-        tier: 'B',
-        branchRef: pushedRef,
-        reason: 'Tier B auto-merged on green CI + green replay',
-        ciOutput: ci.output,
-      };
+      return openApprovalProposal('approval required: Tier B branch passed CI + replay');
     }
     case 'C': {
       // Always open a proposal — never auto-merge

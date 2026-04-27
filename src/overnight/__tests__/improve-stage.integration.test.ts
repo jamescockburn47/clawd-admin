@@ -44,9 +44,9 @@ function makeImplementResult(overrides: Partial<ImplementResult> = {}): Implemen
 
 function makeDeployResult(overrides: Partial<DeployResult> = {}): DeployResult {
   return {
-    verdict: 'merged',
+    verdict: 'proposal_opened',
     tier: 'B',
-    reason: 'green CI and replay',
+    reason: 'approval required: green CI and replay',
     branchRef: 'origin/forge/wt-test',
     ciOutput: null,
     ...overrides,

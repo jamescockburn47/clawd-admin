@@ -129,7 +129,7 @@ describe('overnight/report-grooming.classifyObservations', () => {
     assert.equal(result.deferredCandidates[0]!.title, 'fix cortex'); // highest weight first
   });
 
-  it('drops current-week candidates with no fresh evidence (ATLAS guard)', () => {
+  it('drops current-week candidates with no fresh evidence', () => {
     // A candidate observed this week but whose evidence_refs all point to
     // something from last week should NOT surface. Spec §4.3 hard invariant.
     const stale = makeCandidate('2026-04-11', 'stale thing');

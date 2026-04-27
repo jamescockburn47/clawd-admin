@@ -95,7 +95,7 @@ describe('overnight/improve-deploy.parseGitDiffStat', () => {
 });
 
 describe('overnight/improve-deploy.runDeployStage', () => {
-  it('Tier A path: auto-merges on green CI', async () => {
+  it('Tier A path opens an approval proposal on green CI', async () => {
     const client = makeClient();
     const result = await runDeployStage({
       candidate: makeCandidate({ scope: 'data/prompts/system.txt' }),
@@ -105,13 +105,14 @@ describe('overnight/improve-deploy.runDeployStage', () => {
       replay: null,
       client,
     });
-    assert.equal(result.verdict, 'merged');
+    assert.equal(result.verdict, 'proposal_opened');
     assert.equal(result.tier, 'A');
-    assert.equal(client.merged.length, 1);
-    assert.equal(client.proposals, 0);
+    assert.equal(client.merged.length, 0);
+    assert.equal(client.proposals, 1);
+    assert.match(result.reason, /approval required/i);
   });
 
-  it('Tier B path with green CI + green replay: auto-merges', async () => {
+  it('Tier B path with green CI + green replay opens an approval proposal', async () => {
     const client = makeClient();
     const result = await runDeployStage({
       candidate: makeCandidate(),
@@ -119,10 +120,11 @@ describe('overnight/improve-deploy.runDeployStage', () => {
       replay: makeReplay('pass'),
       client,
     });
-    assert.equal(result.verdict, 'merged');
+    assert.equal(result.verdict, 'proposal_opened');
     assert.equal(result.tier, 'B');
-    assert.equal(client.merged.length, 1);
-    assert.equal(client.proposals, 0);
+    assert.equal(client.merged.length, 0);
+    assert.equal(client.proposals, 1);
+    assert.match(result.reason, /approval required/i);
   });
 
   it('Tier B path rejects when replay verdict is reject', async () => {
@@ -138,7 +140,7 @@ describe('overnight/improve-deploy.runDeployStage', () => {
     assert.equal(client.proposals, 1);
   });
 
-  it('Tier B path merges-with-warning on pass_with_warning', async () => {
+  it('Tier B path opens an approval proposal on pass_with_warning', async () => {
     const client = makeClient();
     const result = await runDeployStage({
       candidate: makeCandidate(),
@@ -146,8 +148,9 @@ describe('overnight/improve-deploy.runDeployStage', () => {
       replay: makeReplay('pass_with_warning'),
       client,
     });
-    assert.equal(result.verdict, 'merged_with_warning');
-    assert.equal(client.merged.length, 1);
+    assert.equal(result.verdict, 'proposal_opened');
+    assert.equal(client.merged.length, 0);
+    assert.equal(client.proposals, 1);
   });
 
   it('Tier B path opens proposal when replay was not run', async () => {

@@ -22,6 +22,7 @@ import {
 } from './report-grooming.js';
 import { loadParticipationLearningSummary, type ParticipationLearningSummary } from './participation-summary.js';
 import { renderReportAsText } from './morning-report-text.js';
+import type { OvernightResearchReport } from '../tasks/overnight-research.js';
 
 export type { ParticipationLearningSummary } from './participation-summary.js';
 export { renderReportAsText, MAX_REPORT_WORDS } from './morning-report-text.js';
@@ -37,6 +38,8 @@ export interface BuildReportOptions {
   participationSummary?: ParticipationLearningSummary | null;
   /** Repo root for loading participation decision JSONL (optional). */
   repoRoot?: string;
+  /** Saved SearXNG-first overnight research report, when available. */
+  researchReport?: OvernightResearchReport | null;
 }
 
 export interface ReportSummary {
@@ -75,6 +78,8 @@ export interface MorningReport {
   budget: ReportBudget;
   /** Aggregates from participation decision log when available; null if no data. */
   participationSummary: ParticipationLearningSummary | null;
+  /** SearXNG-first research report for the same overnight date, if available. */
+  researchReport: OvernightResearchReport | null;
 }
 
 export type MorningReportWithText = MorningReport & { text: string };
@@ -195,6 +200,7 @@ export function buildMorningReport(opts: BuildReportOptions): MorningReportWithT
     classification,
     budget,
     participationSummary,
+    researchReport: opts.researchReport ?? null,
   };
   const text = renderReportAsText(report);
   return { ...report, text };
