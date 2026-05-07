@@ -51,14 +51,19 @@
 │                                                                     │
 │  ┌──────────────────────────────────────────────────────┐           │
 │  │  llama-server-main (port 8080, localhost)             │           │
-│  │  Qwen3-VL-30B-A3B Q4_K_M (Vulkan, vision, 32K ctx)  │           │
-│  │  Swaps to Qwen3-Coder-30B-A3B overnight (22:00-06:00)│           │
+│  │  Qwen3.6-27B-Q6_K + qwen3.5-0.8b-draft (spec-decode) │           │
+│  │  Vulkan, 32K ctx — DEFAULT chat model, always-on     │           │
 │  └──────────────────────────────────────────────────────┘           │
 │                                                                     │
-│  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐          │
-│  │ classifier:8081│ │ embed:8083     │ │ docling:8084   │          │
-│  │ Qwen3-0.6B    │ │ nomic-embed    │ │ Granite-258M   │          │
-│  └────────────────┘ └────────────────┘ └────────────────┘          │
+│  ┌────────────────┐ ┌──────────────────┐ ┌──────────────┐          │
+│  │ planner:8085   │ │ embed:8083       │ │ docling:8084 │          │
+│  │ Qwen3-4B-Instr │ │ Qwen3-Embed-8B   │ │ Granite-258M │          │
+│  │ (4B classifier)│ │ Q8_0             │ │ f16          │          │
+│  └────────────────┘ └──────────────────┘ └──────────────┘          │
+│  ┌────────────────┐                                                  │
+│  │ gemma:8086     │  (judge / 2nd-opinion / drift checks)            │
+│  │ gemma-4-31B-it │                                                  │
+│  └────────────────┘                                                  │
 │                                                                     │
 │  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐          │
 │  │ memory:5100    │ │ SearXNG:8888   │ │ voice listener │          │
