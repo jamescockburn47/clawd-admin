@@ -12,7 +12,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DATA_DIR = join(__dirname, '..', '..', 'data');
 
-let lastBackupDate = null;
+// State persistence — without this, getLastBackupDate() returns null after
+// every bot restart and the dashboard shows "never" for a task that ran
+// last night. Pattern matches src/tasks/briefing.js.
+import { readFileSync as __readFileSync_lastBackupDate, writeFileSync as __writeFileSync_lastBackupDate, mkdirSync as __mkdirSync_lastBackupDate, existsSync as __existsSync_lastBackupDate } from 'node:fs';
+import { join as __join_lastBackupDate, dirname as __dirname_lastBackupDate } from 'node:path';
+const __STATE_FILE_lastBackupDate = __join_lastBackupDate('data', 'runtime', 'daily-backup-state.json');
+let __persisted_lastBackupDate = {};
+try {
+  if (__existsSync_lastBackupDate(__STATE_FILE_lastBackupDate)) {
+    __persisted_lastBackupDate = JSON.parse(__readFileSync_lastBackupDate(__STATE_FILE_lastBackupDate, 'utf-8'));
+  }
+} catch { /* intentional: corrupt file = treat as empty */ }
+function __save_lastBackupDate() {
+  try {
+    const dir = __dirname_lastBackupDate(__STATE_FILE_lastBackupDate);
+    if (!__existsSync_lastBackupDate(dir)) __mkdirSync_lastBackupDate(dir, { recursive: true });
+    __writeFileSync_lastBackupDate(__STATE_FILE_lastBackupDate, JSON.stringify({ lastBackupDate: lastBackupDate }, null, 2));
+  } catch { /* intentional: state-write failures must not cascade */ }
+}
+
+let lastBackupDate = __persisted_lastBackupDate.lastBackupDate || null;
 
 /**
  * Run daily backup at 3 AM London time.
@@ -24,6 +44,7 @@ export async function checkDailyBackup(todayStr, hours) {
   if (hours !== 3) return;
 
   lastBackupDate = todayStr;
+  __save_lastBackupDate();
 
   const backupDir = join(DATA_DIR, 'backups', todayStr);
   const filesToBackup = ['todos.json', 'soul.json', 'soul_history.json'];

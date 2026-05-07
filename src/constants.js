@@ -27,7 +27,7 @@ export const TIMEOUTS = Object.freeze({
   EVO_HEALTH_CHECK: 3000,      // Health endpoint check
   MEMORY_HEALTH_CHECK: 5000,   // Memory service health check
   MEMORY_DEFAULT: 10000,       // Default memory service request
-  MEMORY_STORE: 30000,         // Memory store operation
+  MEMORY_STORE: 90000,         // Memory store (embed+categorise can be 10-15s on Qwen3-Embed-8B; serialised by single uvicorn worker; bumped from 30s 2026-05-07)
   MEMORY_EXTRACT: 600000,      // Conversation extraction (Qwen 27B on 14K conv ~6min; bumped from 120s 2026-05-07)
   MEMORY_SEARCH: 15000,        // Memory search
   MEMORY_NOTE: 60000,          // Note storage

@@ -5,7 +5,27 @@ import { appendEvent } from '../overnight/events.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
-let lastKnowledgeRefreshDate = null;
+// State persistence — without this, getLastKnowledgeRefreshDate() returns null after
+// every bot restart and the dashboard shows "never" for a task that ran
+// last night. Pattern matches src/tasks/briefing.js.
+import { readFileSync as __readFileSync_lastKnowledgeRefreshDate, writeFileSync as __writeFileSync_lastKnowledgeRefreshDate, mkdirSync as __mkdirSync_lastKnowledgeRefreshDate, existsSync as __existsSync_lastKnowledgeRefreshDate } from 'node:fs';
+import { join as __join_lastKnowledgeRefreshDate, dirname as __dirname_lastKnowledgeRefreshDate } from 'node:path';
+const __STATE_FILE_lastKnowledgeRefreshDate = __join_lastKnowledgeRefreshDate('data', 'runtime', 'system-refresh-state.json');
+let __persisted_lastKnowledgeRefreshDate = {};
+try {
+  if (__existsSync_lastKnowledgeRefreshDate(__STATE_FILE_lastKnowledgeRefreshDate)) {
+    __persisted_lastKnowledgeRefreshDate = JSON.parse(__readFileSync_lastKnowledgeRefreshDate(__STATE_FILE_lastKnowledgeRefreshDate, 'utf-8'));
+  }
+} catch { /* intentional: corrupt file = treat as empty */ }
+function __save_lastKnowledgeRefreshDate() {
+  try {
+    const dir = __dirname_lastKnowledgeRefreshDate(__STATE_FILE_lastKnowledgeRefreshDate);
+    if (!__existsSync_lastKnowledgeRefreshDate(dir)) __mkdirSync_lastKnowledgeRefreshDate(dir, { recursive: true });
+    __writeFileSync_lastKnowledgeRefreshDate(__STATE_FILE_lastKnowledgeRefreshDate, JSON.stringify({ lastKnowledgeRefreshDate: lastKnowledgeRefreshDate }, null, 2));
+  } catch { /* intentional: state-write failures must not cascade */ }
+}
+
+let lastKnowledgeRefreshDate = __persisted_lastKnowledgeRefreshDate.lastKnowledgeRefreshDate || null;
 
 /**
  * Refresh system knowledge at 2 AM London time.
@@ -19,6 +39,7 @@ export async function checkSystemKnowledgeRefresh(todayStr, hours) {
   if (hours !== 2) return;
 
   lastKnowledgeRefreshDate = todayStr;
+  __save_lastKnowledgeRefreshDate();
 
   let result = null;
   let errorSummary = null;

@@ -16,7 +16,27 @@ const TRACE_FILE = join('data', 'reasoning-traces.jsonl');
 const ANALYSIS_FILE = join('data', 'trace-analysis.json');
 const ANALYSIS_LOG = join('data', 'trace-analysis-log.jsonl');
 
-let lastAnalysisDate = null;
+// State persistence — without this, getLastAnalysisDate() returns null after
+// every bot restart and the dashboard shows "never" for a task that ran
+// last night. Pattern matches src/tasks/briefing.js.
+import { readFileSync as __readFileSync_lastAnalysisDate, writeFileSync as __writeFileSync_lastAnalysisDate, mkdirSync as __mkdirSync_lastAnalysisDate, existsSync as __existsSync_lastAnalysisDate } from 'node:fs';
+import { join as __join_lastAnalysisDate, dirname as __dirname_lastAnalysisDate } from 'node:path';
+const __STATE_FILE_lastAnalysisDate = __join_lastAnalysisDate('data', 'runtime', 'trace-analyser-state.json');
+let __persisted_lastAnalysisDate = {};
+try {
+  if (__existsSync_lastAnalysisDate(__STATE_FILE_lastAnalysisDate)) {
+    __persisted_lastAnalysisDate = JSON.parse(__readFileSync_lastAnalysisDate(__STATE_FILE_lastAnalysisDate, 'utf-8'));
+  }
+} catch { /* intentional: corrupt file = treat as empty */ }
+function __save_lastAnalysisDate() {
+  try {
+    const dir = __dirname_lastAnalysisDate(__STATE_FILE_lastAnalysisDate);
+    if (!__existsSync_lastAnalysisDate(dir)) __mkdirSync_lastAnalysisDate(dir, { recursive: true });
+    __writeFileSync_lastAnalysisDate(__STATE_FILE_lastAnalysisDate, JSON.stringify({ lastAnalysisDate: lastAnalysisDate }, null, 2));
+  } catch { /* intentional: state-write failures must not cascade */ }
+}
+
+let lastAnalysisDate = __persisted_lastAnalysisDate.lastAnalysisDate || null;
 
 /**
  * Check if trace analysis should run (3 AM daily).
@@ -26,6 +46,7 @@ export async function checkTraceAnalysis(sendFn, todayStr, hours) {
   if (hours !== 3) return;
 
   lastAnalysisDate = todayStr;
+  __save_lastAnalysisDate();
 
   let result = null;
   let errorSummary = null;

@@ -26,13 +26,34 @@ const TRACE_FILE = join('data', 'reasoning-traces.jsonl');
 const MAX_CLAIMS_PER_RUN = 10;
 const MAX_ENTRIES = 500; // cap total dataset size
 
-let lastHarvestDate = null;
+// State persistence — without this, getLastHarvestDate() returns null after
+// every bot restart and the dashboard shows "never" for a task that ran
+// last night. Pattern matches src/tasks/briefing.js.
+import { readFileSync as __readFileSync_lastHarvestDate, writeFileSync as __writeFileSync_lastHarvestDate, mkdirSync as __mkdirSync_lastHarvestDate, existsSync as __existsSync_lastHarvestDate } from 'node:fs';
+import { join as __join_lastHarvestDate, dirname as __dirname_lastHarvestDate } from 'node:path';
+const __STATE_FILE_lastHarvestDate = __join_lastHarvestDate('data', 'runtime', 'ground-truth-state.json');
+let __persisted_lastHarvestDate = {};
+try {
+  if (__existsSync_lastHarvestDate(__STATE_FILE_lastHarvestDate)) {
+    __persisted_lastHarvestDate = JSON.parse(__readFileSync_lastHarvestDate(__STATE_FILE_lastHarvestDate, 'utf-8'));
+  }
+} catch { /* intentional: corrupt file = treat as empty */ }
+function __save_lastHarvestDate() {
+  try {
+    const dir = __dirname_lastHarvestDate(__STATE_FILE_lastHarvestDate);
+    if (!__existsSync_lastHarvestDate(dir)) __mkdirSync_lastHarvestDate(dir, { recursive: true });
+    __writeFileSync_lastHarvestDate(__STATE_FILE_lastHarvestDate, JSON.stringify({ lastHarvestDate: lastHarvestDate }, null, 2));
+  } catch { /* intentional: state-write failures must not cascade */ }
+}
+
+let lastHarvestDate = __persisted_lastHarvestDate.lastHarvestDate || null;
 
 export async function checkGroundTruth(sendFn, todayStr, hours, minutes) {
   if (lastHarvestDate === todayStr) return;
   if (hours !== 3 || minutes < 30) return;
 
   lastHarvestDate = todayStr;
+  __save_lastHarvestDate();
   logger.info('ground-truth: starting harvest');
 
   let result = null;
