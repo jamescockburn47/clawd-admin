@@ -667,7 +667,12 @@ export function startHttpServer(port, deps) {
       addSSEClient(res); return;
     }
 
-    // Default page
+    // Default page — auth-gated. Previously this catch-all leaked
+    // DASHBOARD_TOKEN in the dashboard link href to ANY unauthenticated
+    // GET, which combined with the public Cloudflare Tunnel ingress
+    // (since removed) was a full token compromise vector. (Diag
+    // 2026-05-06.)
+    if (!checkAuth(req)) return json(res, 401, { error: "Unauthorized" });
     const sock = getActiveSock();
     if (sock?.user?.id) {
       res.writeHead(200, { 'Content-Type': 'text/html' });

@@ -36,6 +36,12 @@ let lastActivityTimestamp = Date.now();
 // Shared socket reference for the HTTP API and proactive messages
 let activeSock = null;
 
+// Scheduler is module-scoped on purpose: every WhatsApp reconnect invokes
+// startBot() again, and a closure-scoped flag would re-init the scheduler
+// each time and leak setInterval handles. 9 days of uptime had accumulated
+// 55 leaked intervals before this fix (diag 2026-05-06).
+let schedulerStarted = false;
+
 
 function printBanner() {
   const banner = `
@@ -103,7 +109,6 @@ async function startBot() {
 
   let pairingRequested = false;
   let startupNotified = false;
-  let schedulerStarted = false;
 
   sock.ev.on('connection.update', async (update) => {
     const { qr, connection, lastDisconnect } = update;
