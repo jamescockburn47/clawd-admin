@@ -319,10 +319,40 @@ function generateFallbackEntries() {
 
 // Seed system knowledge into EVO memory service
 // Uses wipe-and-reseed to prevent stale duplicates accumulating
+import { mkdirSync as __mkdirSync_seed } from 'node:fs';
+import { dirname as __dirname_seed } from 'node:path';
+const __SEED_STATE_FILE = join('data', 'runtime', 'system-knowledge-seed-state.json');
+const __SEED_THROTTLE_MS = 60 * 60 * 1000; // 1 hour
+function __readSeedState() {
+  try {
+    if (!existsSync(__SEED_STATE_FILE)) return null;
+    return JSON.parse(readFileSync(__SEED_STATE_FILE, 'utf-8'));
+  } catch { return null; }
+}
+function __writeSeedState() {
+  try {
+    __mkdirSync_seed(__dirname_seed(__SEED_STATE_FILE), { recursive: true });
+    writeFileSync(__SEED_STATE_FILE, JSON.stringify({ lastSuccessfulSeedMs: Date.now() }, null, 2));
+  } catch { /* intentional: state-write failures must not cascade */ }
+}
 export async function seedSystemKnowledge() {
   if (!config.evoMemoryEnabled || !isEvoOnline()) {
     logger.info('EVO offline — skipping system knowledge seed');
     return { seeded: 0, skipped: true };
+  }
+
+  // Throttle: every bot restart used to call this and queue ~79 items
+  // into data/memory-queue/text/, which then took hours to drain at
+  // ~13s per /memory/store. The nightly system-refresh task and the
+  // deploy script's refreshSystemKnowledge already handle freshness;
+  // an extra re-seed within the hour adds no value and fills the queue.
+  const seedState = __readSeedState();
+  if (seedState && typeof seedState.lastSuccessfulSeedMs === 'number') {
+    const ageMs = Date.now() - seedState.lastSuccessfulSeedMs;
+    if (ageMs < __SEED_THROTTLE_MS) {
+      logger.info({ ageMinutes: Math.round(ageMs / 60000) }, 'system knowledge recently seeded — skipping');
+      return { seeded: 0, skipped: true, throttled: true };
+    }
   }
 
   // Wipe ALL old system knowledge entries (any source, any category that matches)
@@ -360,6 +390,7 @@ export async function seedSystemKnowledge() {
   // Force cache sync so Pi immediately has fresh data
   try { await syncCache(); } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
 
+  __writeSeedState();
   logger.info({ deleted, seeded, total: entries.length }, 'system knowledge seeded');
   return { deleted, seeded };
 }
@@ -439,6 +470,7 @@ export async function refreshSystemKnowledge() {
     try { await syncCache(); } catch { /* intentional: non-critical knowledge entry, continue with remaining entries */ }
 
     const elapsed = Date.now() - startTime;
+    __writeSeedState();
     logger.info({ deleted, seeded, elapsed }, 'system knowledge refreshed');
     return { refreshed: true, deleted, seeded, elapsed };
   } catch (err) {
