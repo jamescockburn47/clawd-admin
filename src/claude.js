@@ -28,8 +28,20 @@ const MAX_TOOL_LOOPS = 5;
 const QWEN_TOOL_SELECTION_MAX_TOKENS = 512;
 
 export function selectToolsForProvider({ provider, category, allTools, categoryTools }) {
-  if (provider === 'qwen') return categoryTools;
-  return mustUseClaude(category) ? categoryTools : allTools;
+  // Category-based filtering benefits every provider, not just Qwen.
+  // Pre-2026-05-07 this branch sent ALL ~60 tool schemas (~11K tokens)
+  // to MiniMax/Claude unless the category was in mustUseClaude. After
+  // flipping default chat to MiniMax (commit e80eba5), every chat was
+  // dragging that full schema into the prompt unnecessarily — the
+  // classifier picks category at 0.95 confidence and the tools each
+  // category actually needs are well-defined. The router's null-allowed
+  // sentinel (planning) returns allTools so multi-step reasoning still
+  // sees the full set. Keeping the params unused-but-named for backward
+  // compat with future provider-specific overrides.
+  void provider;
+  void allTools;
+  void category;
+  return categoryTools;
 }
 
 export function selectMaxTokensForToolLoop({ provider, isFirstRequest, hasTools, defaultMaxTokens }) {

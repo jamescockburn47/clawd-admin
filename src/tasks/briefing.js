@@ -5,8 +5,9 @@ import { getActiveTodos } from '../tools/todo.js';
 import { getEvoStatus, getMemoryStats } from '../memory.js';
 import config from '../config.js';
 import logger from '../logger.js';
-import { readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { join, join as pathJoin } from 'path';
+import { homedir } from 'os';
 
 const STATE_FILE = join('data', 'briefing-state.json');
 
@@ -28,6 +29,12 @@ function saveState(state) {
 }
 
 const persisted = loadState();
+function yesterdayOf(yyyymmdd) {
+  const d = new Date(yyyymmdd + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
 let lastBriefingDate = persisted.lastBriefingDate || null;
 
 /**
@@ -53,24 +60,22 @@ export async function checkMorningBriefing(sendFn, todayStr, hours, minutes) {
 
   try {
     const widgets = await getWidgetData();
-    const todos = getActiveTodos();
+    // Note: todos intentionally NOT included; James sees todos all day in
+    // the dashboard. The morning DM is for things that are NEW.
 
     const sections = [];
     const dayName = new Date(todayStr + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
-    sections.push(`*Good morning.* ${dayName}.\n`);
+    sections.push(`*Good morning.* ${dayName}.`);
 
-    // Weather
+    // Weather, calendar, side-gig, Henry — these vary day-to-day and are
+    // genuinely useful for the morning. Keep concise.
     if (widgets?.weather?.length > 0) {
       const weatherLines = widgets.weather.map(w => `${w.location}: ${w.temp}C, ${w.description}`);
       sections.push(`*Weather*\n${weatherLines.join('\n')}`);
     }
 
-    // Today's calendar
     if (widgets?.calendar?.length > 0) {
-      const todayEvents = widgets.calendar.filter(e => {
-        const start = (e.start || '').split('T')[0];
-        return start === todayStr;
-      });
+      const todayEvents = widgets.calendar.filter(e => (e.start || '').split('T')[0] === todayStr);
       if (todayEvents.length > 0) {
         const lines = todayEvents.map(e => {
           const time = e.start?.includes('T')
@@ -79,17 +84,11 @@ export async function checkMorningBriefing(sendFn, todayStr, hours, minutes) {
           return `  ${time} -- ${e.summary}`;
         });
         sections.push(`*Calendar* (${todayEvents.length})\n${lines.join('\n')}`);
-      } else {
-        sections.push('*Calendar:* Clear day.');
       }
     }
 
-    // Side gig meetings today
     if (widgets?.sideGig?.length > 0) {
-      const todayMeetings = widgets.sideGig.filter(m => {
-        const start = (m.start || '').split('T')[0];
-        return start === todayStr;
-      });
+      const todayMeetings = widgets.sideGig.filter(m => (m.start || '').split('T')[0] === todayStr);
       if (todayMeetings.length > 0) {
         const lines = todayMeetings.map(m => {
           const tags = (m.tags || []).join('/');
@@ -100,56 +99,103 @@ export async function checkMorningBriefing(sendFn, todayStr, hours, minutes) {
       }
     }
 
-    // Todos
-    if (todos.length > 0) {
-      const urgent = todos.filter(t => t.priority === 'high' || (t.dueDate && t.dueDate <= todayStr));
-      if (urgent.length > 0) {
-        sections.push(`*Urgent* (${urgent.length})\n${urgent.map(t => `  - ${t.text}`).join('\n')}`);
-      }
-      sections.push(`*Active todos:* ${todos.length}`);
-    }
-
-    // Next Henry weekend
     if (widgets?.henryWeekends?.length > 0) {
       const next = widgets.henryWeekends[0];
       const daysUntil = Math.ceil((new Date(next.startDate) - new Date(todayStr)) / 86400000);
-      let status = `*Henry:* ${next.startDate} (${daysUntil}d)`;
-      if (!next.travelBooked && next.needsTravel) status += ' -- travel NOT booked';
-      if (!next.accommodationBooked && next.needsAccommodation) status += ' -- accom NOT booked';
-      sections.push(status);
+      // Only show if upcoming OR something unbooked.
+      const flags = [];
+      if (!next.travelBooked && next.needsTravel) flags.push('travel NOT booked');
+      if (!next.accommodationBooked && next.needsAccommodation) flags.push('accom NOT booked');
+      if (daysUntil <= 14 || flags.length > 0) {
+        sections.push(`*Henry:* ${next.startDate} (${daysUntil}d)${flags.length ? ' -- ' + flags.join(', ') : ''}`);
+      }
     }
 
-    // Memory system status
-    if (config.evoMemoryEnabled) {
-      const evo = getEvoStatus();
-      let memLine = `*Memory:* ${evo.online ? 'EVO online' : 'EVO offline'}`;
-      if (evo.queueDepth > 0) memLine += ` | ${evo.queueDepth} queued`;
-      try {
-        const stats = await getMemoryStats();
-        if (stats.total) memLine += ` | ${stats.total} memories`;
-      } catch (err) { logger.warn({ err: err.message }, 'briefing memory stats failed'); }
-      sections.push(memLine);
-    }
-
-    // Overnight report (Phase 3: structured, staleness-guarded). The REPORT
-    // stage runs at 06:50 and persists report-<date>.txt, but we rebuild
-    // here in-process so the briefing works even if the stage hasn't fired
-    // yet (e.g. bot started after 06:50 on a given day).
+    // === The actual NOVEL content: last night's dream + diary ===
+    // ~/clawdbot-logs/overnight-report-<date>.json is written by
+    // dream_mode.py at 22:05 and carries the only output that actually
+    // varies day-to-day in a useful way: the diary entry, newly extracted
+    // facts, and evidence-cited insights.
     try {
-      const { buildAndRenderReport } = await import('../overnight/report.js');
-      const { join, dirname, resolve } = await import('node:path');
-      const { fileURLToPath } = await import('node:url');
-      const moduleDir = dirname(fileURLToPath(import.meta.url));
-      const repoRoot = resolve(moduleDir, '..', '..');
-      const overnightDir = join(repoRoot, 'data', 'overnight');
-      const { text } = await buildAndRenderReport({
-        date: todayStr,
-        overnightDir,
-      });
-      sections.push(text);
+      const dreamPath = pathJoin(homedir(), 'clawdbot-logs', `overnight-report-${todayStr}.json`);
+      const yesterdayPath = pathJoin(homedir(), 'clawdbot-logs', `overnight-report-${yesterdayOf(todayStr)}.json`);
+      let dream = null;
+      let dreamDate = null;
+      if (existsSync(dreamPath)) {
+        dream = JSON.parse(readFileSync(dreamPath, 'utf-8'));
+        dreamDate = todayStr;
+      } else if (existsSync(yesterdayPath)) {
+        // Edge case: dream fires at 22:05 of date N-1; if briefing runs
+        // before today's dream has fired, fall back to last night's.
+        dream = JSON.parse(readFileSync(yesterdayPath, 'utf-8'));
+        dreamDate = yesterdayOf(todayStr);
+      }
+      if (dream && Array.isArray(dream.groups) && dream.groups.length > 0) {
+        const dreamLines = [];
+        const totals = dream.totals || {};
+        if (dreamDate && dreamDate !== todayStr) {
+          dreamLines.push(`*Last night's dream* (from ${dreamDate})`);
+        } else {
+          dreamLines.push(`*Last night's dream*`);
+        }
+        // Diary text — most useful single output. Take first group's diary;
+        // multi-group dreams are rare and the first is usually the main chat.
+        const primary = dream.groups[0];
+        if (primary?.diary) {
+          dreamLines.push(primary.diary.trim());
+        }
+        // New facts (top 5) — concise, surprise-worthy
+        const facts = (primary?.facts || []).slice(0, 5);
+        if (facts.length > 0) {
+          dreamLines.push('');
+          dreamLines.push('*New facts*');
+          for (const f of facts) {
+            dreamLines.push(`  - ${f.fact}`);
+          }
+        }
+        // Evidence-grounded insights
+        const insights = primary?.insights || [];
+        if (insights.length > 0) {
+          dreamLines.push('');
+          dreamLines.push('*Insights*');
+          for (const i of insights) {
+            dreamLines.push(`  - ${i.insight}`);
+          }
+        }
+        sections.push(dreamLines.join('\n'));
+      } else {
+        sections.push('*Dream:* nothing extractable from yesterday\'s logs.');
+      }
     } catch (err) {
-      logger.warn({ err: err.message }, 'briefing overnight report failed');
-      sections.push('*Overnight:* report unavailable (see Clint Console for details).');
+      logger.warn({ err: err.message }, 'briefing dream load failed');
+    }
+
+    // === Critical errors only ===
+    // Pull from the structured event log; only mention failed verdicts.
+    // No counts, no boilerplate, no "0 backed up" filler.
+    try {
+      const { join: pj, dirname: dn, resolve: rs } = await import('node:path');
+      const { fileURLToPath: ftu } = await import('node:url');
+      const moduleDir = dn(ftu(import.meta.url));
+      const repoRoot = rs(moduleDir, '..', '..');
+      const eventsFile = pj(repoRoot, 'data', 'overnight', `events-${todayStr}.jsonl`);
+      if (existsSync(eventsFile)) {
+        const errors = [];
+        for (const line of readFileSync(eventsFile, 'utf-8').split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const e = JSON.parse(line);
+            if (e.verdict === 'failed') {
+              errors.push(`  ${e.stage}/${e.phase}: ${(e.reason || '').slice(0, 100)}`);
+            }
+          } catch { /* ignore malformed line */ }
+        }
+        if (errors.length > 0) {
+          sections.push(`*Errors overnight* (${errors.length})\n${errors.slice(0, 5).join('\n')}`);
+        }
+      }
+    } catch (err) {
+      logger.warn({ err: err.message }, 'briefing error scan failed');
     }
 
     const briefing = sections.join('\n\n');
