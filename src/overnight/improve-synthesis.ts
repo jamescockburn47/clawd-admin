@@ -11,6 +11,7 @@
 // No LLM calls in this module's tests — EvoChatClient is dependency-injected.
 
 import { isMissionRegression } from './probe-candidates.js';
+import { BANNED_FILES } from './tiering.js';
 import type { EvoChatClient } from './probe-patterns.js';
 import type {
   CandidateObservation,
@@ -46,6 +47,7 @@ export interface FinalCandidate {
 export type SynthesisRejectionReason =
   | 'not-object'
   | 'missing-title-or-scope'
+  | 'banned-scope'
   | 'insufficient-evidence-refs'
   | 'mission-regression';
 
@@ -203,6 +205,16 @@ export function parseSynthesisResponseWithRejections(response: string): {
     const combined = `${entryTitle} ${scope}`;
     if (isMissionRegression(combined)) {
       rejections.push({ index: i, reason: 'mission-regression', title: entryTitle });
+      continue;
+    }
+
+    // Banned-files filter — candidates whose scope touches a banned file
+    // cannot be safely implemented (the implement prompt tells Claude to
+    // refuse). Without this filter, opus-select picks a banned-scope
+    // candidate, Claude refuses, git log is empty, and the implement event
+    // records "git log capture failed" instead of the real cause.
+    if (BANNED_FILES.some((b) => scope.includes(b))) {
+      rejections.push({ index: i, reason: 'banned-scope', title: entryTitle });
       continue;
     }
 
