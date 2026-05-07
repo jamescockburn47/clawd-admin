@@ -155,7 +155,14 @@ export async function gradeAnswer(opts) {
  */
 export async function askClint({ question, responderFn }) {
   const synthSender = 'golden-questions@test.clint';
-  const synthChat = 'golden-questions@test.clint';
+  // Use the LQC dev-group JID as the synthetic chat so the LQ-Council
+  // knowledge fragment + tool guide are injected into the prompt (the
+  // injection in src/prompt.js gates on chat being a group bound to the
+  // lqcouncil project). Otherwise the bot answers blind and every LQC
+  // signup/architecture question fails. getResponse does not push to
+  // group buffers, so this does not pollute the real group state.
+  const config = (await import('../config.js')).default;
+  const synthChat = config.lqcDevGroupJid || 'golden-questions@test.clint';
   try {
     const result = await responderFn(question, 'direct', synthSender, null, synthChat, {});
     return { text: result?.text ?? null, meta: result?.meta ?? null };
