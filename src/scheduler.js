@@ -166,12 +166,12 @@ export function getSystemHealth() {
     knowledgeRefresh: {
       enabled: !!config.evoMemoryEnabled,
       lastRun: getLastKnowledgeRefreshDate()
-        ?? mtimeDate(pathJoin('data', 'system-knowledge.json')),
+        ?? mtimeDate(pathJoin("data", "system-knowledge")),
     },
     traceAnalysis: {
       enabled: true,
       lastRun: getLastAnalysisDate()
-        ?? latestDateFromDir(pathJoin('data', 'reasoning-trace-analysis'), /^\d{4}-\d{2}-\d{2}\.json$/),
+        ?? mtimeDate(pathJoin("data", "trace-analysis.json")),
     },
     groundTruth: {
       enabled: true,
@@ -180,7 +180,7 @@ export function getSystemHealth() {
     projectSync: {
       enabled: true,
       lastRun: getLastProjectSyncDate()
-        ?? mtimeDate(pathJoin('data', 'runtime', 'project-sync-last-run.txt')),
+        ?? mtimeDate(pathJoin("data", "runtime", "project-sync-state.json")),
     },
     weeklyReview: { enabled: true, lastRun: getLastReviewDate() },
     backup: {
