@@ -10,8 +10,25 @@
 //
 // No LLM calls in this module's tests — EvoChatClient is dependency-injected.
 
+import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isMissionRegression } from './probe-candidates.js';
 import { BANNED_FILES } from './tiering.js';
+
+// repoRoot is two levels up from this module (src/overnight/...).
+const __MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(__MODULE_DIR, '..', '..');
+
+// Pull file-path-shaped tokens out of a free-form scope string.
+// Matches src/foo.ts, foo/bar/baz.js, scripts/x.sh, data/y.json, etc.
+// Standalone words without a slash or extension are skipped (the
+// scope often mentions module concepts like 'router' that are not
+// file paths).
+const PATH_REGEX = /\b(?:[a-zA-Z_][\w-]*\/)+[\w.-]+\.\w{1,5}\b/g;
+function extractPaths(scope: string): string[] {
+  return Array.from(new Set(scope.match(PATH_REGEX) ?? []));
+}
 import type { EvoChatClient } from './probe-patterns.js';
 import type {
   CandidateObservation,
@@ -48,6 +65,7 @@ export type SynthesisRejectionReason =
   | 'not-object'
   | 'missing-title-or-scope'
   | 'banned-scope'
+  | 'hallucinated-path'
   | 'insufficient-evidence-refs'
   | 'mission-regression';
 
@@ -223,6 +241,19 @@ export function parseSynthesisResponseWithRejections(response: string): {
     if (BANNED_FILES.some((b) => scope.includes(b))) {
       rejections.push({ index: i, reason: 'banned-scope', title: entryTitle });
       continue;
+    }
+
+    // Hallucinated-path filter — Qwen has shipped scopes like
+    // 'src/cortex/gather.ts' (does not exist; the real file is the
+    // banned src/cortex.js) to dodge the banned-files guidance.
+    // Reject candidates whose scope names a non-existent path.
+    const paths = extractPaths(scope);
+    if (paths.length > 0) {
+      const missing = paths.filter((p) => !existsSync(resolve(REPO_ROOT, p)));
+      if (missing.length > 0) {
+        rejections.push({ index: i, reason: 'hallucinated-path', title: entryTitle });
+        continue;
+      }
     }
 
     const id = typeof e.id === 'string' && e.id.length > 0 ? e.id : `auto-${autoIdCounter++}`;
