@@ -93,6 +93,13 @@ automated observations. You output 5-8 final candidates. Each candidate MUST:
 - Have a specific "predicted_benefit" (not hand-wavy)
 - Be mission-aligned: NO simplifications that reduce capability, NO removal
   of memory retrieval, quality gates, agentic behaviour, or dream mode
+- AVOID candidates whose implementation requires editing src/router.js,
+  src/cortex.js, src/memory.js, src/message-handler.js, CLAUDE.md, anything
+  under docs/superpowers/, or anything under data/runtime/. These are
+  banned in the implement step; Claude will refuse and the run dies with
+  zero commits. If the cluster is about cortex or routing, propose changes
+  in surrounding modules (cortex-cache.js, evo-llm.js, trigger.js,
+  router-telemetry.js, prompt.js helpers) instead.
 
 If worse-drift alerts are present, at least one of your candidates MUST
 address them directly (they indicate silent regressions).

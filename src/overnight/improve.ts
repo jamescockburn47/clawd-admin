@@ -309,6 +309,34 @@ export function makeImproveStage(
     });
 
     if (implementResult.verdict !== 'ok') {
+      // Debug breadcrumb: persist the captured Claude session output
+      // so the morning report has something concrete to pivot on,
+      // instead of "git log capture failed — no commits made".
+      // Best-effort; ignore write errors.
+      try {
+        const fsp = await import('node:fs/promises');
+        const path = await import('node:path');
+        await fsp.mkdir(ctx.overnightDir, { recursive: true });
+        const debugFile = path.join(ctx.overnightDir, `implement-debug-${ctx.date}.jsonl`);
+        const sample = (str: string, n = 4000) => (str ?? '').slice(0, n);
+        const entry = {
+          timestamp: new Date().toISOString(),
+          candidate_id: selected.id,
+          candidate_title: selected.title,
+          candidate_scope: selected.scope,
+          reason: implementResult.reason,
+          claudeStdout: sample(implementResult.artifacts.claudeStdout),
+          claudeStderr: sample(implementResult.artifacts.claudeStderr),
+          gitLog: implementResult.artifacts.gitLog,
+          gitDiff: sample(implementResult.artifacts.gitDiff, 2000),
+          testExitCode: implementResult.artifacts.testExitCode,
+          testStdoutTail: sample(implementResult.artifacts.testStdout, 2000),
+        };
+        const NL = String.fromCharCode(10);
+        await fsp.appendFile(debugFile, JSON.stringify(entry) + NL, 'utf8');
+      } catch {
+        // intentional: debug log failures must not cascade
+      }
       return;
     }
 
