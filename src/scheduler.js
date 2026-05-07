@@ -17,7 +17,6 @@ import { checkDailyBackup, getLastBackupDate } from './tasks/daily-backup.js';
 import { checkOvernightResearch } from './tasks/overnight-research.js';
 import { checkSystemKnowledgeRefresh, getLastKnowledgeRefreshDate } from './tasks/system-refresh.js';
 import { checkTraceAnalysis, getLastAnalysisDate } from './tasks/trace-analyser.js';
-import { checkGroundTruth, getLastHarvestDate } from './tasks/ground-truth.js';
 import { checkProjectKnowledgeSync, getLastProjectSyncDate } from './tasks/project-sync.js';
 import { checkSovrenCrossReference } from './tasks/sovren-contribution-cross-reference.js';
 import { checkConsolidateShadow } from './overnight/consolidate-shadow-task.js';
@@ -30,7 +29,6 @@ import { checkFailureNudge } from './tasks/lqc-bot-failure-nudge.js';
 import { checkKnowledgeDrift } from './tasks/lqc-knowledge-drift.js';
 import { checkDailyHealth } from './tasks/lqc-daily-health.js';
 import { checkRepoPoll } from './tasks/lqc-repo-poll.js';
-import { checkGoldenQuestions } from './tasks/golden-questions.js';
 import { checkTrajectorySnapshots } from './tasks/trajectory-snapshot.js';
 import config from './config.js';
 import logger from './logger.js';
@@ -174,8 +172,11 @@ export function getSystemHealth() {
         ?? mtimeDate(pathJoin("data", "trace-analysis.json")),
     },
     groundTruth: {
-      enabled: true,
-      lastRun: getLastHarvestDate() ?? mtimeDate(pathJoin('data', 'ground-truth.json')),
+      // task removed 2026-05-07 (signal-zero); keep the dashboard field
+      // populated from disk mtime so it doesn't show 'never' on the
+      // existing artefact.
+      enabled: false,
+      lastRun: mtimeDate(pathJoin('data', 'ground-truth.json')),
     },
     projectSync: {
       enabled: true,
@@ -304,7 +305,6 @@ async function runScheduler() {
   await runTask('projectKnowledgeSync', () => checkProjectKnowledgeSync(todayStr, hours));
   await runTask('traceAnalysis', () => checkTraceAnalysis(sendFn, todayStr, hours));
   await runTask('sovrenCrossReference', () => checkSovrenCrossReference(todayStr, hours, minutes));
-  await runTask('groundTruth', () => checkGroundTruth(sendFn, todayStr, hours, minutes));
   await runTask('dailyBackup', () => checkDailyBackup(todayStr, hours));
 
   // LQ Bot Council — polls failure/stuck/health-threshold signals, posts
@@ -324,11 +324,6 @@ async function runScheduler() {
   // drift check on any SHA change. Belt-and-braces with the push-based
   // /api/lqcouncil-knowledge-refresh webhook.
   await runTask('lqcRepoPoll', () => checkRepoPoll(todayStr, hours, minutes));
-  // Nightly 03:30 London — frozen Q&A contract tests against Clint's
-  // full response pipeline. Grades each answer against expected
-  // concepts; flags regression if today's pass-rate drops >15pp below
-  // the trailing-3-run median.
-  await runTask('goldenQuestions', () => checkGoldenQuestions(todayStr, hours, minutes));
   // Nightly 03:45 London — tool-trajectory assertions against canonical
   // prompts. Catches classifier re-routing and tool-loop degradation.
   await runTask('trajectorySnapshot', () => checkTrajectorySnapshots(todayStr, hours, minutes));

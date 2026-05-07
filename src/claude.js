@@ -78,11 +78,15 @@ class LLMService {
         'LLMService: at least one of EVO_LLM_URL, MINIMAX_API_KEY, or ANTHROPIC_API_KEY must yield a client',
       );
     }
-    // Default = Qwen local if configured, else MiniMax, else Claude.
-    this._defaultClient = this._qwenClient || this._minimaxClient || this._claudeClient;
-    this._defaultModel = this._qwenClient
-      ? (opts.qwenChatModel || 'qwen3.6-27b')
-      : (this._minimaxClient ? opts.minimaxModel : opts.claudeModel);
+    // Default = MiniMax (cloud, ~5 s) when configured, else Qwen local
+    // (slow but always available), else Claude. Reversed 2026-05-07 after
+    // measuring Qwen 27B chat at 30-80 s end-to-end vs ~5 s on MiniMax;
+    // Qwen retained for embedding/classifier/dream/memory paths that
+    // bypass this client. (See diagnostic 2026-05-06 P1 set.)
+    this._defaultClient = this._minimaxClient || this._qwenClient || this._claudeClient;
+    this._defaultModel = this._minimaxClient
+      ? opts.minimaxModel
+      : (this._qwenClient ? (opts.qwenChatModel || 'qwen3.6-27b') : opts.claudeModel);
     this._qwenModel = opts.qwenChatModel || 'qwen3.6-27b';
     this._claudeModel = opts.claudeModel;
     this._qwenBreaker = new CircuitBreaker('qwen', { threshold: 3, resetTimeout: 30000 });
@@ -181,7 +185,21 @@ class LLMService {
       };
     }
 
-    // Default: Qwen3.6-27B local.
+    // Default: MiniMax cloud (Anthropic-compatible, ~5 s end-to-end with
+    // tools) when available — the user-perceived latency on Qwen 27B
+    // local was 30-80 s and it failed at structured tool selection.
+    if (this._minimaxClient) {
+      return {
+        activeClient: this._minimaxClient,
+        activeModel: config.minimaxModel,
+        breaker: this._minimaxBreaker,
+        droppedClaude: wantsClaudeButUnavailable,
+        providerHint: 'minimax',
+        reason: 'minimax_default',
+      };
+    }
+
+    // Fallback when MiniMax isn't configured: Qwen local, then Claude.
     if (this._qwenClient) {
       return {
         activeClient: this._qwenClient,
@@ -189,11 +207,10 @@ class LLMService {
         breaker: this._qwenBreaker,
         droppedClaude: wantsClaudeButUnavailable,
         providerHint: 'qwen',
-        reason: 'qwen_local_default',
+        reason: 'qwen_local_fallback',
       };
     }
 
-    // Fallback when Qwen isn't configured: MiniMax, then Claude.
     const cloud = this._cloudFallback();
     return {
       activeClient: cloud?.client || null,

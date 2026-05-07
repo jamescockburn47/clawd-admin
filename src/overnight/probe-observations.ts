@@ -141,6 +141,30 @@ export function archiveObservationLogPath(isoWeek: string, opts: ObservationOpti
  * directory if needed. Does not validate schema beyond requiring a `kind`
  * field — callers are expected to construct valid payloads.
  */
+/**
+ * Build a coarse fingerprint for dedup. Strips digits, punctuation, and
+ * collapses whitespace so 'p95 80601ms' and 'p95 62231ms' compare equal.
+ * Combines the kind with whichever text field carries the meaning.
+ */
+function observationFingerprint(o: Observation): string {
+  const obj = o as unknown as Record<string, unknown>;
+  const text = String(
+    obj.observation ??
+    obj.rejection_reason ??
+    obj.title ??
+    obj.reason ??
+    '',
+  );
+  const norm = text
+    .toLowerCase()
+    .replace(/\d+/g, '#')           // numbers collapse to '#'
+    .replace(/[^a-z#\s]/g, ' ')    // punctuation -> space
+    .replace(/\s+/g, ' ')          // collapse whitespace
+    .trim()
+    .slice(0, 120);
+  return `${o.kind}|${norm}`;
+}
+
 export async function appendObservation(
   observation: Observation,
   opts: AppendObservationOptions,
@@ -151,6 +175,29 @@ export async function appendObservation(
   const overnightDir = opts.overnightDir ?? DEFAULT_OVERNIGHT_DIR;
   const file = observationLogPath(opts.isoWeek, { overnightDir });
   await mkdir(dirname(file), { recursive: true });
+
+  // Dedup: if the current week's file already contains an observation
+  // with the same fingerprint, skip the write. Same signal phrased
+  // multiple ways used to fill the morning report with duplicates
+  // (cortex slow x3, category imbalance x2 the same day).
+  try {
+    const existing = await readFile(file, 'utf8');
+    const newFp = observationFingerprint(observation);
+    for (const line of existing.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const prev = JSON.parse(line) as Observation;
+        if (observationFingerprint(prev) === newFp) {
+          // already have this signal this week — don't write again.
+          return;
+        }
+      } catch { /* malformed line, ignore */ }
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') throw err; // other errors propagate
+  }
+
   await appendFile(file, JSON.stringify(observation) + '\n', 'utf8');
 }
 

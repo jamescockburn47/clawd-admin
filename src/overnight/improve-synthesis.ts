@@ -10,7 +10,7 @@
 //
 // No LLM calls in this module's tests — EvoChatClient is dependency-injected.
 
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMissionRegression } from './probe-candidates.js';
@@ -26,6 +26,33 @@ const REPO_ROOT = resolve(__MODULE_DIR, '..', '..');
 // scope often mentions module concepts like 'router' that are not
 // file paths).
 const PATH_REGEX = /\b(?:[a-zA-Z_][\w-]*\/)+[\w.-]+\.\w{1,5}\b/g;
+function listAllowedFiles(repoRoot: string): string[] {
+  // Enumerate src/**/*.{js,ts} excluding tests + banned files. Cheap
+  // (~150 paths today, ~5KB stringified). Recomputed per synthesis call;
+  // catches new files added since the last bot restart.
+  const out: string[] = [];
+  const walk = (rel: string) => {
+    let entries: import('node:fs').Dirent[];
+    try {
+      entries = readdirSync(resolve(repoRoot, rel), { withFileTypes: true });
+    } catch { return; }
+    for (const ent of entries) {
+      const child = rel ? `${rel}/${ent.name}` : ent.name;
+      if (ent.isDirectory()) {
+        if (child.includes('__tests__') || child.endsWith('node_modules') || child === '.git') continue;
+        walk(child);
+      } else if (ent.isFile()) {
+        if (!/\.(?:js|ts)$/.test(ent.name)) continue;
+        if (/\.(?:test|spec)\.(?:js|ts)$/.test(ent.name)) continue;
+        if (BANNED_FILES.some((b) => b.endsWith('/') ? child.startsWith(b) : child === b)) continue;
+        out.push(child);
+      }
+    }
+  };
+  walk('src');
+  return out.sort();
+}
+
 function extractPaths(scope: string): string[] {
   return Array.from(new Set(scope.match(PATH_REGEX) ?? []));
 }
@@ -134,7 +161,7 @@ Output STRICT JSON: an array of 5-8 objects with fields:
 
 Return ONLY the JSON array. No markdown, no prose.`;
 
-function buildUserMessage(source: SynthesisSource): string {
+function buildUserMessage(source: SynthesisSource, repoRoot: string = REPO_ROOT): string {
   const parts: string[] = [];
 
   if (source.worseDriftAlerts.length > 0) {
@@ -164,6 +191,19 @@ function buildUserMessage(source: SynthesisSource): string {
       parts.push(`  benefit: ${c.predicted_benefit}`);
       parts.push(`  refs: ${c.evidence_refs.join(', ')}`);
     }
+  }
+
+  // === ALLOWED FILES MANIFEST ===
+  // The implement step REFUSES to modify files outside this list (banned
+  // files + non-existent paths both fail). Pick scope from this list
+  // ONLY; do not invent paths. Qwen has historically hallucinated paths
+  // like 'src/cortex/gather.ts' (which does not exist) — every such
+  // candidate dies at the implement step costing one Opus session.
+  const allowed = listAllowedFiles(repoRoot);
+  if (allowed.length > 0) {
+    parts.push('=== ALLOWED FILES (pick scope from this list ONLY; do not invent paths) ===');
+    for (const f of allowed) parts.push(`  ${f}`);
+    parts.push('');
   }
 
   return parts.join('\n');
