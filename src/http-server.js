@@ -62,6 +62,13 @@ export function startHttpServer(port, deps) {
   const server = createServer(async (req, res) => {
     const path = urlPath(req);
 
+    // --- Failover health probe (Pi-side failover-check.sh hits this).
+    // No auth: it has to work when the bot is otherwise unreachable, and
+    // it returns nothing sensitive. ---
+    if (path === '/health') {
+      return json(res, 200, { status: 'ok' });
+    }
+
     // --- Bot Council debate endpoint (no dashboard-token auth — council sends
     // its own bearer token; verification of that belongs in a future phase
     // once LQC exposes a registration secret. For now the endpoint is
