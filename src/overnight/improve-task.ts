@@ -45,10 +45,11 @@ export function resetImproveTaskStateForTests(): void {
 
 async function buildDefaultDeps(): Promise<ImproveStageDeps> {
   const { evoSimpleChat } = await import('../evo-llm.js');
+  const { TIMEOUTS } = await import('../constants.js');
 
   const evoChatClient: EvoChatClient = {
     chat: async (sys, user) => {
-      const r = await evoSimpleChat(sys, user, 2000);
+      const r = await evoSimpleChat(sys, user, 2000, TIMEOUTS.MEMORY_EXTRACT);
       return typeof r === 'string' ? r : null;
     },
   };

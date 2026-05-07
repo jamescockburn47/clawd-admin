@@ -28,7 +28,7 @@ export const TIMEOUTS = Object.freeze({
   MEMORY_HEALTH_CHECK: 5000,   // Memory service health check
   MEMORY_DEFAULT: 10000,       // Default memory service request
   MEMORY_STORE: 30000,         // Memory store operation
-  MEMORY_EXTRACT: 120000,      // Conversation extraction
+  MEMORY_EXTRACT: 600000,      // Conversation extraction (Qwen 27B on 14K conv ~6min; bumped from 120s 2026-05-07)
   MEMORY_SEARCH: 15000,        // Memory search
   MEMORY_NOTE: 60000,          // Note storage
   MEMORY_IMAGE: 120000,        // Image analysis

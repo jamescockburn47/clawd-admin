@@ -401,7 +401,7 @@ export async function summariseDocument(text, fileName, maxOutputTokens = 500) {
  * @param {number} maxTokens - Max output tokens (default 800)
  * @returns {string|null} - Response text, or null on failure
  */
-export async function evoSimpleChat(systemPrompt, userMessage, maxTokens = 800) {
+export async function evoSimpleChat(systemPrompt, userMessage, maxTokens = 800, timeoutMs = TIMEOUTS.DOC_SUMMARISE) {
   try {
     const res = await evoFetch(`${config.evoLlmUrl}/v1/chat/completions`, {
       method: 'POST',
@@ -414,7 +414,7 @@ export async function evoSimpleChat(systemPrompt, userMessage, maxTokens = 800) 
         max_tokens: maxTokens,
         cache_prompt: true,
       }),
-      timeout: TIMEOUTS.DOC_SUMMARISE, // 30s — adequate for short analysis
+      timeout: timeoutMs, // default DOC_SUMMARISE 30s; callers handling large prompts pass MEMORY_EXTRACT or higher
     });
 
     const data = await res.json();
