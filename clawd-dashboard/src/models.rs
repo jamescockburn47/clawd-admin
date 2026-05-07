@@ -204,3 +204,11 @@ pub struct SystemHealthResponse {
     #[serde(rename = "memoryMB")]
     pub memory_mb: Option<u64>,
 }
+
+#[derive(Deserialize, Clone, Default)]
+pub struct MorningReportResponse {
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub text: String,
+}

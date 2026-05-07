@@ -38,13 +38,14 @@ pub async fn fetch_initial_data(state: SharedState) {
     let client = Client::new();
     let base = base_url();
 
-    let (widgets_res, todos_res, soul_res, usage_res, status_res, health_res) = tokio::join!(
+    let (widgets_res, todos_res, soul_res, usage_res, status_res, health_res, morning_res) = tokio::join!(
         fetch_widgets(&client, &base),
         fetch_todos(&client, &base),
         fetch_soul(&client, &base),
         fetch_usage(&client, &base),
         fetch_status(&client, &base),
         fetch_system_health(&client, &base),
+        fetch_morning_report(&client, &base),
     );
 
     if let Ok(mut s) = state.write() {
@@ -71,9 +72,28 @@ pub async fn fetch_initial_data(state: SharedState) {
         if let Ok(h) = health_res {
             s.system_health = h;
         }
+        if let Ok(m) = morning_res {
+            s.overnight_text = m.text;
+        }
     }
 
     log::info!("Initial data fetch complete");
+}
+
+async fn fetch_morning_report(client: &Client, base: &str) -> Result<MorningReportResponse, String> {
+    // Use today in Europe/London for the date segment. Pi system clock is
+    // local so chrono::Local is fine here.
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let url = format!("{}/api/morning-report/{}", base, today);
+    client
+        .get(url)
+        .header("Authorization", auth_header())
+        .send()
+        .await
+        .map_err(|e| format!("morning-report fetch: {}", e))?
+        .json::<MorningReportResponse>()
+        .await
+        .map_err(|e| format!("morning-report parse: {}", e))
 }
 
 async fn fetch_widgets(client: &Client, base: &str) -> Result<WidgetsResponse, String> {

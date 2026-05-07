@@ -815,6 +815,35 @@ impl ClawdApp {
 
     // ── Todos panel ────────────────────────────────────────────────
 
+    fn draw_overnight_panel(&mut self, ui: &mut egui::Ui, state: &AppState) {
+        section_title(ui, "OVERNIGHT UPDATE");
+
+        let text = &state.overnight_text;
+        if text.is_empty() {
+            ui.label(RichText::new("No report yet today").size(FONT_BODY).color(TEXT_DIM));
+            return;
+        }
+
+        // Render as monospace so the indented bullets and section headers
+        // line up. The wrapping ScrollArea (in the center-column code) gives
+        // us the vertical scroll. Here we just emit lines.
+        for raw_line in text.lines() {
+            let trimmed = raw_line.trim();
+            if trimmed.starts_with('*') && trimmed.ends_with('*') && trimmed.len() > 2 {
+                let inner = &trimmed[1..trimmed.len() - 1];
+                ui.add_space(6.0);
+                ui.label(RichText::new(inner).size(FONT_BODY).strong().color(TEXT));
+                continue;
+            }
+            ui.label(
+                RichText::new(raw_line)
+                    .size(FONT_BODY)
+                    .monospace()
+                    .color(TEXT),
+            );
+        }
+    }
+
     fn draw_todos_panel(&mut self, ui: &mut egui::Ui, state: &AppState) {
         section_title(ui, "TODOS & REMINDERS");
 
@@ -1546,7 +1575,7 @@ impl eframe::App for ClawdApp {
                 egui::ScrollArea::vertical()
                     .id_salt("center_scroll")
                     .show(ui, |ui| {
-                        self.draw_todos_panel(ui, &state);
+                        self.draw_overnight_panel(ui, &state);
                     });
             });
 
