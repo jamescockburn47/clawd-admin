@@ -182,6 +182,42 @@ pub async fn complete_todo(todo_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Periodically re-fetch status, system-health, and morning-report so the
+/// dashboard self-heals from transient disconnects. Without this, the
+/// admin panel's WhatsApp/EVO indicators latch to whatever they read at
+/// startup and don't update when the bot reconnects (the bot does not
+/// broadcast 'status' SSE events on WhatsApp connect/disconnect).
+pub async fn periodic_refresh(state: SharedState) {
+    let client = Client::new();
+    let base = base_url();
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    // First tick fires immediately; skip it because fetch_initial_data
+    // has already populated state at startup.
+    interval.tick().await;
+    loop {
+        interval.tick().await;
+        let (status_res, health_res, morning_res) = tokio::join!(
+            fetch_status(&client, &base),
+            fetch_system_health(&client, &base),
+            fetch_morning_report(&client, &base),
+        );
+        if let Ok(mut s) = state.write() {
+            if let Ok(st) = status_res {
+                s.connected = st.connected;
+                s.status = st;
+            }
+            if let Ok(h) = health_res {
+                s.system_health = h;
+            }
+            if let Ok(m) = morning_res {
+                if !m.text.is_empty() {
+                    s.overnight_text = m.text;
+                }
+            }
+        }
+    }
+}
+
 pub async fn listen_sse(state: SharedState) {
     loop {
         match connect_and_listen(&state).await {

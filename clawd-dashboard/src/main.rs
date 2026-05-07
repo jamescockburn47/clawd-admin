@@ -133,6 +133,8 @@ impl ClawdApp {
         // Spawn async data fetching
         let s = shared_state.clone();
         runtime.spawn(async move { api::fetch_initial_data(s).await });
+        let s2 = shared_state.clone();
+        runtime.spawn(async move { api::periodic_refresh(s2).await });
 
         let s = shared_state.clone();
         runtime.spawn(async move { api::listen_sse(s).await });
@@ -1501,8 +1503,11 @@ impl eframe::App for ClawdApp {
 
         // ── Body: 3 columns ────────────────────────────────────
         let available = ctx.available_rect();
-        let left_w = (available.width() * 0.42).floor();
-        let right_w = (available.width() * 0.28).floor();
+        // Width split: overnight (centre) gets the most, since it's the
+        // longest read; calendar (left) is dense visual; admin/soul/etc.
+        // (right) is short rows. Tweaked 2026-05-07.
+        let left_w = (available.width() * 0.30).floor();
+        let right_w = (available.width() * 0.26).floor();
 
         // Left column (50%) — with swipe gesture detection
         let left_resp = egui::SidePanel::left("left_col")
