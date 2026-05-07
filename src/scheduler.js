@@ -35,6 +35,57 @@ import { checkTrajectorySnapshots } from './tasks/trajectory-snapshot.js';
 import config from './config.js';
 import logger from './logger.js';
 
+// File-derived fallbacks for subsystem lastRun. Module-scope `let`
+// vars (lastBackupDate, lastKnowledgeRefreshDate, etc.) reset on
+// every restart — the artefacts on disk are the source of truth.
+import { readdirSync, statSync, existsSync, readFileSync } from 'node:fs';
+import { join as pathJoin } from 'node:path';
+import { homedir } from 'node:os';
+
+function latestDateFromDir(dir, pattern) {
+  try {
+    if (!existsSync(dir)) return null;
+    const entries = readdirSync(dir).filter((f) => pattern.test(f));
+    if (entries.length === 0) return null;
+    // Names like 2026-05-07 or 2026-05-07.something — sort lexicographically.
+    entries.sort();
+    const last = entries[entries.length - 1];
+    const m = last.match(/(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+
+function mtimeDate(path) {
+  try {
+    if (!existsSync(path)) return null;
+    return statSync(path).mtime.toISOString().slice(0, 10);
+  } catch { return null; }
+}
+
+function latestImproveDate() {
+  // Most recent date file in data/overnight/events-*.jsonl that has
+  // any stage:'improve' event. Tells the dashboard the IMPROVE
+  // pipeline ran, not whether it succeeded.
+  try {
+    const dir = pathJoin('data', 'overnight');
+    if (!existsSync(dir)) return null;
+    const files = readdirSync(dir)
+      .filter((f) => /^events-\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
+      .sort();
+    for (let i = files.length - 1; i >= 0 && i >= files.length - 14; i -= 1) {
+      const path = pathJoin(dir, files[i]);
+      const lines = readFileSync(path, 'utf8').trim().split('\n');
+      for (const line of lines) {
+        if (line.includes('"stage":"improve"')) {
+          const m = files[i].match(/(\d{4}-\d{2}-\d{2})/);
+          return m ? m[1] : null;
+        }
+      }
+    }
+    return null;
+  } catch { return null; }
+}
+
 // Get London time components reliably (avoids en-GB date string parsing issues)
 function getLondonTime() {
   const now = new Date();
@@ -112,12 +163,43 @@ export function getSystemHealth() {
     whatsapp: { connected: !!sendFn },
     evo: { online: evo.online, queueDepth: evo.queueDepth || 0 },
     briefing: { enabled: !!config.briefingEnabled, lastRun: getLastBriefingDate() },
-    knowledgeRefresh: { enabled: !!config.evoMemoryEnabled, lastRun: getLastKnowledgeRefreshDate() },
-    traceAnalysis: { enabled: true, lastRun: getLastAnalysisDate() },
-    groundTruth: { enabled: true, lastRun: getLastHarvestDate() },
-    projectSync: { enabled: true, lastRun: getLastProjectSyncDate() },
+    knowledgeRefresh: {
+      enabled: !!config.evoMemoryEnabled,
+      lastRun: getLastKnowledgeRefreshDate()
+        ?? mtimeDate(pathJoin('data', 'system-knowledge.json')),
+    },
+    traceAnalysis: {
+      enabled: true,
+      lastRun: getLastAnalysisDate()
+        ?? latestDateFromDir(pathJoin('data', 'reasoning-trace-analysis'), /^\d{4}-\d{2}-\d{2}\.json$/),
+    },
+    groundTruth: {
+      enabled: true,
+      lastRun: getLastHarvestDate() ?? mtimeDate(pathJoin('data', 'ground-truth.json')),
+    },
+    projectSync: {
+      enabled: true,
+      lastRun: getLastProjectSyncDate()
+        ?? mtimeDate(pathJoin('data', 'runtime', 'project-sync-last-run.txt')),
+    },
     weeklyReview: { enabled: true, lastRun: getLastReviewDate() },
-    backup: { lastRun: getLastBackupDate() },
+    backup: {
+      lastRun: getLastBackupDate()
+        ?? latestDateFromDir(pathJoin('data', 'backups'), /^\d{4}-\d{2}-\d{2}$/),
+    },
+    // Pi dashboard reads `diary` and `self_improve` (snake_case). Both
+    // were missing entirely; rendered as 'never'. Source from artefacts.
+    diary: {
+      enabled: true,
+      lastRun: latestDateFromDir(
+        pathJoin(homedir(), 'clawdbot-logs'),
+        /^overnight-report-\d{4}-\d{2}-\d{2}\.json$/,
+      ),
+    },
+    self_improve: {
+      enabled: true,
+      lastRun: latestImproveDate(),
+    },
     overnightResearch: { enabled: true, schedule: '03:45 London', source: 'data/overnight/research-<date>.json' },
     // New four-stage overnight pipeline — dates come from the event log,
     // not from module-level state, so we expose them as "see event log".
