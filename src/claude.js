@@ -523,7 +523,7 @@ class LLMService {
       logReasoningTrace({
         requestId,
         chatId: chatJid, sender: senderJid, engagement: null,
-        routing: { category, layer: classifySource, needsPlan: route.needsPlan || false, planReason: route.planReason || null, forceClaude, writeIntent: !!routeReason?.includes('write'), confidence: route.confidence || null, timeMs: Date.now() - routeStart },
+        routing: { category, layer: classifySource, needsPlan: route.needsPlan || false, planReason: route.planReason || null, forceClaude, writeIntent: !!routeReason?.includes('write'), confidence: route.confidence || null, timeMs: cortexTiming.totalMs, classifyMs: cortexTiming.phase1Ms },
         model: { selected: provider, modelName, reason: providerReason, qualityGate: critiqueApplied, routeForceClaude: forceClaude },
         plan: null, toolsCalled: this._lastToolsCalled, totalTimeMs: Date.now() - routeStart,
       });
