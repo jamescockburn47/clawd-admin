@@ -106,6 +106,11 @@ const ConfigSchema = z.object({
   BRIEFING_ENABLED: boolFromEnv.default('true'),
   BRIEFING_TIME: z.string().optional().default('07:00'),
 
+  // Daily-activity summary DM (companion to briefing, fires 30 min later
+  // by default — backward-looking narrative of yesterday's bot activity)
+  DAILY_ACTIVITY_ENABLED: boolFromEnv.default('true'),
+  DAILY_ACTIVITY_TIME: z.string().optional().default('07:30'),
+
   // Group engagement
   GROUP_MUTE_DURATION_MS: intFromEnv(600000).default('600000'),
   ENGAGEMENT_CLASSIFIER_ENABLED: boolFromEnv.default('true'),
@@ -251,6 +256,9 @@ const config = {
 
   briefingEnabled: env.BRIEFING_ENABLED,
   briefingTime: env.BRIEFING_TIME,
+
+  dailyActivityEnabled: env.DAILY_ACTIVITY_ENABLED,
+  dailyActivityTime: env.DAILY_ACTIVITY_TIME,
 
   groupMuteDurationMs: env.GROUP_MUTE_DURATION_MS,
   engagementClassifierEnabled: env.ENGAGEMENT_CLASSIFIER_ENABLED,

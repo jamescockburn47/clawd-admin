@@ -13,6 +13,7 @@ import { keepEvoWarm } from './evo-llm.js';
 import { checkTodoReminders } from './tasks/todo-reminders.js';
 import { checkSideGigMeetings } from './tasks/meeting-alerts.js';
 import { checkMorningBriefing, checkWeeklyReview, getLastBriefingDate, getLastReviewDate } from './tasks/briefing.js';
+import { checkDailyActivitySummary, getLastDailyActivityDate } from './tasks/daily-activity.js';
 import { checkDailyBackup, getLastBackupDate } from './tasks/daily-backup.js';
 import { checkOvernightResearch } from './tasks/overnight-research.js';
 import { checkSystemKnowledgeRefresh, getLastKnowledgeRefreshDate } from './tasks/system-refresh.js';
@@ -161,6 +162,7 @@ export function getSystemHealth() {
     whatsapp: { connected: !!sendFn },
     evo: { online: evo.online, queueDepth: evo.queueDepth || 0 },
     briefing: { enabled: !!config.briefingEnabled, lastRun: getLastBriefingDate() },
+    dailyActivity: { enabled: config.dailyActivityEnabled !== false, lastRun: getLastDailyActivityDate() },
     knowledgeRefresh: {
       enabled: !!config.evoMemoryEnabled,
       lastRun: getLastKnowledgeRefreshDate()
@@ -291,6 +293,7 @@ async function runScheduler() {
   await runTask('todoReminders', () => checkTodoReminders(sendFn));
   await runTask('sideGigMeetings', () => checkSideGigMeetings(sendFn));
   await runTask('morningBriefing', () => checkMorningBriefing(sendFn, todayStr, hours, minutes));
+  await runTask('dailyActivitySummary', () => checkDailyActivitySummary(sendFn, todayStr, hours, minutes));
   await runTask('weeklyReview', () => checkWeeklyReview(sendFn, todayStr, hours));
 
   // New four-stage overnight pipeline (spec §4)
