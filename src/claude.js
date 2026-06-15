@@ -21,7 +21,7 @@ import logger from './logger.js';
 export { getUsageStats, flushUsage };
 
 const CLAUDE_REQUEST_PATTERNS = /\b(?:ask claude|use claude|use opus|ask opus|claude only|opus only)\b/i;
-const OWNER_ONLY_TOOLS = new Set(['gmail_search', 'gmail_read', 'gmail_draft', 'gmail_confirm_send', 'soul_propose', 'soul_confirm', 'soul_learn', 'soul_forget', 'calendar_create_event', 'calendar_update_event', 'evolution_task']);
+const OWNER_ONLY_TOOLS = new Set(['gmail_search', 'gmail_read', 'gmail_draft', 'gmail_confirm_send', 'soul_propose', 'soul_confirm', 'soul_learn', 'soul_forget', 'calendar_create_event', 'calendar_update_event', 'evolution_task', 'moorstead_status', 'moorstead_broadcast', 'moorstead_kick']);
 const GROUP_MODE_TOOLS = TOOL_DEFINITIONS.filter(t => ['memory_search', 'web_search', 'web_fetch'].includes(t.name));
 const MAX_TOOL_RESULT = 1500;
 const MAX_TOOL_LOOPS = 5;

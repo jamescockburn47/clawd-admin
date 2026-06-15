@@ -904,6 +904,49 @@ export const TOOL_DEFINITIONS = [
     },
   },
 
+  // === MOORSTEAD ADMIN (owner only) ===
+  {
+    name: 'moorstead_status',
+    description: 'Show who is currently playing in the live Moorstead game, broken down by room.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'moorstead_broadcast',
+    description: 'Send a system message to all Moorstead players, or just players in one room.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: {
+          type: 'string',
+          description: 'Message to broadcast to players.',
+        },
+        room: {
+          type: 'string',
+          description: 'Optional room name (e.g. "moor"). Omit to broadcast to all rooms.',
+        },
+      },
+      required: ['text'],
+    },
+  },
+  {
+    name: 'moorstead_kick',
+    description: 'Disconnect a Moorstead player by their pid (player ID).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        pid: {
+          type: 'string',
+          description: 'Player ID to disconnect.',
+        },
+      },
+      required: ['pid'],
+    },
+  },
+
   // === LQ COUNCIL (dev group / owner DM only) ===
   {
     name: 'lqc_status',

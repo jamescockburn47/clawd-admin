@@ -40,6 +40,7 @@ const ConfigSchema = z.object({
   // Moorstead game integration
   MOORSTEAD_ENABLED: z.string().optional().default('true').transform(v => v !== 'false').pipe(z.boolean()),
   MOORSTEAD_JID: z.string().optional().default(''),
+  MOORSTEAD_RELAY_URL: z.string().url().optional().default('http://127.0.0.1:8096'),
 
   // Owner (James)
   OWNER_JID: z.string().optional().default(''),
@@ -217,6 +218,7 @@ const config = {
 
   moorsteadEnabled: env.MOORSTEAD_ENABLED,
   moorsteadJid: env.MOORSTEAD_JID,
+  moorsteadRelayUrl: env.MOORSTEAD_RELAY_URL,
 
   ownerJid: env.OWNER_JID,
   ownerLid: env.OWNER_LID,
