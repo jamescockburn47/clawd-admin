@@ -907,7 +907,7 @@ export const TOOL_DEFINITIONS = [
   // === MOORSTEAD ADMIN (owner only) ===
   {
     name: 'moorstead_status',
-    description: 'Show who is currently playing in the live Moorstead game, broken down by room.',
+    description: "Find who is currently online in Moorstead — James's OWN multiplayer voxel game on his server (NOT an external service like Minecraft Realms) — returning each player's name, which world they are in (\"moor\" is the main adult world, \"bairns\" is the children's world) and their coordinates. Use this for ANY question about who is playing, whether a named player is online, or where someone is — e.g. \"who's on\", \"is Henry playing\", \"find Henry in the bairns world\", \"where is X\".",
     input_schema: {
       type: 'object',
       properties: {},
