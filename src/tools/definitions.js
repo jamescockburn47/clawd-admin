@@ -946,6 +946,49 @@ export const TOOL_DEFINITIONS = [
       required: ['pid'],
     },
   },
+  {
+    name: 'moorstead_bairns_status',
+    description: "Show the bairns world controls: daily play limit, closed window, whether it's open now, and how long each child played today.",
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'moorstead_bairns_set',
+    description: 'Update bairns world controls. All params optional — only include what you want to change.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        limitMinutes: {
+          type: 'number',
+          description: 'Daily play limit in minutes. 0 = no limit.',
+        },
+        warnSeconds: {
+          type: 'number',
+          description: 'Seconds before limit at which the player is warned.',
+        },
+        locked: {
+          type: 'boolean',
+          description: 'Lock the bairns world completely (true) or unlock it (false).',
+        },
+        closeFrom: {
+          type: 'string',
+          description: 'Start of the closed window, HH:MM (e.g. "20:00"). Must be paired with closeTo.',
+        },
+        closeTo: {
+          type: 'string',
+          description: 'End of the closed window, HH:MM (e.g. "07:00"). Must be paired with closeFrom.',
+        },
+        clearClosed: {
+          type: 'boolean',
+          description: 'Pass true to remove the closed window entirely.',
+        },
+      },
+      required: [],
+    },
+  },
 
   // === LQ COUNCIL (dev group / owner DM only) ===
   {

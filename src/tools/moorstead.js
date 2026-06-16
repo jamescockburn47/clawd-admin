@@ -95,3 +95,87 @@ export async function moorsteadKick(input) {
     return `Moorstead kick failed: ${err.message}`;
   }
 }
+
+/**
+ * moorstead_bairns_status — bairns world controls + today's play time.
+ * No params.
+ */
+export async function moorsteadBairnsStatus() {
+  try {
+    const res = await fetch(`${baseUrl()}/admin/bairns-controls`, {
+      method: 'GET',
+      headers: relayHeaders(),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      return `Moorstead relay error ${res.status}: ${errBody || res.statusText}`;
+    }
+    const data = await res.json();
+    const controls = data.controls || {};
+    const limitMin = controls.daily_limit_min ?? 0;
+    const limitStr = limitMin === 0 ? 'no time limit' : `${limitMin} min/day`;
+    const closed = controls.closed;
+    const closedStr = closed ? `Closed ${closed.from}–${closed.to}.` : 'No closed window.';
+    const openStr = data.closed_now ? 'Closed now.' : 'Open now.';
+    const todaySec = data.today_seconds || {};
+    const pids = Object.keys(todaySec);
+    let todayStr;
+    if (pids.length === 0) {
+      todayStr = 'No play today.';
+    } else {
+      const maxMin = Math.round(Math.max(...Object.values(todaySec)) / 60);
+      todayStr = `Today: ${pids.length} bairn${pids.length === 1 ? '' : 's'} played (max ${maxMin}m).`;
+    }
+    return `*Bairns world* — limit: ${limitStr}. ${closedStr} ${openStr} ${todayStr}`;
+  } catch (err) {
+    return `Moorstead bairns status failed: ${err.message}`;
+  }
+}
+
+const HH_MM = /^\d{1,2}:\d{2}$/;
+
+/**
+ * moorstead_bairns_set — update bairns world controls.
+ * input: { limitMinutes?, warnSeconds?, locked?, closeFrom?, closeTo?, clearClosed? }
+ */
+export async function moorsteadBairnsSet(input) {
+  // Validate HH:MM fields before touching the network
+  if (input.closeFrom !== undefined && !HH_MM.test(input.closeFrom)) {
+    return `Invalid closeFrom "${input.closeFrom}" — expected HH:MM format.`;
+  }
+  if (input.closeTo !== undefined && !HH_MM.test(input.closeTo)) {
+    return `Invalid closeTo "${input.closeTo}" — expected HH:MM format.`;
+  }
+
+  const body = {};
+  if (input.limitMinutes !== undefined) body.daily_limit_min = input.limitMinutes;
+  if (input.warnSeconds !== undefined) body.warn_sec = input.warnSeconds;
+  if (input.locked !== undefined) body.locked = input.locked;
+  if (input.clearClosed === true) {
+    body.closed = null;
+  } else if (input.closeFrom !== undefined || input.closeTo !== undefined) {
+    body.closed = { from: input.closeFrom, to: input.closeTo };
+  }
+
+  try {
+    const res = await fetch(`${baseUrl()}/admin/bairns-controls`, {
+      method: 'POST',
+      headers: relayHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      return `Moorstead relay error ${res.status}: ${errBody || res.statusText}`;
+    }
+    const data = await res.json();
+    const controls = data.controls || {};
+    const limitMin = controls.daily_limit_min ?? 0;
+    const limitStr = limitMin === 0 ? 'no time limit' : `${limitMin} min`;
+    const closed = controls.closed;
+    const closedStr = closed ? `, closed ${closed.from}–${closed.to}` : ', no closed window';
+    const lockedStr = controls.locked ? ', world locked' : '';
+    return `Bairns world updated — daily limit ${limitStr}${closedStr}${lockedStr}.`;
+  } catch (err) {
+    return `Moorstead bairns set failed: ${err.message}`;
+  }
+}

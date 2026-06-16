@@ -15,7 +15,7 @@ import { liveBriefing } from './briefing.js';
 import { groupDecisions } from './group-decisions.js';
 import { overnightStatus } from './overnight-status.js';
 import * as lqcTools from './lqcouncil.js';
-import { moorsteadStatus, moorsteadBroadcast, moorsteadKick } from './moorstead.js';
+import { moorsteadStatus, moorsteadBroadcast, moorsteadKick, moorsteadBairnsStatus, moorsteadBairnsSet } from './moorstead.js';
 // Phase 5: overnight-report.js retired. The overnight_report tool now
 // reads from the new morning-report.ts in src/overnight/.
 // Phase 5: evolution.js retired. The evolution_task tool now writes
@@ -198,6 +198,8 @@ const TOOL_MAP = new Map([
   ['moorstead_status', moorsteadStatus],
   ['moorstead_broadcast', moorsteadBroadcast],
   ['moorstead_kick', moorsteadKick],
+  ['moorstead_bairns_status', moorsteadBairnsStatus],
+  ['moorstead_bairns_set', moorsteadBairnsSet],
 
   // LQ Bot Council — read-only tools gated to LQC_DEV_GROUP_JID / owner DM
   // in group-tool-policy.js. Wiring live here so the dispatch table is
