@@ -356,6 +356,13 @@ class LLMService {
     const isOwner = !senderJid || ownerJids.size === 0 || ownerJids.has(senderJid);
     const tools = this._getAvailableTools(isOwner, chatJid);
 
+    // "Merlin" address → Moorstead-only warden mode (owner only). When James
+    // opens a message with "Merlin", scope this reply strictly to the game:
+    // only moorstead_* tools, a warden directive, and skip the planner.
+    const _firstWord = (typeof context === 'string' ? context : '')
+      .trim().toLowerCase().split(/[\s,:\-!?.]+/)[0];
+    const merlinMode = isOwner && _firstWord === 'merlin';
+
     const routeStart = Date.now();
     const isGroup = chatJid && chatJid.endsWith('@g.us');
 
@@ -373,10 +380,12 @@ class LLMService {
 
     logger.info({ requestId, category, source: classifySource, forceClaude, reason: routeReason, sender: senderJid, model: activeModel, provider: providerHint, hasImage: !!imageData, explicitClaude: userWantsClaude, qwenAvailable: this._hasQwen(), claudeAvailable: this._hasClaude() }, 'routed');
 
-    const categoryTools = getToolsForCategory(category, tools);
+    const categoryTools = merlinMode
+      ? tools.filter(t => /^moorstead_/.test(t.name))
+      : getToolsForCategory(category, tools);
 
     // Task planner
-    if (route.needsPlan && (route.confidence || 0) >= PLANNING.MIN_CONFIDENCE) {
+    if (!merlinMode && route.needsPlan && (route.confidence || 0) >= PLANNING.MIN_CONFIDENCE) {
       try {
         const { executePlan } = await import('./task-planner.js');
         const planResult = await executePlan(context, route, senderJid, chatJid, memoryFragment);
@@ -435,12 +444,23 @@ class LLMService {
           + 'be exactly the single word: SILENT\n'
           + 'Otherwise respond normally and the group will see your message.'
         : '';
+      const merlinSuffix = merlinMode
+        ? '\n\n## MERLIN MODE — Moorstead only\n'
+          + 'James addressed you as "Merlin", so for this reply you ARE Merlin, warden of his '
+          + 'Moorstead voxel game. Act ONLY as the game warden: use ONLY the moorstead_* tools and '
+          + 'speak ONLY about Moorstead — who is online and where, the moor and bairns (children’s) '
+          + 'worlds, broadcasts, bairns time limits and locks, service/room ops, and small game changes. '
+          + 'Do NOT use web search, email, calendar, or any non-Moorstead tool, and do NOT answer '
+          + 'off-topic questions — if asked something unrelated, say you are in Merlin mode and only '
+          + 'handle the game. Call the right moorstead_* tool immediately and lead with the result.'
+        : '';
       const system = [{
         type: 'text',
         text: getSystemPrompt(mode, isOwner, isGroup, category, chatJid)
           + projectScopeFragment
           + memoryFragment
-          + ambientSuffix,
+          + ambientSuffix
+          + merlinSuffix,
         cache_control: { type: 'ephemeral' },
       }];
       const userContent = [];
