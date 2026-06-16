@@ -67,95 +67,56 @@ function generateJobId() {
  * input: { request: string }
  */
 export async function moorsteadCodeStage(input) {
-  const request = (input.request || '').trim();
-  if (!request) return 'request is required — describe the change you want in plain English.';
+  // Accept the request under any of the common param names a model might pick
+  // (MiniMax has been seen to send `text` rather than `request`).
+  const request = (
+    input.request || input.text || input.change || input.description ||
+    input.spec || input.prompt || input.task || ''
+  ).trim();
+  if (!request) {
+    return 'Tell me what to add, e.g. "add a hedgehog that snuffles in the hedgerows at dusk".';
+  }
   if (request.length > 500) {
-    return `request is too long (${request.length} chars, max 500). Please be more concise.`;
+    return `That request is ${request.length} chars; keep it under 500 and I'll get on it.`;
+  }
+  if (!config.moorsteadCodeEnabled) {
+    return 'The Moorstead auto-coder is switched off (set MOORSTEAD_CODE_ENABLED=true to enable it).';
   }
 
-  // Encode request to avoid shell-quoting issues
+  // One-step: dispatch the EVO runner directly. It generates the change via
+  // Claude Code @ MiniMax M3 in an isolated worktree, runs the mechanical gate
+  // (worldgen/geography/protocol/auth etc. are hard-blocked), verifies + builds,
+  // and ONLY deploys if its own MOORSTEAD_CODE_APPLY=1 (else proposal-only).
+  // No separate confirm step — the apply flag is the real safety gate.
   const b64Request = Buffer.from(request).toString('base64');
   const jobId = generateJobId();
-
-  // Runner command — EVO-side script receives jobId and base64-encoded request.
-  // The runner: decodes request, generates code via local LLM, runs classifyChange,
-  // verifies (npm test), and applies or proposes depending on its own apply flag.
   const runnerBase = config.moorsteadCodeRunner || 'bash /home/james/moorstead/autocode/run.sh';
   const command = `${runnerBase} ${jobId} ${b64Request}`;
+  const mode = config.moorsteadCodeApply ? 'apply ENABLED (will deploy if green + builds)' : 'proposal-only';
 
-  const confirmId = storeCode(request, jobId, command);
-
-  const applyNote = config.moorsteadCodeApply
-    ? '⚡ Auto-apply is ENABLED — runner will deploy if gate is green/amber + tests pass.'
-    : '📋 Proposal-only mode (MOORSTEAD_CODE_APPLY is false) — runner will generate and gate but NOT deploy.';
-
-  return [
-    `🛠️ *Moorstead auto-coder — staged request*`,
-    ``,
-    `*Request:* ${request}`,
-    ``,
-    `*Gate envelope:*`,
-    `  • Hard-locked (never): worldgen, geography, noise, sky, landmarks, rails, defs, multiplayer, player, package.json, any auth/admin/secret path, build/deploy infrastructure, .py files`,
-    `  • Red if >4 files or >150 lines changed`,
-    `  • Amber (confirm required): additive content within caps`,
-    `  • Green (auto-eligible): ≤2 files, ≤60 lines, content-only paths (entities.js, npc.js, new src/ files)`,
-    ``,
-    `${applyNote}`,
-    ``,
-    `*Job ID:* \`${jobId}\``,
-    `*Confirm ID:* \`${confirmId}\``,
-    ``,
-    `This is a DRY-RUN proposal. Call *moorstead_code_confirm* with confirm_id \`${confirmId}\` to dispatch the runner.`,
-    `Expires in 10 minutes.`,
-  ].join('\n');
+  try {
+    const { stdout, stderr } = await _execFn(command, {
+      shell: '/bin/bash',
+      timeout: 290 * 1000,
+      maxBuffer: 1024 * 1024,
+    });
+    const out = (stdout || '').trim();
+    const err = (stderr || '').trim();
+    const body = out || (err ? `stderr: ${err}` : '(runner produced no output)');
+    return `🛠️ *Moorstead auto-coder* (job \`${jobId}\`, ${mode})\n\n${body}`;
+  } catch (e) {
+    const msg = e.message || String(e);
+    const se = (e.stderr || '').toString().trim();
+    return `❌ Auto-coder failed (job \`${jobId}\`): ${msg}${se ? `\n${se.slice(0, 300)}` : ''}`;
+  }
 }
 
 /**
  * moorstead_code_confirm — consume pending op, check gate, exec runner.
  * input: { confirm_id: string }
  */
-export async function moorsteadCodeConfirm(input) {
-  const confirmId = (input.confirm_id || '').trim();
-  if (!confirmId) {
-    return 'confirm_id is required. Use moorstead_code first to stage a request.';
-  }
-
-  const entry = consumeCode(confirmId);
-  if (!entry) {
-    return (
-      `No pending auto-coder request with id \`${confirmId}\` ` +
-      `(expired, already used, or never existed). ` +
-      `Run moorstead_code again if you still want to proceed.`
-    );
-  }
-
-  if (!config.moorsteadCodeEnabled) {
-    return (
-      `Auto-coder is disabled. Set MOORSTEAD_CODE_ENABLED=true in the bot environment to enable it. ` +
-      `The request "${entry.request}" has been discarded.`
-    );
-  }
-
-  try {
-    const { stdout, stderr } = await _execFn(entry.command, {
-      shell: '/bin/bash',
-      timeout: 5 * 60 * 1000, // 5-minute runner timeout
-    });
-    const out = (stdout || '').trim();
-    const err = (stderr || '').trim();
-    const lines = [];
-    if (out) lines.push(out);
-    if (err) lines.push(`stderr: ${err}`);
-    const detail = lines.length > 0 ? lines.join('\n') : '(runner produced no output)';
-    return `✅ *Auto-coder runner dispatched* (job \`${entry.jobId}\`)\n\n${detail}`;
-  } catch (err) {
-    const msg = err.message || String(err);
-    const stderr = (err.stderr || '').trim();
-    return (
-      `❌ Auto-coder runner failed (job \`${entry.jobId}\`).\n` +
-      `Command: \`${entry.command}\`\n` +
-      `Error: ${msg}` +
-      (stderr ? `\nstderr: ${stderr}` : '')
-    );
-  }
+export async function moorsteadCodeConfirm() {
+  // Deprecated: moorstead_code now runs the auto-coder in one step. Kept so any
+  // stray confirm call returns a helpful nudge rather than an error.
+  return 'No confirm step any more — moorstead_code runs the auto-coder directly (proposal-only unless apply is enabled). Just call moorstead_code with your request.';
 }

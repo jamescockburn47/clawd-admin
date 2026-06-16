@@ -1033,8 +1033,8 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'moorstead_code',
     description: [
-      'Stage a small additive code change to the Moorstead game.',
-      'Owner-only. Confirm-gated — does NOT execute anything; returns a confirm_id you must pass to moorstead_code_confirm.',
+      'Make a small additive code change to the Moorstead game — runs in ONE step.',
+      'Owner-only. Generates the change via the auto-coder, runs the safety gate + build/tests, and reports back. Proposal-only unless MOORSTEAD_CODE_APPLY is true. There is NO separate confirm step — just call this with the request and wait (it can take a couple of minutes).',
       '',
       'Accepts a plain-English description of the change (e.g. "add a hedgehog that snuffles around hedgerows at dusk").',
       'The EVO-side runner generates the code, gates it through the safety classifier, runs tests, and (if MOORSTEAD_CODE_APPLY is true) deploys.',
@@ -1063,7 +1063,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'moorstead_code_confirm',
-    description: 'Confirm and dispatch a previously staged Moorstead auto-coder request. Requires the confirm_id returned by moorstead_code. Single-use — consuming the id prevents replay. If MOORSTEAD_CODE_ENABLED is false, returns a disabled message without exec. Owner-only.',
+    description: 'Deprecated — moorstead_code now runs the auto-coder directly in one step. You do not need to call this; just use moorstead_code with the request. Owner-only.',
     input_schema: {
       type: 'object',
       properties: {
