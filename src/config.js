@@ -187,6 +187,32 @@ const ConfigSchema = z.object({
   // for review without touching memory. Flag exists so a regression can
   // be flipped back to shadow without a code change.
   CONSOLIDATE_MODE: z.enum(['shadow', 'promoted']).optional().default('promoted'),
+
+  // Moorstead auto-coder (owner-only, confirm-gated WhatsApp tool).
+  // Safe defaults: both booleans off, so the feature is inert until
+  // explicitly enabled in the environment.
+  //
+  // MOORSTEAD_CODE_ENABLED — master on/off for the auto-coder.
+  //   false (default): moorstead_code_confirm returns a disabled message
+  //   and never execs the runner.
+  // MOORSTEAD_CODE_APPLY — whether the EVO-side runner may actually deploy
+  //   (vs propose-only). Surfaced here for status display; the runner also
+  //   reads its own env. Both must be true for a live deploy.
+  // MOORSTEAD_CODE_RUNNER — path/command for the EVO-side runner script.
+  //   Runner receives: <jobId> <base64-request>
+  // MOORSTEAD_CODE_REPO — absolute path to the game source on EVO.
+  //   The runner uses this; exposed here so status tools can report it.
+  //
+  // Bool idiom: z.string().optional().default('false').transform(v => v === 'true').pipe(z.boolean())
+  // This is required because boolFromEnv uses `v !== 'false'` which returns
+  // true for an unset var (default 'false' → 'false' !== 'false' → false works,
+  // but .default('true') would return true for unset, which is wrong for a
+  // feature that must be explicitly opted in). We use the explicit === 'true'
+  // transform so the default is unambiguously false.
+  MOORSTEAD_CODE_ENABLED: z.string().optional().default('false').transform(v => v === 'true').pipe(z.boolean()),
+  MOORSTEAD_CODE_APPLY: z.string().optional().default('false').transform(v => v === 'true').pipe(z.boolean()),
+  MOORSTEAD_CODE_RUNNER: z.string().optional().default('bash /home/james/moorstead/autocode/run.sh'),
+  MOORSTEAD_CODE_REPO: z.string().optional().default('/home/james/moorstead/game-src'),
 });
 
 // --- Parse & validate ---
@@ -305,6 +331,12 @@ const config = {
   lqcSentryWebhookSecret: env.LQC_SENTRY_WEBHOOK_SECRET,
   lqcouncilRefreshSecret: env.LQCOUNCIL_REFRESH_SECRET,
   consolidateMode: env.CONSOLIDATE_MODE,
+
+  // Moorstead auto-coder
+  moorsteadCodeEnabled: env.MOORSTEAD_CODE_ENABLED,
+  moorsteadCodeApply: env.MOORSTEAD_CODE_APPLY,
+  moorsteadCodeRunner: env.MOORSTEAD_CODE_RUNNER,
+  moorsteadCodeRepo: env.MOORSTEAD_CODE_REPO,
 };
 
 Object.freeze(config);

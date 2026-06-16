@@ -1029,6 +1029,53 @@ export const TOOL_DEFINITIONS = [
     },
   },
 
+  // === MOORSTEAD AUTO-CODER (owner DM only — confirm-gated) ===
+  {
+    name: 'moorstead_code',
+    description: [
+      'Stage a small additive code change to the Moorstead game.',
+      'Owner-only. Confirm-gated — does NOT execute anything; returns a confirm_id you must pass to moorstead_code_confirm.',
+      '',
+      'Accepts a plain-English description of the change (e.g. "add a hedgehog that snuffles around hedgerows at dusk").',
+      'The EVO-side runner generates the code, gates it through the safety classifier, runs tests, and (if MOORSTEAD_CODE_APPLY is true) deploys.',
+      '',
+      'HARD-BLOCKED paths (never deployable via this tool):',
+      '  • worldgen.js, geography.js, noise.js, sky.js, landmarks.js, rails.js (terrain/worldgen)',
+      '  • defs.js, multiplayer.js, player.js (core protocol/save format)',
+      '  • Any path matching auth|account|login|warden|admin|token|secret|password|cred',
+      '  • package.json, package-lock.json, vite.config.*, vercel.json, .vercelignore',
+      '  • Anything under deploy/, .github/, scripts/, worldsvc/, server/',
+      '  • Root dotfiles, *.service files, *.py files',
+      '',
+      'Safe envelope: ≤4 files, ≤150 lines. Green (auto-eligible): ≤2 files, ≤60 lines, content-only paths.',
+      'Proposal-only by default — set MOORSTEAD_CODE_APPLY=true to allow live deploy.',
+    ].join('\n'),
+    input_schema: {
+      type: 'object',
+      properties: {
+        request: {
+          type: 'string',
+          description: 'Plain-English description of the additive code change to make. Max 500 chars. Examples: "add a hedgehog NPC that snuffles around hedgerows at dusk", "add a seasonal berry bush that players can harvest in autumn".',
+        },
+      },
+      required: ['request'],
+    },
+  },
+  {
+    name: 'moorstead_code_confirm',
+    description: 'Confirm and dispatch a previously staged Moorstead auto-coder request. Requires the confirm_id returned by moorstead_code. Single-use — consuming the id prevents replay. If MOORSTEAD_CODE_ENABLED is false, returns a disabled message without exec. Owner-only.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        confirm_id: {
+          type: 'string',
+          description: 'The 8-character hex confirm_id returned by moorstead_code.',
+        },
+      },
+      required: ['confirm_id'],
+    },
+  },
+
   // === LQ COUNCIL (dev group / owner DM only) ===
   {
     name: 'lqc_status',
