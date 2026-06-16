@@ -290,12 +290,16 @@ async function runScheduler() {
     await runTask('evoHealth', () => checkEvoHealth());
   }
 
-  // Daytime user-facing tasks
-  await runTask('todoReminders', () => checkTodoReminders(sendFn));
-  await runTask('sideGigMeetings', () => checkSideGigMeetings(sendFn));
-  await runTask('morningBriefing', () => checkMorningBriefing(sendFn, todayStr, hours, minutes));
-  await runTask('dailyActivitySummary', () => checkDailyActivitySummary(sendFn, todayStr, hours, minutes));
-  await runTask('weeklyReview', () => checkWeeklyReview(sendFn, todayStr, hours));
+  // Daytime user-facing proactive tasks — gated by CLINT_PROACTIVE_ENABLED
+  // so every unsolicited owner DM can be silenced with one switch.
+  if (config.clintProactiveEnabled) {
+    await runTask('todoReminders', () => checkTodoReminders(sendFn));
+    await runTask('sideGigMeetings', () => checkSideGigMeetings(sendFn));
+    await runTask('morningBriefing', () => checkMorningBriefing(sendFn, todayStr, hours, minutes));
+    await runTask('dailyActivitySummary', () => checkDailyActivitySummary(sendFn, todayStr, hours, minutes));
+    await runTask('weeklyReview', () => checkWeeklyReview(sendFn, todayStr, hours));
+  }
+  // Moorstead reporting is intentionally NOT gated — it's the one update kept.
   await runTask('moorsteadDigest', () => checkMoorsteadDigest(sendFn, todayStr, hours, minutes));
 
   // New four-stage overnight pipeline (spec §4)
@@ -308,23 +312,25 @@ async function runScheduler() {
   // Retained operational tasks (spec §8 "What gets kept")
   await runTask('systemKnowledgeRefresh', () => checkSystemKnowledgeRefresh(todayStr, hours));
   await runTask('projectKnowledgeSync', () => checkProjectKnowledgeSync(todayStr, hours));
-  await runTask('traceAnalysis', () => checkTraceAnalysis(sendFn, todayStr, hours));
+  if (config.clintProactiveEnabled) {
+    await runTask('traceAnalysis', () => checkTraceAnalysis(sendFn, todayStr, hours));
+  }
   await runTask('sovrenCrossReference', () => checkSovrenCrossReference(todayStr, hours, minutes));
   await runTask('dailyBackup', () => checkDailyBackup(todayStr, hours));
 
-  // LQ Bot Council — polls failure/stuck/health-threshold signals, posts
-  // edge-triggered alerts to LQC_DEV_GROUP_JID (no-op if that JID is empty).
-  await runTask('lqcMonitor', () => tickLqcMonitor());
-  // Sunday 09:00 London — weekly digest.
-  await runTask('lqcWeeklyDigest', () => checkWeeklyDigest(todayStr, hours, minutes, dayOfWeek));
-  // Daily 10:00 London — nudge for bots failing > LQC_NUDGE_FAILURE_THRESHOLD.
-  await runTask('lqcFailureNudge', () => checkFailureNudge(todayStr, hours, minutes));
-  // Daily 02:10 London — check whether bot-council source has drifted from
-  // the facts baked into data/lqcouncil-knowledge.json.
-  await runTask('lqcKnowledgeDrift', () => checkKnowledgeDrift(todayStr, hours, minutes));
-  // Daily 08:45 London — all-systems health post to owner DM (or
-  // LQC_HEALTH_GROUP_JID override).
-  await runTask('lqcDailyHealth', () => checkDailyHealth(todayStr, hours, minutes));
+  // LQ Bot Council proactive alerts — gated by CLINT_PROACTIVE_ENABLED.
+  if (config.clintProactiveEnabled) {
+    // edge-triggered failure/stuck/health alerts to LQC_DEV_GROUP_JID.
+    await runTask('lqcMonitor', () => tickLqcMonitor());
+    // Sunday 09:00 London — weekly digest.
+    await runTask('lqcWeeklyDigest', () => checkWeeklyDigest(todayStr, hours, minutes, dayOfWeek));
+    // Daily 10:00 London — nudge for bots failing > LQC_NUDGE_FAILURE_THRESHOLD.
+    await runTask('lqcFailureNudge', () => checkFailureNudge(todayStr, hours, minutes));
+    // Daily 02:10 London — bot-council knowledge drift check.
+    await runTask('lqcKnowledgeDrift', () => checkKnowledgeDrift(todayStr, hours, minutes));
+    // Daily 08:45 London — all-systems health post to owner DM.
+    await runTask('lqcDailyHealth', () => checkDailyHealth(todayStr, hours, minutes));
+  }
   // Every 15 minutes — poll bot-council main HEAD via GitHub; run
   // drift check on any SHA change. Belt-and-braces with the push-based
   // /api/lqcouncil-knowledge-refresh webhook.

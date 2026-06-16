@@ -42,6 +42,11 @@ const ConfigSchema = z.object({
   MOORSTEAD_JID: z.string().optional().default(''),
   MOORSTEAD_RELAY_URL: z.string().url().optional().default('http://127.0.0.1:8096'),
 
+  // Master off-switch for all proactive/scheduled owner DMs (briefing,
+  // daily-activity, todos, meetings, weekly review, trace + LQC alerts).
+  // Moorstead reporting and interactive replies are unaffected.
+  CLINT_PROACTIVE_ENABLED: z.string().optional().default('true').transform(v => v !== 'false').pipe(z.boolean()),
+
   // Owner (James)
   OWNER_JID: z.string().optional().default(''),
   OWNER_LID: z.string().optional().default(''),
@@ -217,6 +222,7 @@ const config = {
   pairingPhoneNumber: env.PAIRING_PHONE_NUMBER,
 
   moorsteadEnabled: env.MOORSTEAD_ENABLED,
+  clintProactiveEnabled: env.CLINT_PROACTIVE_ENABLED,
   moorsteadJid: env.MOORSTEAD_JID,
   moorsteadRelayUrl: env.MOORSTEAD_RELAY_URL,
 
