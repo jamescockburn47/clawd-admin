@@ -990,6 +990,45 @@ export const TOOL_DEFINITIONS = [
     },
   },
 
+  // === MOORSTEAD DESTRUCTIVE OPS (owner DM only — confirm-gated) ===
+  {
+    name: 'moorstead_ops',
+    description: 'Stage a destructive Moorstead operation (restart_service or reset_room). Returns a warning + confirm_id. Does NOT execute anything — the owner must call moorstead_ops_confirm with the confirm_id to proceed. Owner-only.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        op: {
+          type: 'string',
+          enum: ['restart_service', 'reset_room'],
+          description: 'Which destructive op to stage.',
+        },
+        service: {
+          type: 'string',
+          description: 'For restart_service: the short service alias. Allowed: relay, brain, dash, body, clawdbot.',
+        },
+        room: {
+          type: 'string',
+          description: 'For reset_room: the room name (lowercase letters only, 2–16 chars, e.g. "moor").',
+        },
+      },
+      required: ['op'],
+    },
+  },
+  {
+    name: 'moorstead_ops_confirm',
+    description: 'Confirm and execute a previously staged Moorstead destructive op. Requires the confirm_id returned by moorstead_ops. Single-use — consuming the id prevents replay. Owner-only.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        confirm_id: {
+          type: 'string',
+          description: 'The 8-character hex confirm_id returned by moorstead_ops.',
+        },
+      },
+      required: ['confirm_id'],
+    },
+  },
+
   // === LQ COUNCIL (dev group / owner DM only) ===
   {
     name: 'lqc_status',
