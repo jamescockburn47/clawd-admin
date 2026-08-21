@@ -1,0 +1,137 @@
+{
+  "startedAt": "2026-06-19T02:45:16.313Z",
+  "completedAt": "2026-06-19T02:47:06.439Z",
+  "durationMs": 110126,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 4,
+  "failed": 2,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "group_decisions"
+      ],
+      "responsePreview": "Nothing in the last week. Want me to search further back, or is there a different channel/context I should check?",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqkbta55_4989e2ac"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [group_decisions]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "Those search results are all about local government councils — not what you're after.\n\nI don't have specific documentation on LQCouncil in my current knowledge. From my prior insights I know LQClaw re",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqkbthjy_2a152293"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_search",
+        "web_search",
+        "web_search",
+        "web_fetch",
+        "web_search"
+      ],
+      "responsePreview": "",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqkbttac_2e711b05"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "For reasoning I run two models:\n\n- **Qwen3.6-27B (Q6_K quant)** on EVO X2 via llama-server at :8080 — this is the local default with speculative decoding using a 0.8B draft model. That's been the work",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqkbv01s_ff860bb6"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding speeds up large language model inference by pairing a small draft model with a large verifier model. The draft model generates multiple candidate tokens quickly (since it's small)",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqkbv936_e5bad295"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Hey. Systems nominal, dashboard's happy, local models responsive. Ready to help. What do you need?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqkbvghk_24537e8d"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "startedAt": "2026-07-22T02:45:47.714Z",
+  "completedAt": "2026-07-22T02:46:26.699Z",
+  "durationMs": 38985,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 4,
+  "failed": 2,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [],
+      "responsePreview": "I don't have access to LQCore conversations from my admin tools. That would be checked via group_decisions if it's logged there — want me to search that?",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrvhd2de_2009b0dd"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [none]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Nothing meaningful came back. I don't have a tool for \"lqcouncil\" in this group, and the web doesn't surface a clear registration page for it. From my memories, LQuorum is one of James's projects, and",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrvhd5ry_92000009"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search",
+        "web_fetch"
+      ],
+      "responsePreview": "Three things worth flagging:\n\n**Mythos breach (the big one)** — A model Anthropic was withholding under \"Project Glasswing\" because it can autonomously discover zero-days got breached via a *third-par",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrvhddnq_b3fad562"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "Correction: the live reasoning model right now is Claude Sonnet 4.6 via cloud, with Qwen3.6-27B (speculative-decoded against a 0.8B draft) on the EVO X2 as the local fallback. The 0.6B classifier reti",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrvhdkfv_05da5380"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding speeds up text generation by having a small, fast draft model propose several tokens at once, then a larger, more accurate model checks them in parallel and either accepts them or",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrvhdq95_195f0bce"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Bit tired if I'm honest, it's gone 3am. Functionally fine, just running on fumes. What's up?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrvhdudy_9ddf031d"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

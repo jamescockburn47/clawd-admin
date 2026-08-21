@@ -1,0 +1,21 @@
+{
+  "date": "2026-07-02",
+  "source": "searxng",
+  "topics": [
+    {
+      "topic": "GPU VRAM arbitration for local LLMs and ComfyUI",
+      "findings": "No results found for \"GPU VRAM arbitration for local LLMs and ComfyUI\".",
+      "sources": []
+    },
+    {
+      "topic": "LegalTech redlining engines and OOXML document processing",
+      "findings": "No overnight briefing can be generated. The provided search results returned no data, and no fetched page text was supplied. Consequently, there are no specific findings to report regarding LegalTech redlining engines and OOXML document processing.",
+      "sources": []
+    },
+    {
+      "topic": "AI agent scalability challenges with local embeddings",
+      "findings": "No results found for \"AI agent scalability challenges with local embeddings\".",
+      "sources": []
+    }
+  ]
+}

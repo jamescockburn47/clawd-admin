@@ -1,0 +1,21 @@
+{
+  "date": "2026-06-30",
+  "source": "searxng",
+  "topics": [
+    {
+      "topic": "AI-native engineering firms for legal tech deployment",
+      "findings": "**Overnight Research Briefing: AI-Native Engineering Firms for Legal Tech Deployment**\n\n**Status:** No Data Available\n\n**Findings:**\n*   **Search Results:** The query \"AI-native engineering firms for legal tech deployment\" returned no results.\n*   **Fetched Pages:** No page text was provided for analysis.\n\n**Uncertainty & Limitations:**\n*   It is impossible to identify specific firms, market trends, or deployment strategies based on the current input.\n*   The lack of results may indicate that the specific terminology used is too niche, that such firms are not publicly indexed under this exact phrasing, or that the search parameters require broadening (e.g., searching for \"legal tech vendors,\" \"AI law firms,\" or \"legal engineering consultancies\" individually).\n\n**Recommendation:**\n*   Refine search terms to include broader categories such as \"legal tech AI vendors,\" \"AI implementation partners for law firms,\" or \"legal engineering services.\"\n*   Verify if specific company names or regions should be included in the search to yield targeted results.",
+      "sources": []
+    },
+    {
+      "topic": "Legal engineer assessment benchmarks and token spend metrics",
+      "findings": "No results found for \"Legal engineer assessment benchmarks and token spend metrics\".",
+      "sources": []
+    },
+    {
+      "topic": "KPMG Law legal engineering adoption strategies",
+      "findings": "No results found for \"KPMG Law legal engineering adoption strategies\".",
+      "sources": []
+    }
+  ]
+}

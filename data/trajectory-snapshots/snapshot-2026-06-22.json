@@ -1,0 +1,133 @@
+{
+  "startedAt": "2026-06-22T02:46:15.082Z",
+  "completedAt": "2026-06-22T02:47:42.036Z",
+  "durationMs": 86954,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 4,
+  "failed": 2,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [],
+      "responsePreview": "I don't have a tool to search group chat history — my injected memories are from specific sessions, not a searchable archive of LQCore. I'd need either a dedicated group search tool or a memory system",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqom63hm_b59b2ae3"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [none]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "I don't have any knowledge of \"lqcouncil\" in my system — it's not in my injected memories and nothing indexed publicly. Given the context of your work, it sounds like one of your own systems.\n\nCan you",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqom6dwe_76a84823"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_fetch",
+        "web_fetch",
+        "web_search"
+      ],
+      "responsePreview": "Big week for Anthropic. Two major stories:\n\n**1. Mythos 5 NSA breach — now the bigger story**\nSenator Mark Warner said NSA chief Gen. Joshua Rudd told him that Anthropic's Mythos (held back under Proj",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqom6n62_a10a194f"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "Current reasoning setup:\n\n**Cloud**: Claude Sonnet 4 via cloud — that's what's been doing today's routing (3 cloud calls so far).\n\n**Local on EVO X2**: Qwen3.6-27B at Q6_K quant with speculative decod",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqom79i3_690f4172"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding pairs a small fast model (the draft model) with a large accurate model (the verify model). The draft model generates a sequence of candidate tokens at speed, then the verifier pro",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqom7jmu_19a73f15"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Early start today. All running smoothly on my end — no dramas. You?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqom7t3m_67e37aac"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

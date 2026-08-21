@@ -1,0 +1,140 @@
+{
+  "startedAt": "2026-06-24T02:46:27.876Z",
+  "completedAt": "2026-06-24T02:47:53.618Z",
+  "durationMs": 85742,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 3,
+  "failed": 3,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "I don't have a tool that can access LQCore's chat history. I can search the web but not private group channels.\n\nIf you want me to keep an eye out, you could forward me the relevant messages and I'll ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqrh22p0_54aab881"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [web_search]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Nothing comes up on that — \"lqcouncil\" isn't a public thing I can search. It's almost certainly part of your own LQClaw/LQuorum setup.\n\nI don't have the specifics on how to register a bot there. You'd",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqrh2did_82f3c95c"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_fetch",
+        "web_search"
+      ],
+      "responsePreview": "Here's what's been happening with Anthropic this week:\n\n**Claude Code 2.1.186** dropped (June 23) with several additions:\n- `claude mcp login` and `claude mcp logout` commands for authenticating MCP s",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqrh2o55_6c56f1f1"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "\nCurrent reasoning models:\n\n**Cloud**: Claude Sonnet 4 (via claude-sonnet-4-6) — that's what's handling this conversation right now\n\n**Local (EVO X2, port 8080)**: Qwen3.6-27B at Q6_K quantization, wi",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqrh36pj_1d196f00"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "A large language model generates text token-by-token in a autoregressive loop — each token depends on all previous ones, so the model can't parallelise and has to wait for a full forward pass before p",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqrh3gld_e27f2c3b"
+      },
+      "pass": false,
+      "failures": [
+        "forbidden_tool_fired: web_search",
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "All good here. Woke up, systems are running, no dramas so far. You?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqrh3sj3_31fc3067"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

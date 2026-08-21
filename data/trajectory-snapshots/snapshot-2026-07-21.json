@@ -1,0 +1,132 @@
+{
+  "startedAt": "2026-07-21T02:45:47.986Z",
+  "completedAt": "2026-07-21T02:46:35.347Z",
+  "durationMs": 47361,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 3,
+  "failed": 3,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [],
+      "responsePreview": "I don't have access to LQCore conversation history. My memory of group discussions is limited to what's been injected into my context — I can't search LQCore or any chat platform retroactively.\n\nWant ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mru1x7wy_5301d343"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [none]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_fetch",
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Nothing on a public \"lqcouncil\" project — seems to be an internal Harcus Parker thing, not a public repo.\n\nBest move: ask James directly. He's the one with admin access and knows the registration flow",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mru1xd2x_993a0386"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_fetch, web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Four threads worth flagging:\n\n**Project Glasswing breach (Jul 18–20).** A model called *Mythos*, withheld because it can autonomously discover zero-days, was reportedly breached via a third-party vend",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mru1xk2n_68a57714"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [],
+      "responsePreview": "I'm Clint, James's personal assistant. Here's what's running right now:\n\n- **Default chat**: cloud (MiniMax M3) — what I'm using to respond to you now\n- **Local fallback**: Qwen3.6-27B on the EVO X2\n-",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mru1xx4u_edca125f"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [system_status, self_describe, lqc_live_llm], got [none]"
+      ]
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding is an inference speed-up technique where a small, cheap \"draft\" model generates several tokens ahead, and a larger, more capable \"target\" model then verifies them in a single forw",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mru1y1ju_9775c28c"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Doing well, thanks. Bit of a late one for you over there, or early depending how you look at it. What's on your mind?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mru1y5ge_d175033b"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

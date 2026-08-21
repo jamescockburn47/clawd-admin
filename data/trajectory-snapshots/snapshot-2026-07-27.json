@@ -1,0 +1,131 @@
+{
+  "startedAt": "2026-07-27T02:46:13.817Z",
+  "completedAt": "2026-07-27T02:47:11.244Z",
+  "durationMs": 57427,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 3,
+  "failed": 3,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [],
+      "responsePreview": "I don't have search access to LQCore conversations — that's a group chat I can read but not query historically from here. And I can't pull week-old messages from a group directly through my tools.\n\nIf",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms2mkvuh_39407fbf"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [none]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "Search didn't surface a clear match. If you mean LQ Council / Liquid Quorum Council (your own thing), I don't have a signup endpoint I can hit — I'd need either an API or docs from you.\n\nDrop me a lin",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms2ml5g2_51573d66"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "A few big things this week:\n\n*Claude Opus 5 shipped* (24 July). Same $5/$25 per M tokens as Opus 4.8, but reportedly close to Fable 5 on benchmarks at half the cost. Anthropic also launched an \"effort",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms2mlb01_2f221075"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [],
+      "responsePreview": "Right now, 03:46 London time, so the heavy traffic is overnight. Routing today so far: *0 local, 3 cloud, 0 fallbacks* — meaning the last few messages all went to cloud (MiniMax M3, that's me).\n\nDay-t",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms2mln7i_8c74c168"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [system_status, self_describe, lqc_live_llm], got [none]"
+      ]
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding speeds up LLM inference by using a small, fast *draft model* to generate several candidate tokens ahead, which the large *target model* then verifies in a single forward pass, acc",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms2mlreg_13a57ac7"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Doing well, thanks. It's the small hours here — nearly 4am — but I'm up and running. What can I do for you?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms2mlwqt_653cdc1a"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

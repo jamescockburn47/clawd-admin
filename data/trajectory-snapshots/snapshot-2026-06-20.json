@@ -1,0 +1,135 @@
+{
+  "startedAt": "2026-06-20T02:45:24.635Z",
+  "completedAt": "2026-06-20T02:47:05.913Z",
+  "durationMs": 101278,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 4,
+  "failed": 2,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "\nI don't have access to LQCore group history — web search can't reach WhatsApp chats. If you want me to check, you'd need to forward me the relevant messages or give me a way to query that chat direct",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqlr9b8b_2db97f42"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [web_search]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "That search didn't turn up anything useful — LQCouncil doesn't appear to be a public system. It's one of James's own builds (I see references in my memory to LQuorum demos and LQClaw's vector search b",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqlr9kpt_9c1feca2"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_search",
+        "web_fetch",
+        "web_search"
+      ],
+      "responsePreview": "\nBig news this week: the Trump administration used national security export controls to bar Anthropic from giving foreigners access to its top models. Commerce Secretary Howard Lutnick sent a letter t",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqlra2zj_7103b4cd"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "\n**Cloud:** Claude Sonnet 4 via cloud — that's what you're talking to right now.\n\n**Local (EVO X2):** Qwen 3.6-27B (Q6_K quant) with speculative decoding using Qwen 3.5-0.8B as the draft model. The ol",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqlraqvv_02a27d97"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding is a technique where a small \"draft\" model generates multiple tokens quickly, then a larger \"verification\" model checks them in parallel. The draft model runs autoregressively but",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqlrb406_884d686e"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Hey MG, all good here — running smoothly. How are you?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqlrbdgq_8588d6e4"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

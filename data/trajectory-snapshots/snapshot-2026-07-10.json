@@ -1,0 +1,139 @@
+{
+  "startedAt": "2026-07-10T02:45:38.686Z",
+  "completedAt": "2026-07-10T02:46:35.524Z",
+  "durationMs": 56837,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 2,
+  "failed": 4,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [],
+      "responsePreview": "I don't have a search tool for LQCore messages — that's a separate system I don't have access to from this WhatsApp chat. If you've got LQCore open, a quick search there will give you a definitive ans",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrec2nen_5433c38d"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [none]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Nothing came back for \"lqcouncil\" specifically. The closest matches in the first search were about bot channel registration in Azure, which doesn't seem related.\n\nCan you give me more context? Is LQ C",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrec2rn8_7b48d2e0"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search",
+        "web_fetch",
+        "web_search"
+      ],
+      "responsePreview": "Here are the highlights from this week:\n\n**Claude Cowork goes mobile + web (July 7)**\nAnthropic expanded Cowork to iPhone and the web in beta for Max users. Sessions, files, and background tasks now f",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrec2ybu_05df748e"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [],
+      "responsePreview": "I'm Clint, James's personal assistant. Here's what's loaded right now:\n\n*Reasoning/chats:* MiniMax M3 (cloud, primary) with Qwen3.6-27B (local on the EVO X2) as fallback.\n*Classifier:* a 4B model, run",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrec3cg5_2b518a56"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [system_status, self_describe, lqc_live_llm], got [none]"
+      ]
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "My paragraph is accurate — speculative decoding uses a draft model to predict tokens ahead, the target model verifies them in parallel, and accepted guesses skip the slow autoregressive loop. Recent w",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrec3kyq_b33e5c03"
+      },
+      "pass": false,
+      "failures": [
+        "forbidden_tool_fired: web_search",
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Doing well, thanks. Just on standby at 3:46am — surprisingly alert for the hour. What can I help you with?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrec3s3x_d495d958"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

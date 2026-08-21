@@ -1,0 +1,21 @@
+{
+  "date": "2026-06-20",
+  "source": "searxng",
+  "topics": [
+    {
+      "topic": "Looks good, only suggestion is you dont need to know exactly what you want before you start - obviously claude code is a chat interface as well an IDE",
+      "findings": "No results found for \"Looks good, only suggestion is you dont need to know exactly what you want before you start - obviously claude code is a chat interface as well an IDE\".",
+      "sources": []
+    },
+    {
+      "topic": "Id also tie ot to that anthropic article about how domain experts compete with engineers on code quality now",
+      "findings": "No results found for \"Id also tie ot to that anthropic article about how domain experts compete with engineers on code quality now\".",
+      "sources": []
+    },
+    {
+      "topic": "Was there something in the prompts about how people tried to encode their expertise (those who wanted a legal tool)?",
+      "findings": "No results found for \"Was there something in the prompts about how people tried to encode their expertise (those who wanted a legal tool)?\".",
+      "sources": []
+    }
+  ]
+}

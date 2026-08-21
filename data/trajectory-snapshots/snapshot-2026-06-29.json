@@ -1,0 +1,141 @@
+{
+  "startedAt": "2026-06-29T02:46:37.624Z",
+  "completedAt": "2026-06-29T02:49:18.187Z",
+  "durationMs": 160563,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 4,
+  "failed": 2,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "No — web search returns only generic duckdns chatter, nothing connected to LQCore. And my injected memories have no duckdns mention either.\n\nIf you want a definitive answer you'd need to check the gro",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqym9jjt_9f81fca3"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [web_search]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "\nI can't find LQCouncil in my web searches or memories. Is this one of your own systems? If so, you'll need to walk me through how it works or point me at any docs/config files you've got for it — I c",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqym9v53_cbd71b4f"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_fetch",
+        "web_search",
+        "web_fetch",
+        "web_search",
+        "web_fetch",
+        "web_search"
+      ],
+      "responsePreview": "\nHere's the big story this week:\n\n**Anthropic pulled two flagship models offline after a White House directive.** On June 12, the Trump administration ordered Anthropic to suspend access to *Claude Fa",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqymaldl_a7da7b21"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "\nCurrent stack:\n\n**Local (EVO X2):**\n- qwen3.6-27b — 4-bit quantized, serves as primary local model with qwen3.5-0.8b as speculative draft token for faster decoding\n- The older qwen3.6-27b-q8_0 (8-bit",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqymbph6_69e54657"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "\nSpeculative decoding is a two-model inference technique where a small \"draft\" model generates candidate tokens quickly, then a larger \"verification\" model checks them in parallel. The draft model pro",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqymcmlp_808f5074"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "\nHey MG. All good here — just sitting in the quiet of 3:49am, ready for anything. How are you?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqymcssi_efd82194"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

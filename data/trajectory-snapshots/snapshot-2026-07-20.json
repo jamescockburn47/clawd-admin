@@ -1,0 +1,135 @@
+{
+  "startedAt": "2026-07-20T02:45:47.603Z",
+  "completedAt": "2026-07-20T02:46:44.426Z",
+  "durationMs": 56823,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 3,
+  "failed": 3,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [],
+      "responsePreview": "I don't have a tool to search LQCore messages. I can search the web for DuckDNS news or discussion, but I can't see what's been said in your LQCore group. Want me to do a general web search instead?",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrsmhcyb_d8ae702a"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [none]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [],
+      "responsePreview": "That's outside what I can help with here. I can discuss AI architecture, legal tech, or my own setup, but signing up bots to external services isn't something I handle in this group.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrsmhgte_b3264ca2"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [none]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_fetch",
+        "web_search",
+        "web_fetch",
+        "web_search",
+        "web_search",
+        "web_search",
+        "web_fetch"
+      ],
+      "responsePreview": "",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrsmhjvt_6499600a"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [],
+      "responsePreview": "Right now my default chat runs on MiniMax M3 (cloud), with Qwen3.6-27B as a local fallback on the EVO X2. Vision goes through cloud. The 4B classifier and embedding models stay local.\n\nIf you want me ",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrsmibtd_972b62f9"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [system_status, self_describe, lqc_live_llm], got [none]"
+      ]
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding speeds up LLM inference by using a small, fast draft model to guess several tokens ahead, then having the larger target model verify all of them in a single forward pass. The targ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrsmieqp_9eba6bb6"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Doing well, thanks. It's early — just before 4am London time. Quiet on my end. What can I help you with?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_mrsmiigy_1b595f4d"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

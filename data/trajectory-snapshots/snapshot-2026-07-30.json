@@ -1,0 +1,137 @@
+{
+  "startedAt": "2026-07-30T02:46:11.255Z",
+  "completedAt": "2026-07-30T02:47:05.957Z",
+  "durationMs": 54702,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 3,
+  "failed": 3,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [],
+      "responsePreview": "No memory of anyone in LQCore discussing DuckDNS in the last week. My group logs only go back a few days, and I don't see any mention.\n\nWant me to grep the full conversation archive for DuckDNS mentio",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms6wwdvb_9f8c7823"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [none]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search",
+        "web_fetch",
+        "web_fetch",
+        "web_search",
+        "web_search",
+        "web_fetch"
+      ],
+      "responsePreview": "Page came back nearly empty. Let me try the connect page directly.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms6wwhxj_187787eb"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search, web_fetch]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "A few things worth noting this week:\n\n*Claude 5 context-engineering rules dropped (24 Jul)* — Anthropic published guidance and cut Claude Code's system prompt by 80%. Practical signal: they're pushing",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms6www8d_d283d861"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [],
+      "responsePreview": "Good question at 3:46am. Right now it's late-night quiet hours so I'm running on the cloud default — *MiniMax M3*. Local Qwen3.6-27B stays warm as fallback but hasn't been needed. The 4B classifier an",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms6wx5vk_6d97920b"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [system_status, self_describe, lqc_live_llm], got [none]"
+      ]
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding speeds up LLM inference by having a small, fast \"draft\" model generate several candidate tokens ahead, which the large target model then verifies in a single forward pass, keeping",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms6wx9p4_c9899f76"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Doing well, thanks. It's the small hours here (3:47am) so the world is quiet, but I'm around if you need anything. What can I do for you?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M3",
+        "requestId": "llm_ms6wxfdh_37927bd2"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "startedAt": "2026-07-01T02:45:43.034Z",
+  "completedAt": "2026-07-01T02:47:09.359Z",
+  "durationMs": 86325,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 4,
+  "failed": 2,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "group_decisions"
+      ],
+      "responsePreview": "Nothing in the group decisions about duckdns specifically. The only match was a tangential reference to social media channels from June 24th — not about duckdns itself.\n\nIf you want, I can do a broade",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mr1h42rf_c12fbcf5"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [group_decisions]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "\nCan't find anything on LQCouncil — the search is returning unrelated council/chatbot results. This might be a private or niche community not indexed publicly.\n\nDo you have a link or know who runs it?",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mr1h4cp5_9dcf7571"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_fetch",
+        "web_search",
+        "web_search",
+        "web_fetch",
+        "web_fetch"
+      ],
+      "responsePreview": "**Anthropic's big story this week (26 June):** The US government lifted its block on Anthropic's Claude Mythos 5 model, greenlighting release to 100+ US institutions including major companies and gove",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mr1h4mqg_edfbb057"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "Current reasoning stack:\n\n**Cloud (primary):** Claude Sonnet 4 via cloud\n\n**Local (EVO X2):** qwen3.6-27b — two quantisation variants running via llama-server on :8080\n- q6_k with speculative decoding",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mr1h5ey9_c2786da6"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "\nSpeculative decoding pairs a small \"draft\" model with a large \"verifier\" model. The draft model generates multiple tokens quickly (it's small), then the verifier model evaluates them in parallel — ac",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mr1h5oe0_ad76bc28"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Hey MG. All good here — just the quiet of 3:47am on a Wednesday. Systems ticking along. How are you?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mr1h5sdv_ae365060"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "startedAt": "2026-06-17T02:45:49.682Z",
+  "completedAt": "2026-06-17T02:47:16.263Z",
+  "durationMs": 86581,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 3,
+  "failed": 3,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "group_decisions"
+      ],
+      "responsePreview": "No decisions found mentioning duckdns in the last week. That's the only chat history I can search directly — it's for commitments and decisions, not general conversation. I don't have a tool to search",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqhgyak2_128a4c95"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [group_decisions]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "Nothing comes up for \"LQCouncil\" in a web search — that suggests it's either an internal system, a lesser-known platform, or possibly a typo/variation of something else.\n\nI know LQuorum and LQClaw fro",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqhgylas_ce94cae7"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_fetch",
+        "web_search"
+      ],
+      "responsePreview": "The big story this week: the US government ordered Anthropic to cut off access to its frontier AI models for all foreign nationals. Anthropic complied by disabling access to Mythos and Fable (its most",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqhgyvch_c25d4ece"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "Currently running:\n\n**Reasoning/thinking**: Claude Sonnet 4 (cloud) — that's what handles the chain-of-thought reasoning you see.\n\n**Local chat**: Qwen3.6-27B (Q6_K quant) on the EVO X2's llama-server",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqhgzbgc_3bacf67c"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "Speculative decoding is an inference-time technique that speeds up large language model generation using a two-model draft-then-verify pattern. A smaller, faster \"draft\" model generates a sequence of ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqhgzmbk_3237929d"
+      },
+      "pass": false,
+      "failures": [
+        "forbidden_tool_fired: web_search",
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Fine, thanks. Systems are up, nothing on fire. You?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqhh00xk_10c3a390"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

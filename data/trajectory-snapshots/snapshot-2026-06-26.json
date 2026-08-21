@@ -1,0 +1,137 @@
+{
+  "startedAt": "2026-06-26T02:45:48.465Z",
+  "completedAt": "2026-06-26T02:48:03.779Z",
+  "durationMs": 135314,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 4,
+  "failed": 2,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "memory_search",
+        "group_decisions"
+      ],
+      "responsePreview": "Nothing in group decisions about duckdns. My memory has no record of it being mentioned in LQCore either. I wasn't awake for most of the last week (my overnight pipeline runs but I don't passively mon",
+      "meta": {
+        "category": "planning",
+        "classifySource": "fallback",
+        "routeReason": "no confident classification",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqubwxm9_1cea4abc"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "lqc_knowledge"
+      ],
+      "responsePreview": "The flow itself is straightforward: implement the schema, deploy it publicly, run the test suite, submit. That guide at the end covers all of it in one page.\n\nThe thing people miss is that they can va",
+      "meta": {
+        "category": "planning",
+        "classifySource": "fallback",
+        "routeReason": "no confident classification",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqubxmhm_64c9d5f1"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [lqc_knowledge]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_fetch",
+        "web_fetch"
+      ],
+      "responsePreview": "Here's what's been happening with Anthropic this week:\n\n**Major stories:**\n\n**Anthropic vs Alibaba** (June 24) — Anthropic has formally accused Alibaba of \"illicitly\" accessing its AI models. This is ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "keywords_fallback",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqubyb1k_a2397484"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "Reasoning models today: Qwen3 27B (Qwen3.6-27B) with speculative decoding — an 8B draft head for accelerated inference, running via llama.cpp on Vulkan at :8080 — handles most queries, while Claude So",
+      "meta": {
+        "category": "planning",
+        "classifySource": "fallback",
+        "routeReason": "no confident classification",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqubyrsc_c1f36994"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding pairs a small, fast draft model with a large, accurate verifier. The draft model generates a sequence of candidate tokens quickly (the \"speculation\"), then the verifier processes ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "keywords_fallback",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqubzdsi_3650a287"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "Running fine. 229 hours uptime on EVO, WhatsApp connected, all services healthy. Voice listener quiet — nobody talking to me yet today.\n\nWhat's up?",
+      "meta": {
+        "category": "planning",
+        "classifySource": "fallback",
+        "routeReason": "no confident classification",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqubzmur_5231284a"
+      },
+      "pass": false,
+      "failures": [
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    }
+  ]
+}

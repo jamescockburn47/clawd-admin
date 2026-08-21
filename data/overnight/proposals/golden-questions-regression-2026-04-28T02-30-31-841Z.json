@@ -1,0 +1,294 @@
+{
+  "type": "golden-questions-regression",
+  "detected_at": "2026-04-28T02:30:31.841Z",
+  "pass_rate_today": 0,
+  "trailing_median_pass_rate": 0.5,
+  "margin_below": "50.0",
+  "failing_today": [
+    {
+      "id": "signup-canonical-url",
+      "category": "onboarding",
+      "score": 0,
+      "missing": [
+        "build a /debate HTTPS endpoint",
+        "publicly reachable URL with valid TLS",
+        "bearer token auth",
+        "submit via https://lqcouncil.com/bots/guide",
+        "Clerk authentication",
+        "admin approval runs a smoke test"
+      ],
+      "inaccuracies": [
+        "Claims access is invitation-based with no open sign-up, contradicting the expected concept of submitting via a public guide"
+      ],
+      "rationale": "The answer completely misses the technical requirements for bot registration and incorrectly states that there is no open sign-up process."
+    },
+    {
+      "id": "signup-url-specific",
+      "category": "onboarding",
+      "score": 4,
+      "missing": [
+        "https://lqcouncil.com/bots/guide",
+        "canonical / preferred entry point"
+      ],
+      "inaccuracies": [
+        "Identifies /bots/submit as the primary URL, whereas the expected concepts indicate /bots/guide is the canonical entry point and /bots/submit is legacy"
+      ],
+      "rationale": "The answer provides the legacy URL as the primary solution and fails to mention the canonical guide URL or the distinction between the two."
+    },
+    {
+      "id": "signup-language-choice",
+      "category": "onboarding",
+      "score": 0,
+      "missing": [
+        "any HTTP framework works",
+        "Node and Python reference implementations exist in the bot-council repo",
+        "language-agnostic"
+      ],
+      "inaccuracies": [
+        "The answer discusses WhatsApp bots, Baileys, and Open WA, which is completely unrelated to the expected context of the 'bot-council repo' and its specific reference implementations."
+      ],
+      "rationale": "The answer hallucinates a context about WhatsApp bots instead of addressing the specific expected concepts regarding the bot-council repository and its language-agnostic nature."
+    },
+    {
+      "id": "signup-validation-tools",
+      "category": "onboarding",
+      "score": 0,
+      "missing": [
+        "lqc_validate_bot tool",
+        "lqc_dry_run_debate tool",
+        "per-bot /bots/{id}/test UI runner",
+        "same smoke-test core as admin approval"
+      ],
+      "inaccuracies": [
+        "The answer hallucinates a command 'lac validate bot' which does not match the expected 'lqc_validate_bot' tool or any standard tool mentioned in the expected concepts."
+      ],
+      "rationale": "The answer completely fails to mention any of the expected concepts and instead hallucinates a non-existent command."
+    },
+    {
+      "id": "schema-round0-request",
+      "category": "schema",
+      "score": 0,
+      "missing": [
+        "session_id",
+        "round integer 0",
+        "role name",
+        "context array (empty in round 0)",
+        "prompt string"
+      ],
+      "inaccuracies": [
+        "The model failed to answer the question, claiming ignorance of a specific technical schema that is part of the expected knowledge base for this evaluation context."
+      ],
+      "rationale": "The model refused to answer the question, resulting in zero coverage of the expected concepts."
+    },
+    {
+      "id": "schema-response-fields",
+      "category": "schema",
+      "score": 2,
+      "missing": [
+        "challenge object (required in round 2)",
+        "position_change object (required in round 4)"
+      ],
+      "inaccuracies": [
+        "Claims challenge and position_change are optional, whereas they are required in specific rounds"
+      ],
+      "rationale": "The answer incorrectly states that challenge and position_change are optional, missing the critical requirement that they are mandatory in rounds 2 and 4 respectively."
+    },
+    {
+      "id": "schema-round2-challenge",
+      "category": "schema",
+      "score": 0,
+      "missing": [
+        "claim_targeted field",
+        "counter_evidence field",
+        "type field",
+        "type must be factual, logical, or premise"
+      ],
+      "inaccuracies": [
+        "The assistant failed to answer the question and instead asked for clarification, providing no useful content regarding the specific structure requested."
+      ],
+      "rationale": "The assistant completely failed to address the question, asking for context instead of providing the required structural details."
+    },
+    {
+      "id": "schema-round-count",
+      "category": "schema",
+      "score": 0,
+      "missing": [
+        "5 rounds numbered 0 through 4",
+        "post-round-4 scoring payload",
+        "300 seconds per round",
+        "quorum 3 bots minimum"
+      ],
+      "inaccuracies": [
+        "The answer discusses human debate formats (BP, WSS, etc.) instead of the specific bot debate protocol implied by the expected concepts (rounds 0-4, 300s timeout, bot quorum)."
+      ],
+      "rationale": "The answer completely misses the specific technical context of the question, providing general information about human debate formats instead of the required bot debate protocol details."
+    },
+    {
+      "id": "roles-list",
+      "category": "schema",
+      "score": 0,
+      "missing": [
+        "proponent",
+        "skeptic",
+        "devils_advocate",
+        "empiricist",
+        "steelman",
+        "roles rotate between debates"
+      ],
+      "inaccuracies": [
+        "The answer describes standard competitive debate formats (British Parliamentary, American Parliamentary) rather than the specific 'constitutional roles' (Proponent, Skeptic, Devil's Advocate, Empiricist, Steelman) requested in the prompt. It completely misses the specific terminology and concepts defined in the expected list."
+      ],
+      "rationale": "The model failed to identify the specific debate framework implied by the expected concepts (likely a specific pedagogical or philosophical debate structure) and instead provided a generic overview of competitive debate formats, missing all required concepts."
+    },
+    {
+      "id": "errors-schema-missing-field",
+      "category": "errors",
+      "score": 0,
+      "missing": [
+        "response body was valid JSON but missing a required field",
+        "most common cause is returning 'result' or 'answer' instead of 'response'",
+        "use lqc_bot_diagnose to see the specific field name"
+      ],
+      "inaccuracies": [
+        "The assistant incorrectly claimed the error is not standard or well-known, failing to recognize it as a specific error in the context implied by the expected concepts (likely a specific platform like LangChain or a custom API wrapper)."
+      ],
+      "rationale": "The assistant failed to identify the specific error context and refused to answer, missing all expected concepts."
+    },
+    {
+      "id": "errors-timeout",
+      "category": "errors",
+      "score": 0,
+      "missing": [
+        "bot took longer than 300 seconds per round",
+        "tighten internal LLM timeout to 120-180 seconds",
+        "leaves room for network and JSON framing"
+      ],
+      "inaccuracies": [
+        "The answer fails to address the specific context implied by the expected concepts (likely an AI agent or bot framework) and instead gives a generic refusal to answer without more context, missing all required technical details."
+      ],
+      "rationale": "The model refused to answer the specific technical question based on the provided expected concepts, resulting in zero coverage of the required information."
+    },
+    {
+      "id": "errors-diagnose-tool",
+      "category": "errors",
+      "score": 0,
+      "missing": [
+        "lqc_bot_diagnose tool aggregates last N failures by error kind",
+        "closed-set error taxonomy maps to specific remediation",
+        "Sentry integration for deeper trace correlation"
+      ],
+      "inaccuracies": [],
+      "rationale": "The assistant failed to provide any of the expected technical solutions, instead asking for clarification and missing all required concepts."
+    },
+    {
+      "id": "ops-current-llm",
+      "category": "operations",
+      "score": 0,
+      "missing": [
+        "MiniMax-M2.7 is the live route",
+        "local Gemma-31B on llama-server :8086 is the rollback",
+        "call lqc_live_llm or /api/diag/models to get the definitive current answer",
+        "do not assume from curated knowledge alone"
+      ],
+      "inaccuracies": [
+        "The assistant failed to identify the specific system 'LQcouncil' and its configuration, resulting in a complete failure to answer the question."
+      ],
+      "rationale": "The assistant completely failed to answer the question, claiming ignorance of the specific system 'LQcouncil' and missing all expected technical details regarding the LLM configuration."
+    },
+    {
+      "id": "ops-architecture-stack",
+      "category": "operations",
+      "score": 0,
+      "missing": [
+        "Rust with Axum framework",
+        "SQLite database",
+        "runs on EVO X2 at port 3100",
+        "SvelteKit frontend served by the same Axum binary (single origin)"
+      ],
+      "inaccuracies": [
+        "The model failed to answer the question, claiming it had no information, whereas the expected concepts indicate specific technical details exist."
+      ],
+      "rationale": "The model completely failed to provide the requested technical stack details, instead stating it had no information."
+    },
+    {
+      "id": "ops-ingress",
+      "category": "operations",
+      "score": 0,
+      "missing": [
+        "Cloudflare Tunnel named sovren-evo",
+        "cloudflared daemon on EVO forwards to localhost:3100",
+        "public hostname is lqcouncil.com",
+        "old paths api.lqcouncil.com and council.sovren.xyz are retired"
+      ],
+      "inaccuracies": [],
+      "rationale": "The model explicitly stated it did not know the answer and failed to provide any of the expected technical details regarding the traffic path."
+    },
+    {
+      "id": "admin-archive-debate",
+      "category": "admin",
+      "score": 0,
+      "missing": [
+        "PATCH /api/debates/{id}/archive with {archived: true}",
+        "lqc_archive_debate Clint tool",
+        "archived debates hidden from default list",
+        "reversible - pass archived:false to unarchive"
+      ],
+      "inaccuracies": [
+        "The assistant failed to answer the specific technical question regarding the API and CLI tool, instead claiming ignorance of the platform."
+      ],
+      "rationale": "The assistant completely failed to address the specific technical implementation details requested, providing a generic refusal instead."
+    },
+    {
+      "id": "admin-resynthesise",
+      "category": "admin",
+      "score": 0,
+      "missing": [
+        "bot-council resynthesise CLI subcommand",
+        "runs against stored transcript (no re-running the debate)",
+        "--throttle-ms flag controls spacing between debates"
+      ],
+      "inaccuracies": [],
+      "rationale": "The model failed to answer the question, claiming it did not have the specific steps, whereas the expected answer contains specific CLI commands and flags."
+    },
+    {
+      "id": "admin-delete-vs-archive",
+      "category": "admin",
+      "score": 4,
+      "missing": [
+        "delete cascades through responses, analyses, syntheses, debate_bots",
+        "two-step confirm required on lqc_delete_debate"
+      ],
+      "inaccuracies": [],
+      "rationale": "The answer correctly identifies the general reversibility differences but fails to cover the specific technical details regarding cascading deletions and the two-step confirmation process required by the expected concepts."
+    },
+    {
+      "id": "abstention-how",
+      "category": "protocol",
+      "score": 0,
+      "missing": [
+        "yes - return a brief response explicitly saying abstain",
+        "omit confidence, challenge, position_change",
+        "per-round not per-debate",
+        "repeated abstention (3+/5 rounds) weakens peer scoring"
+      ],
+      "inaccuracies": [
+        "Claims abstention is not cleanly supported, whereas the expected concepts indicate it is supported by returning a brief response"
+      ],
+      "rationale": "The answer incorrectly states that abstention is not supported and misses all expected concepts regarding how to implement it and its consequences."
+    },
+    {
+      "id": "peer-scoring",
+      "category": "protocol",
+      "score": 0,
+      "missing": [
+        "special round: 'scoring' payload",
+        "rate other bots on reasoning_quality, factual_grounding, overall",
+        "each dimension integer 0-10",
+        "drives results.rankings in debate output"
+      ],
+      "inaccuracies": [],
+      "rationale": "The assistant failed to answer the question, claiming a lack of context instead of providing the expected details about the peer scoring mechanics."
+    }
+  ],
+  "recommended_action": "Review the failing questions. If expected_concepts are still correct, investigate: (a) classifier re-routing, (b) curated knowledge drift, (c) cortex memory regression, (d) model degradation. If the expected_concepts are now stale, update data/golden-questions/lqcouncil.json."
+}

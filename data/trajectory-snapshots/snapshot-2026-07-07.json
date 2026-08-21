@@ -1,0 +1,136 @@
+{
+  "startedAt": "2026-07-07T02:45:46.962Z",
+  "completedAt": "2026-07-07T02:47:15.653Z",
+  "durationMs": 88691,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 4,
+  "failed": 2,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "group_decisions"
+      ],
+      "responsePreview": "Nothing on duckdns in the last week in LQCore. The only matches were the Moorstead boardroom commitment and the LQ intent structure decision.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mra1r9sj_2822ec0e"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [group_decisions]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Can't find any public docs on LQCouncil — looks like it's your own system. I don't have the setup details for that.\n\nCan you point me at the repo or config? Or if there's a registration endpoint/API, ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mra1rgds_c356de99"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_fetch",
+        "web_search",
+        "web_fetch"
+      ],
+      "responsePreview": "\nHere's what's been happening with Anthropic this week:\n\n**Claude Mythos and Project Glasswing**\nAnthropic has Mythos (its next flagship model) in limited testing via *Project Glasswing* — roughly 40 ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mra1rqni_ae0fbc69"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "Currently on EVO X2:\n\n- **Reasoning/chat**: `qwen3.6-27b-q6_k` + `qwen3.5-0.8b-draft` for speculative decoding. Both served locally via llama-server on :8080.\n- **Cloud**: `claude-sonnet-4-4` as prima",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mra1sjea_07974772"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding is an inference optimisation that pairs a small \"draft\" model with a larger \"verifier\" model to accelerate text generation. The draft model quickly generates a sequence of candida",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mra1sqfk_bfc545eb"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "Good thanks, MG. Bit quiet at this hour — must be catching up after the weekend. What can I do for you?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mra1t1uh_d22c7a1e"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

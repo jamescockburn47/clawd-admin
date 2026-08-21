@@ -1,0 +1,47 @@
+{
+  "type": "trajectory-drift",
+  "detected_at": "2026-04-27T02:45:06.396Z",
+  "failed_count": 4,
+  "failing": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "lqc_knowledge",
+        "group_decisions"
+      ],
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [lqc_knowledge, group_decisions]"
+      ]
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [],
+      "failures": [
+        "missing_required_tool: expected one of [system_status, self_describe, lqc_live_llm], got [none]"
+      ]
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [
+        "lqc_knowledge"
+      ],
+      "failures": [
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "failures": [
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    }
+  ],
+  "recommended_action": "Review each failing trajectory. (a) Missing required tool → classifier may be re-routing; check recent router.js or cortex changes. (b) Forbidden tool fired → check tool-routing guards (e.g. group-tool-policy for owner-restricted tools leaking). (c) Tool count exceeded → check for runaway tool loops. If the expected behaviour has legitimately changed, update data/trajectory-baselines/clint.json."
+}

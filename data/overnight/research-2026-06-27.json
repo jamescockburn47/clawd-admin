@@ -1,0 +1,21 @@
+{
+  "date": "2026-06-27",
+  "source": "searxng",
+  "topics": [
+    {
+      "topic": "Not exactly, it's a fork.  I am just running fast, because it means I don't need to think about the direction of the main project.  In the end, if the fork works on its own, then great.  This is what I want to bring into my organisation's sandbox",
+      "findings": "No results found for \"Not exactly, it's a fork.  I am just running fast, because it means I don't need to think about the direction of the main project.  In the end, if the fork works on its own, then great.  This is what I want to bring into my organisation's sandbox\".",
+      "sources": []
+    },
+    {
+      "topic": "Building fast is what we need. Let’s just go",
+      "findings": "No results found for \"Building fast is what we need. Let’s just go\".",
+      "sources": []
+    },
+    {
+      "topic": "Document viewing engine within the web interface is critical",
+      "findings": "No results found for \"Document viewing engine within the web interface is critical\".",
+      "sources": []
+    }
+  ]
+}

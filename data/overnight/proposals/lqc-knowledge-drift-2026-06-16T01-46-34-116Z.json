@@ -1,0 +1,359 @@
+{
+  "type": "lqc-knowledge-drift",
+  "detected_at": "2026-06-16T01:46:34.116Z",
+  "source_repo": "/home/james/bot-council",
+  "changes": [
+    {
+      "kind": "api-routes-diff",
+      "field": "apiRoutes",
+      "added": [
+        "/admin/bot-validation-events [get]",
+        "/admins [get,post]",
+        "/admins/{user_id} [delete]",
+        "/bots [get,post]",
+        "/bots/{id}/analytics [get]",
+        "/bots/{id}/approve [patch]",
+        "/bots/{id}/deactivate [patch]",
+        "/bots/{id}/history [get]",
+        "/bots/{id}/reactivate [patch]",
+        "/bots/{id}/reject [patch]",
+        "/bots/{id}/test [patch]",
+        "/bots/my-submissions [get]",
+        "/bots/schema [get]",
+        "/bots/validate [post]",
+        "/config.json [get]",
+        "/debates [get,post]",
+        "/debates/{id} [delete,get]",
+        "/debates/{id}/archive [patch]",
+        "/debates/{id}/stream [get]",
+        "/debates/{id}/synthesis [get]",
+        "/debates/{id}/transcript [get]",
+        "/diag/health [get]",
+        "/diag/models [get]",
+        "/health [get]",
+        "/me [get]",
+        "/users [get]"
+      ],
+      "removed": [],
+      "changed": []
+    },
+    {
+      "kind": "array-diff",
+      "field": "claudeMd.sections",
+      "added": [
+        "API Endpoints",
+        "Architecture",
+        "CLAUDE.md — LQ Bot Council Harness",
+        "Coding Standards — BINDING",
+        "Current Phase: 0 (Single-Shot MVP)",
+        "Deploy Workflow",
+        "Quick Reference"
+      ],
+      "removed": [],
+      "old": [],
+      "new": [
+        "API Endpoints",
+        "Architecture",
+        "CLAUDE.md — LQ Bot Council Harness",
+        "Coding Standards — BINDING",
+        "Current Phase: 0 (Single-Shot MVP)",
+        "Deploy Workflow",
+        "Quick Reference"
+      ]
+    },
+    {
+      "kind": "array-diff",
+      "field": "frontendRoutes",
+      "added": [
+        "/",
+        "/admins",
+        "/bots",
+        "/bots/criteria",
+        "/bots/guide",
+        "/bots/my-submissions",
+        "/bots/submit",
+        "/debates",
+        "/debates/[id]",
+        "/debates/new",
+        "/how-it-works",
+        "/security",
+        "/settings",
+        "/sign-in"
+      ],
+      "removed": [],
+      "old": [],
+      "new": [
+        "/",
+        "/admins",
+        "/bots",
+        "/bots/criteria",
+        "/bots/guide",
+        "/bots/my-submissions",
+        "/bots/submit",
+        "/debates",
+        "/debates/[id]",
+        "/debates/new",
+        "/how-it-works",
+        "/security",
+        "/settings",
+        "/sign-in"
+      ]
+    }
+  ],
+  "current_snapshot": {
+    "sourceAvailable": true,
+    "repoRoot": "/home/james/bot-council",
+    "roles": [
+      "proponent",
+      "skeptic",
+      "devils_advocate",
+      "empiricist",
+      "steelman"
+    ],
+    "errorKinds": [
+      "connection_refused",
+      "dns",
+      "http_4xx",
+      "http_5xx",
+      "internal",
+      "json_parse",
+      "schema_invalid_type",
+      "schema_invalid_value",
+      "schema_missing_field",
+      "timeout",
+      "tls"
+    ],
+    "roundCount": null,
+    "roundTimeoutSeconds": 300,
+    "apiRoutes": [
+      {
+        "path": "/admin/bot-validation-events",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/admins",
+        "methods": [
+          "get",
+          "post"
+        ]
+      },
+      {
+        "path": "/admins/{user_id}",
+        "methods": [
+          "delete"
+        ]
+      },
+      {
+        "path": "/bots",
+        "methods": [
+          "get",
+          "post"
+        ]
+      },
+      {
+        "path": "/bots/{id}/analytics",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/bots/{id}/approve",
+        "methods": [
+          "patch"
+        ]
+      },
+      {
+        "path": "/bots/{id}/deactivate",
+        "methods": [
+          "patch"
+        ]
+      },
+      {
+        "path": "/bots/{id}/history",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/bots/{id}/reactivate",
+        "methods": [
+          "patch"
+        ]
+      },
+      {
+        "path": "/bots/{id}/reject",
+        "methods": [
+          "patch"
+        ]
+      },
+      {
+        "path": "/bots/{id}/test",
+        "methods": [
+          "patch"
+        ]
+      },
+      {
+        "path": "/bots/my-submissions",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/bots/schema",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/bots/validate",
+        "methods": [
+          "post"
+        ]
+      },
+      {
+        "path": "/config.json",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/debates",
+        "methods": [
+          "get",
+          "post"
+        ]
+      },
+      {
+        "path": "/debates/{id}",
+        "methods": [
+          "delete",
+          "get"
+        ]
+      },
+      {
+        "path": "/debates/{id}/archive",
+        "methods": [
+          "patch"
+        ]
+      },
+      {
+        "path": "/debates/{id}/stream",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/debates/{id}/synthesis",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/debates/{id}/transcript",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/diag/health",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/diag/models",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/health",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/me",
+        "methods": [
+          "get"
+        ]
+      },
+      {
+        "path": "/users",
+        "methods": [
+          "get"
+        ]
+      }
+    ],
+    "claudeMd": {
+      "sections": [
+        "CLAUDE.md — LQ Bot Council Harness",
+        "Quick Reference",
+        "Deploy Workflow",
+        "Coding Standards — BINDING",
+        "Architecture",
+        "Current Phase: 0 (Single-Shot MVP)",
+        "API Endpoints"
+      ],
+      "urls": [],
+      "hash": "3c23e05d1a795dc966d7ab0250b36b14e9f6dc0ccca2d210c9d3d2de3bf1f07a"
+    },
+    "frontendRoutes": [
+      "/",
+      "/admins",
+      "/bots",
+      "/bots/criteria",
+      "/bots/guide",
+      "/bots/my-submissions",
+      "/bots/submit",
+      "/debates",
+      "/debates/[id]",
+      "/debates/new",
+      "/how-it-works",
+      "/security",
+      "/settings",
+      "/sign-in"
+    ],
+    "frontendRoutesSource": "github"
+  },
+  "recommended_action": "Review data/lqcouncil-knowledge.json chunks: `admin-operations`, `architecture-topology`, `onboarding`, `operational-facts`, `overview`, `test-before-submit`. Update prose, bump version (2.1.x), commit.",
+  "semantic_assessment": {
+    "overall_severity": "medium",
+    "per_change": [
+      {
+        "change_kind": "api-routes-diff",
+        "change_field": "apiRoutes",
+        "severity": "medium",
+        "rationale": "The addition of `/bots/validate` and `/bots/my-submissions` represents a new programmatic validation and submission capability that complements the existing UI-focused guidance, warranting a mention for authors who prefer API-driven workflows.",
+        "chunks_to_revise": [
+          "onboarding — End-to-end onboarding — how an agent gets admitted",
+          "test-before-submit — Testing your bot before submission"
+        ],
+        "suggested_edits": "In 'onboarding', add a note in step 4 or 6 that authors can also use `POST /bots/validate` for programmatic validation and `GET /bots/my-submissions` to check status. In 'test-before-submit', mention `/bots/validate` as an alternative API endpoint for the smoke-test layer."
+      },
+      {
+        "change_kind": "array-diff",
+        "change_field": "claudeMd.sections",
+        "severity": "low",
+        "rationale": "The added CLAUDE.md sections describe internal documentation structure and coding standards, which do not contradict or significantly alter the high-level product overview and deployment topology described in the existing chunks.",
+        "chunks_to_revise": [],
+        "suggested_edits": ""
+      },
+      {
+        "change_kind": "array-diff",
+        "change_field": "frontendRoutes",
+        "severity": "low",
+        "rationale": "The added frontend routes confirm the existence of the URLs and paths already described in the prose, but do not introduce new capabilities or contradict existing instructions.",
+        "chunks_to_revise": [],
+        "suggested_edits": ""
+      }
+    ],
+    "chunks_to_revise": [
+      "onboarding — End-to-end onboarding — how an agent gets admitted",
+      "test-before-submit — Testing your bot before submission"
+    ],
+    "assessed_at": "2026-06-16T01:46:34.116Z"
+  }
+}

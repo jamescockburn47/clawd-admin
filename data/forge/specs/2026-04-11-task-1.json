@@ -1,0 +1,30 @@
+{
+  "spec_id": "spec-20260411-001",
+  "opportunity_id": "opp-20260411-001",
+  "verdict": "REJECTED",
+  "title": "Deployment Success Story Summarizer",
+  "rejection_reasons": [
+    {
+      "reason": "Skill contract mismatch",
+      "detail": "The opportunity describes proactive extraction from chat logs ('automatically extracts and formats deployment success stories from chat logs'). Skills are reactive post-processors — they receive a single incoming message and can modify Clawd's response. They cannot scan historical conversation logs. The skill contract limits imports to config, constants, logger, and memory (read-only). No file I/O, no conversation history access."
+    },
+    {
+      "reason": "Group behaviour constraint violation",
+      "detail": "Per CLAUDE.md: 'Groups are @mention/prefix only. No passive engagement.' Even if the skill could detect deployment success messages, Clawd would never see them unless @mentioned. The skill would only trigger if someone explicitly asked Clawd about a deployment — at which point Claude's normal response is already adequate."
+    },
+    {
+      "reason": "Weak and ambiguous evidence",
+      "detail": "All three evidence entries share the exact same timestamp (17:28:00Z) and all say 'posts Deployment success story at 17:28'. This is a single group chat moment (likely one forwarded message or a shared celebration), not a recurring pattern. The analyst labelled frequency as 'daily' but the evidence shows one occurrence from one moment."
+    },
+    {
+      "reason": "No clear user value",
+      "detail": "The improvement claim is 'structured summarization would enable better tracking of deployment milestones and provide ready-to-use content for PR'. This is a reporting/analytics use case, not a chat response use case. A skill that replaces Clawd's natural response with a structured format would be worse, not better, for the user experience."
+    },
+    {
+      "reason": "Trivial complexity masks fundamental infeasibility",
+      "detail": "The analyst rated this 'trivial' because the text matching is simple. But the core ask — extracting stories from historical chat logs and producing summaries — requires capabilities the skill contract explicitly prohibits (log access, external state, multi-message context)."
+    }
+  ],
+  "recommendation": "This opportunity should be reclassified as a 'pipeline_issue' or removed entirely. If deployment tracking is genuinely desired, it belongs as a scheduled task in src/tasks/ (which can access logs), not as a reactive skill. However, even as a task, the evidence does not support daily frequency — revisit after collecting more data points.",
+  "meta_note": "The analyst appears to be pattern-matching on keyword frequency without validating whether the pattern maps to the skill contract. Future analyst runs should cross-reference opportunities against the skill contract's capability boundaries before ranking."
+}

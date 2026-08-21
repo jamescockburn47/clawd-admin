@@ -1,0 +1,599 @@
+{
+  "startedAt": "2026-04-30T02:30:13.774Z",
+  "completedAt": "2026-04-30T02:47:23.146Z",
+  "durationMs": 1029372,
+  "corpusVersion": "1.0.0",
+  "corpusLastCurated": "2026-04-24",
+  "questionCount": 20,
+  "graded": 20,
+  "passed": 1,
+  "passRate": 0.05,
+  "trailingMedianPassRate": 0,
+  "regression": false,
+  "results": [
+    {
+      "id": "signup-canonical-url",
+      "category": "onboarding",
+      "question": "How do I sign up a bot to LQcouncil?",
+      "actual_preview": "Access to LQcouncil is *invitation-based*. The site at lqcouncil.com says you sign in to bring your own bot, but there's no public sign-up flow visible — you need an invite.\n\nJames or Oscar would be the people to ask for one. Want me to ping either of them about getting you access?",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokv9cem_d0a3f721"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "build a /debate HTTPS endpoint",
+          "publicly reachable URL with valid TLS",
+          "bearer token auth",
+          "submit via https://lqcouncil.com/bots/guide",
+          "Clerk authentication",
+          "admin approval runs a smoke test"
+        ],
+        "inaccuracies": [
+          "Claims access is invitation-based and no public sign-up flow exists, contradicting the expected concept of submitting via a public guide URL"
+        ],
+        "rationale": "The answer completely fails to address the technical requirements for bot integration and incorrectly claims the process is invitation-only rather than following the documented submission guide."
+      },
+      "pass": false
+    },
+    {
+      "id": "signup-url-specific",
+      "category": "onboarding",
+      "question": "What URL should I visit to submit my bot?",
+      "actual_preview": "Based on what you remember, the URL is **https://lqcouncil.com/bots/submit** — register in 'text-only' mode.",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvaq76_2e9b8221"
+      },
+      "grade": {
+        "score": 4,
+        "missing": [
+          "https://lqcouncil.com/bots/guide",
+          "canonical / preferred entry point"
+        ],
+        "inaccuracies": [
+          "Identifies /bots/submit as the primary URL without noting it is legacy; fails to mention the preferred entry point"
+        ],
+        "rationale": "The answer provides the legacy URL but misses the canonical guide URL and the distinction between preferred and legacy entry points."
+      },
+      "pass": false
+    },
+    {
+      "id": "signup-language-choice",
+      "category": "onboarding",
+      "question": "What programming language must I use to build my bot?",
+      "actual_preview": "You can use any language you like.\n\nThe LQuorum bot framework is language-agnostic. You just need your bot to connect via the WhatsApp API (or whatever channel we're using for the demo) and speak JSON for the coordination layer.\n\nMost people use Python or Node.js because the SDKs are easiest, but Rust, Go, or even a shell script wrapping an LLM API would work fine. What matters is that it can rece",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvbnye_8c2d0699"
+      },
+      "grade": {
+        "score": 7,
+        "missing": [
+          "Node and Python reference implementations exist in the bot-council repo"
+        ],
+        "inaccuracies": [],
+        "rationale": "The answer correctly identifies that the framework is language-agnostic and mentions Python and Node.js as popular choices, but it fails to explicitly mention the existence of reference implementations in the bot-council repo."
+      },
+      "pass": true
+    },
+    {
+      "id": "signup-validation-tools",
+      "category": "onboarding",
+      "question": "How do I validate my bot before submitting?",
+      "actual_preview": "You run the validation command locally:\n\n`lac validate`\n\nThis checks your bot's structure, arguments, and dependencies before you submit. If you want to do a full dry run with actual debate simulation, use:\n\n`lac validate --dry-run`\n\nMake sure your bot is properly set up with the correct endpoint URL and token configured before running validation.",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvclta_d093b127"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "lqc_validate_bot tool",
+          "lqc_dry_run_debate tool",
+          "per-bot /bots/{id}/test UI runner",
+          "same smoke-test core as admin approval"
+        ],
+        "inaccuracies": [
+          "The answer hallucinates a 'lac validate' command which is not part of the expected concepts and likely incorrect for the specific platform context implied by the expected tools."
+        ],
+        "rationale": "The answer completely misses all expected concepts and provides hallucinated commands instead of the specified tools and UI features."
+      },
+      "pass": false
+    },
+    {
+      "id": "schema-round0-request",
+      "category": "schema",
+      "question": "What fields does my bot receive from LQcouncil on a round 0 debate request?",
+      "actual_preview": "I can't find anything public on this — it's internal to the LQcouncil system. I don't have the schema in my memory either.\n\nYou'll need to check the LQcouncil source code or ask in the LQ group where this was specified. Want me to try searching your project files for it?",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvdl73_92d3fb44"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "session_id",
+          "round integer 0",
+          "role name",
+          "context array (empty in round 0)",
+          "prompt string"
+        ],
+        "inaccuracies": [
+          "The answer fails to provide the requested information, claiming ignorance instead of listing the standard fields for a round 0 debate request in the LQcouncil system."
+        ],
+        "rationale": "The model failed to answer the question entirely, stating it does not have the information, whereas the expected answer requires listing specific fields like session_id, round, role, context, and prompt."
+      },
+      "pass": false
+    },
+    {
+      "id": "schema-response-fields",
+      "category": "schema",
+      "question": "What fields must my bot return in its response?",
+      "actual_preview": "Only `response` is required. The others (`confidence`, `challenge`, `position_change`) are optional.",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvf0sq_4d4ca944"
+      },
+      "grade": {
+        "score": 2,
+        "missing": [
+          "challenge object (required in round 2)",
+          "position_change object (required in round 4)"
+        ],
+        "inaccuracies": [
+          "Claims challenge and position_change are optional, but they are required in specific rounds"
+        ],
+        "rationale": "The answer incorrectly states that challenge and position_change are optional, missing the specific round-based requirements for these fields."
+      },
+      "pass": false
+    },
+    {
+      "id": "schema-round2-challenge",
+      "category": "schema",
+      "question": "What specific structure does the round 2 challenge object require?",
+      "actual_preview": "I don't have that in memory. What round 2 challenge are you referring to?\n\nGive me the context — which project, competition, or framework — and I'll find the spec.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvftnc_6d2fd232"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "claim_targeted field",
+          "counter_evidence field",
+          "type field",
+          "type must be factual, logical, or premise"
+        ],
+        "inaccuracies": [],
+        "rationale": "The model failed to answer the question and explicitly stated it did not have the information, resulting in zero coverage of the expected concepts."
+      },
+      "pass": false
+    },
+    {
+      "id": "schema-round-count",
+      "category": "schema",
+      "question": "How many rounds are there in a debate and what's the per-round timeout?",
+      "actual_preview": "I don't have that information. Debate formats vary significantly depending on the organisation (e.g., British Parliamentary, World Schools, Oxford-style), so there's no single answer for \"a debate.\"\n\nCould you clarify which format you're asking about?",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvgl6v_bc3d7d85"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "5 rounds numbered 0 through 4",
+          "post-round-4 scoring payload",
+          "300 seconds per round",
+          "quorum 3 bots minimum"
+        ],
+        "inaccuracies": [
+          "The assistant failed to identify the specific context (likely a specific AI debate protocol or competition) and provided a generic refusal instead of the expected technical specifications."
+        ],
+        "rationale": "The assistant completely failed to answer the specific technical question, likely due to a lack of context regarding the specific debate protocol implied by the expected concepts."
+      },
+      "pass": false
+    },
+    {
+      "id": "roles-list",
+      "category": "schema",
+      "question": "What constitutional roles are assigned in a debate?",
+      "actual_preview": "",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvhh2g_80c29d69"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "proponent",
+          "skeptic",
+          "devils_advocate",
+          "empiricist",
+          "steelman",
+          "roles rotate between debates"
+        ],
+        "inaccuracies": [],
+        "rationale": "The model produced no answer, failing to cover any expected concepts."
+      },
+      "pass": false
+    },
+    {
+      "id": "errors-schema-missing-field",
+      "category": "errors",
+      "question": "What does the schema_missing_field error kind mean?",
+      "actual_preview": "Sorry, the search tool isn't returning any results right now — that's unusual.\n\nFrom the name alone, `schema_missing_field` is straightforward: a required field defined in a schema was absent from the data being validated. Whether it's from JSON Schema, a database migration tool, an API framework like FastAPI/Pydantic, or something else, the pattern is the same — the schema says \"this field must b",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvir8g_88a8a043"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "response body was valid JSON but missing a required field",
+          "most common cause is returning 'result' or 'answer' instead of 'response'",
+          "use lqc_bot_diagnose to see the specific field name"
+        ],
+        "inaccuracies": [
+          "The answer fails to address the specific context implied by the expected concepts (likely a specific bot framework or tool), providing only a generic definition of schema validation errors."
+        ],
+        "rationale": "The answer provides a generic definition of schema validation errors but completely misses the specific context, common causes, and diagnostic tools required by the expected concepts."
+      },
+      "pass": false
+    },
+    {
+      "id": "errors-timeout",
+      "category": "errors",
+      "question": "What does the timeout error mean and how do I fix it?",
+      "actual_preview": "Need a bit more context — what timeout error are you seeing?\n\nBrowser loading a page? A command-line tool? An API call? A database query?\n\nThe fix depends entirely on where it's happening. Send me the error message or a screenshot and I'll sort it.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvka3j_35c34c3e"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "bot took longer than 300 seconds per round",
+          "tighten internal LLM timeout to 120-180 seconds",
+          "leaves room for network and JSON framing"
+        ],
+        "inaccuracies": [
+          "The answer fails to address the specific context implied by the expected concepts (LLM bot timeouts) and instead asks for generic clarification, providing no useful content regarding the expected solution."
+        ],
+        "rationale": "The answer completely misses the specific technical context and expected solutions regarding LLM bot timeouts, instead asking for generic clarification."
+      },
+      "pass": false
+    },
+    {
+      "id": "errors-diagnose-tool",
+      "category": "errors",
+      "question": "How do I investigate why my bot is failing debates?",
+      "actual_preview": "I can help you troubleshoot that. First, I need a bit more context to give you useful advice.\n\n1. **What platform/framework** are you using for your debate bot? (e.g., custom LLM wrapper, LangChain, a specific debate framework)\n2. **What does \"failing\" look like?** Is it:\n   - Losing arguments logically?\n   - Producing incoherent or off-topic responses?\n   - Failing to follow debate rules/format?\n",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvl6zv_dd00f598"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "lqc_bot_diagnose tool aggregates last N failures by error kind",
+          "closed-set error taxonomy maps to specific remediation",
+          "Sentry integration for deeper trace correlation"
+        ],
+        "inaccuracies": [
+          "The answer provides generic LLM troubleshooting advice instead of the specific tools and workflows requested."
+        ],
+        "rationale": "The answer completely misses all three expected concepts regarding specific diagnostic tools and integrations, providing generic advice instead."
+      },
+      "pass": false
+    },
+    {
+      "id": "ops-current-llm",
+      "category": "operations",
+      "question": "What LLM is LQcouncil using right now for analysis and synthesis?",
+      "actual_preview": "I don't have that information publicly available, and I don't have it in my memories either. LQcouncil isn't something I've seen discussed in our prior conversations, so I can't pull from memory.\n\nDo you know where LQcouncil is hosted or what platform it runs on? That might help me narrow the search. Alternatively, if this is an internal tool or private group, the model choice might not be publicl",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvmqg0_0b93a083"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "MiniMax-M2.7 is the live route",
+          "local Gemma-31B on llama-server :8086 is the rollback",
+          "call lqc_live_llm or /api/diag/models to get the definitive current answer",
+          "do not assume from curated knowledge alone"
+        ],
+        "inaccuracies": [
+          "The assistant failed to provide any of the specific technical details regarding the LLM configuration, instead claiming ignorance."
+        ],
+        "rationale": "The assistant completely failed to answer the question, missing all expected concepts and providing no useful information."
+      },
+      "pass": false
+    },
+    {
+      "id": "ops-architecture-stack",
+      "category": "operations",
+      "question": "What's the LQcouncil backend stack and where does it run?",
+      "actual_preview": "I don't have that information. I haven't seen the LQcouncil backend architecture discussed in any of our conversations, and it didn't come up in search either.\n\nIf James has shared those details with you directly or in a group chat I logged, I might have it in memory — worth asking him to jog my memory, or I can search for \"LQcouncil\" in past conversations if that helps.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvo8s1_bca53e62"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "Rust with Axum framework",
+          "SQLite database",
+          "runs on EVO X2 at port 3100",
+          "SvelteKit frontend served by the same Axum binary (single origin)"
+        ],
+        "inaccuracies": [],
+        "rationale": "The assistant failed to provide any of the expected technical details, stating it did not have the information."
+      },
+      "pass": false
+    },
+    {
+      "id": "ops-ingress",
+      "category": "operations",
+      "question": "How does public traffic reach LQcouncil?",
+      "actual_preview": "James hasn't shared the technical architecture details for how public traffic reaches LQcouncil with me. \n\nI can't answer that from my end — it would need to come from James directly, or from whoever manages the infrastructure. Want me to pass the question to him?",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvpafc_16385d15"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "Cloudflare Tunnel named sovren-evo",
+          "cloudflared daemon on EVO forwards to localhost:3100",
+          "public hostname is lqcouncil.com",
+          "old paths api.lqcouncil.com and council.sovren.xyz are retired"
+        ],
+        "inaccuracies": [
+          "The answer claims it cannot answer the question, failing to provide any of the expected technical details."
+        ],
+        "rationale": "The assistant failed to provide any of the expected technical concepts regarding the traffic routing architecture."
+      },
+      "pass": false
+    },
+    {
+      "id": "admin-archive-debate",
+      "category": "admin",
+      "question": "How do I hide a debate without deleting it?",
+      "actual_preview": "I don't have access to the specific platform you're using, so I can't give you the exact steps.\n\nTell me which app or site you're on (WhatsApp, Slack, Teams, Discord, etc.) and I'll look it up.\n\nIf it's **WhatsApp**: You can't hide a specific chat without archiving it. Long-press the chat > *Archive*. It disappears from your main list but isn't deleted. You can also *Mute* it to stop notifications",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvq6kr_fa3d0141"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "PATCH /api/debates/{id}/archive with {archived: true}",
+          "lqc_archive_debate Clint tool",
+          "archived debates hidden from default list",
+          "reversible - pass archived:false to unarchive"
+        ],
+        "inaccuracies": [
+          "The answer assumes the question is about consumer apps like WhatsApp/Slack instead of the specific API/CLI context implied by the expected concepts."
+        ],
+        "rationale": "The model failed to recognize the specific technical context (API and CLI tools) and provided generic advice for unrelated consumer applications."
+      },
+      "pass": false
+    },
+    {
+      "id": "admin-resynthesise",
+      "category": "admin",
+      "question": "How do I rerun synthesis on an existing debate after a prompt change?",
+      "actual_preview": "I don't have a tool for rerunning synthesis on debates. I don't track debate runs or have access to a debate/synthesis system.\n\nWhat system are you using? If it's an external tool or script, I can search for docs on it — tell me the name. If it's something on your EVO infrastructure that I should know about, I'm afraid it's not in my memory or toolset.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvr9ei_b0d25671"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "bot-council resynthesise CLI subcommand",
+          "runs against stored transcript (no re-running the debate)",
+          "--throttle-ms flag controls spacing between debates"
+        ],
+        "inaccuracies": [
+          "The assistant failed to provide the correct procedure for rerunning synthesis, claiming lack of knowledge instead of providing the specific CLI commands and flags requested."
+        ],
+        "rationale": "The assistant completely failed to answer the question, claiming it lacks the necessary tools or knowledge, whereas the expected answer requires specific technical details about the `bot-council` CLI."
+      },
+      "pass": false
+    },
+    {
+      "id": "admin-delete-vs-archive",
+      "category": "admin",
+      "question": "What's the difference between archiving and deleting a debate?",
+      "actual_preview": "I don't have context on which platform or system you're referring to. Are you asking about a specific tool, app, or service?\n\nIf it's a general question: archiving preserves the debate for later reference while removing it from your active view. Deleting removes it permanently. But I'd want to know the specific system to give you an accurate answer.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvs9de_2daa58f0"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "archive is reversible hide only",
+          "delete cascades through responses, analyses, syntheses, debate_bots",
+          "delete is NOT reversible",
+          "two-step confirm required on lqc_delete_debate"
+        ],
+        "inaccuracies": [
+          "The answer fails to address the specific system implied by the expected concepts (likely a specific debate platform like 'lqc'), providing only generic definitions that miss all required technical details."
+        ],
+        "rationale": "The assistant failed to identify the specific context implied by the expected concepts and provided only generic definitions, missing all four required technical details regarding reversibility, cascading effects, and confirmation steps."
+      },
+      "pass": false
+    },
+    {
+      "id": "abstention-how",
+      "category": "protocol",
+      "question": "Can my bot abstain from a specific round?",
+      "actual_preview": "That depends on how your debate rounds are structured. From what I remember of the LQ Bot Council setup:\n\n- **Rounds 0–2** have strict roles (proponent, peer response, challenge object). There's no explicit abstain mechanism — each bot is expected to participate in its assigned role.\n- **Capitulation detection** happens *post-round*, not mid-round. So a bot can't opt out of a round it's been assig",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvt9b2_d060abce"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "yes - return a brief response explicitly saying abstain",
+          "omit confidence, challenge, position_change",
+          "per-round not per-debate",
+          "repeated abstention (3+/5 rounds) weakens peer scoring"
+        ],
+        "inaccuracies": [
+          "Claims abstention is not in the current spec and requires custom config, whereas the expected concepts indicate it is a supported feature via a specific response format"
+        ],
+        "rationale": "The answer incorrectly states that abstention is not supported by the system, directly contradicting the expected concepts which describe the specific mechanism for abstaining."
+      },
+      "pass": false
+    },
+    {
+      "id": "peer-scoring",
+      "category": "protocol",
+      "question": "How does peer scoring work after round 4?",
+      "actual_preview": "I don't have the context on which system or competition you're referring to. \"Peer scoring after round 4\" could apply to a few things — a specific LQuorum community process, a client matter, a competition James is involved in, or something else entirely.\n\nCan you tell me what this is about? I'll search for the answer once I know the context.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mokvui6g_e792cca7"
+      },
+      "grade": {
+        "score": 0,
+        "missing": [
+          "special round: 'scoring' payload",
+          "rate other bots on reasoning_quality, factual_grounding, overall",
+          "each dimension integer 0-10",
+          "drives results.rankings in debate output"
+        ],
+        "inaccuracies": [],
+        "rationale": "The assistant failed to answer the question, claiming a lack of context instead of providing the specific details about the peer scoring mechanism."
+      },
+      "pass": false
+    }
+  ]
+}

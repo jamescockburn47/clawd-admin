@@ -1,0 +1,224 @@
+{
+  "date": "2026-04-02T23:20:44.705457",
+  "elapsed_seconds": 3030,
+  "elapsed_human": "0.8 hours",
+  "results": [
+    {
+      "task": "router-eval-expansion",
+      "rounds": 5,
+      "new_labels": 80,
+      "misclassifications": 55,
+      "proposed_rules": 12,
+      "branch": "overnight-eval-2026-04-02",
+      "eval_output": "ul to be more witty\" -> expected email, got planning\n      \"tell me about yourself\" -> expected system, got null\n{\"level\":30,\"time\":1775165800260,\"pid\":148905,\"hostname\":\"cnc\",\"count\":6,\"msg\":\"group-registry loaded\"}\n{\"level\":30,\"time\":1775165800262,\"pid\":148905,\"hostname\":\"cnc\",\"topics\":18,\"msg\":\"lquorum knowledge loaded\"}\nfile:///home/pi/clawdbot/eval/router-eval.js:368\n    const pct = (section.accuracy * 100).toFixed(1);\n                         ^\n\nTypeError: Cannot read properties of undefined (reading 'accuracy')\n    at file:///home/pi/clawdbot/eval/router-eval.js:368:26\n\nNode.js v22.21.0",
+      "top_misclassifications": [
+        {
+          "msg": "search for trains to York",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Matches both travel and general_knowledge patterns; 'search for' triggers GK regex while 'trains to York' triggers travel keyword",
+          "round": 1
+        },
+        {
+          "msg": "what are the best hotels in London",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Starts with 'what are' (GK pattern) but contains travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "how much do flights to Edinburgh cost",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Starts with 'how much' (GK pattern) but contains travel keywords; could be classified as either",
+          "round": 1
+        },
+        {
+          "msg": "find accommodation near the beach",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "travel",
+          "reason": "Contains travel keywords but starts with 'find' which is not a strong travel indicator; could be misclassified",
+          "round": 1
+        },
+        {
+          "msg": "what's the cheapest way to get to Manchester",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Starts with 'what's' (GK pattern) but contains travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "compare train fares to Liverpool",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Contains 'compare' (GK pattern) and travel keywords; could be classified as either",
+          "round": 1
+        },
+        {
+          "msg": "how many trains run from London to Birmingham",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Starts with 'how many' (GK pattern) but contains travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "look up accommodation options in Brighton",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Contains 'look up' (GK pattern) and travel keywords; could be misclassified",
+          "round": 1
+        },
+        {
+          "msg": "what's the best way to travel from Paris to Berlin",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "travel",
+          "reason": "Starts with 'what's' (GK pattern) but contains travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "search for flights to Dublin",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Matches both travel and general_knowledge patterns; 'search for' triggers GK regex while 'flights to Dublin' triggers travel keyword",
+          "round": 1
+        },
+        {
+          "msg": "how much does a hotel room in Rome cost",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Starts with 'how much' (GK pattern) but contains travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "find the cheapest flights to Glasgow",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "travel",
+          "reason": "Contains 'find' (GK pattern) and travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "compare accommodation options in Edinburgh",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Contains 'compare' (GK pattern) and travel keywords; could be classified as either",
+          "round": 1
+        },
+        {
+          "msg": "what's the fastest way to get to Manchester",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Starts with 'what's' (GK pattern) but contains travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "look up train schedules from London to Cambridge",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Contains 'look up' (GK pattern) and travel keywords; could be misclassified",
+          "round": 1
+        },
+        {
+          "msg": "how many hotels are available in Bath",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Starts with 'how many' (GK pattern) but contains travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "search for accommodation in the Lake District",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Matches both travel and general_knowledge patterns; 'search for' triggers GK regex while 'accommodation in the Lake District' triggers travel keyword",
+          "round": 1
+        },
+        {
+          "msg": "what's the best way to travel from London to Oxford",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "travel",
+          "reason": "Starts with 'what's' (GK pattern) but contains travel keywords; ambiguous due to overlapping patterns",
+          "round": 1
+        },
+        {
+          "msg": "find the cheapest train tickets to Liverpool",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "travel",
+          "reason": "Contains 'find' (GK pattern) and travel keywords; could be misclassified",
+          "round": 1
+        },
+        {
+          "msg": "what is evo x2",
+          "expected": "GENERAL_KNOWLEDGE",
+          "actual": "null (no keyword match)",
+          "reason": "Starts with 'what is' (GK pattern) but contains 'evo x2' (system keyword); ambiguous due to overlapping patterns",
+          "round": 2
+        }
+      ],
+      "top_rules": [
+        {
+          "pattern": "^(search for|look up|what is|who is|how does|how do you|how much does|where is|when did|when was|when is|when does|what happened|what's happening|what are the|who founded|who started|who owns|what year|what date|which country|compare|difference between|pros and cons|best .{2,30} for|top \\d|versus|vs)\\b",
+          "category": "general_knowledge",
+          "rationale": "Prioritize general_knowledge pattern when it starts with common GK query phrases, even if travel keywords are present"
+        },
+        {
+          "pattern": "(trains?|flights?|hotels?|travel|fares?|depart\\w*|lner|airbnb|accommodation|booking|glamping|cottages?)",
+          "category": "travel",
+          "rationale": "Prioritize travel category when travel-specific terms appear, even if GK query phrases are present"
+        },
+        {
+          "pattern": "(trains?|flights?|hotels?|travel|fares?|depart\\w*|lner|airbnb|accommodation|booking|glamping|cottages?)\\s+(to|from|near|in|at|by|for|around|within)\\s+\\w+",
+          "category": "travel",
+          "rationale": "Stronger travel pattern when travel keywords are followed by location indicators"
+        },
+        {
+          "pattern": "^(what is|what are|how does|how do you|what happened|what's happening|what are the|who founded|who started|who owns|what year|what date|which country|compare|difference between|pros and cons|best .{2,30} for|top \\d|versus|vs)\\b",
+          "category": "general_knowledge",
+          "rationale": "Prioritize general_knowledge pattern when it starts with common GK query phrases, even if system keywords are present"
+        },
+        {
+          "pattern": "(system status|architecture|how do(?:es)? (?:the |my )?(?:voice|whatsapp|dashboard|routing|evo|pi|system|pipeline))\\b",
+          "category": "system",
+          "rationale": "Prioritize system category when system-specific keywords appear, even if GK query phrases are present"
+        },
+        {
+          "pattern": "(what changed|changelog|what version|current version|deployment|what(?:'s| is) deployed)\\b",
+          "category": "system",
+          "rationale": "Stronger system pattern when system-specific keywords appear in context of versioning or deployment"
+        },
+        {
+          "pattern": "^(search for|look up|what are|how many|compare|difference between|pros and cons|best .{2,30} for|top \\d|versus|vs)\\b",
+          "category": "general_knowledge",
+          "rationale": "Prioritize general_knowledge pattern when it starts with common GK query phrases, even if email keywords are present"
+        },
+        {
+          "pattern": "(email|mail|message|inbox|sent|draft|compose|send|reply|forward)\\b",
+          "category": "email",
+          "rationale": "Prioritize email category when email-specific keywords appear, even if GK query phrases are present"
+        },
+        {
+          "pattern": "(what is|what happened|what's happening|what are the|who founded|who started|who owns|what year|what date|which country|how does|how do you|how much|what happened|what's happening|what are the|who founded|who started|who owns|what year|what date|which country|compare|difference between|pros and cons|best .{2,30} for|top \\d|versus|vs)\\b",
+          "category": "general_knowledge",
+          "rationale": "Stronger general_knowledge pattern when it starts with common GK query phrases, even if email keywords are present"
+        },
+        {
+          "pattern": "^(search for|look up|what are|how many|compare|difference between|pros and cons|best .{2,30} for|top \\d|versus|vs)\\b",
+          "category": "general_knowledge",
+          "rationale": "Prioritize general_knowledge pattern when it starts with common GK query phrases, even if task keywords are present"
+        },
+        {
+          "pattern": "(task|todo|to-do|to do list|remind me|add task|mark done|mark complete|my tasks|reminders)\\b",
+          "category": "task",
+          "rationale": "Prioritize task category when task-specific keywords appear, even if GK query phrases are present"
+        },
+        {
+          "pattern": "(what is|what happened|what's happening|what are the|who founded|who started|who owns|what year|what date|which country|how does|how do you|how much|what happened|what's happening|what are the|who founded|who started|who owns|what year|what date|which country|compare|difference between|pros and cons|best .{2,30} for|top \\d|versus|vs)\\b",
+          "category": "general_knowledge",
+          "rationale": "Stronger general_knowledge pattern when it starts with common GK query phrases, even if task keywords are present"
+        }
+      ]
+    },
+    {
+      "task": "aborted",
+      "reason": "EVO unreachable after 3 consecutive failures"
+    }
+  ]
+}

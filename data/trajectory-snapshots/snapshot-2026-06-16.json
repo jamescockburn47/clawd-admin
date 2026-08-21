@@ -1,0 +1,141 @@
+{
+  "startedAt": "2026-06-16T02:45:30.170Z",
+  "completedAt": "2026-06-16T02:46:33.713Z",
+  "durationMs": 63543,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 3,
+  "failed": 3,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Web search isn't finding any LQCore-specific discussions about duckdns — that's not surprising since group chats aren't indexed publicly.\n\nI don't have access to read the LQCore group's recent message",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqg1i0u3_14c3f9aa"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [web_search]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "I'm not finding any public information about LQCouncil's bot registration process. This looks like an internal project I don't have details on.\n\nIf you have documentation or a repo for LQCouncil, poin",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqg1i9ws_4e311911"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_fetch",
+        "web_search"
+      ],
+      "responsePreview": "The big story this week is that the US government ordered Anthropic to suspend foreign access to its two most advanced models — **Fable 5 and Mythos 5** — citing national security concerns. The order ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqg1ijn7_426c8a33"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "For reasoning: **Qwen3.6-27B** (Q6_K quant) running on the EVO X2 via llama-server at :8080, with speculative decoding from a 0.8B draft model. That's my default local path.\n\nCloud fallback is **Claud",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqg1iz6l_6dfab0b8"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "Speculative decoding pairs a large \"target\" model with a smaller \"draft\" model running on the same hardware. The draft model generates a sequence of candidate tokens quickly, then the target model eva",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqg1j2fp_feca215a"
+      },
+      "pass": false,
+      "failures": [
+        "forbidden_tool_fired: web_search",
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [],
+      "responsePreview": "\nAll good here, MG. Systems running smooth. How are you?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "minimax",
+        "providerReason": "minimax_default",
+        "modelName": "MiniMax-M2.7",
+        "requestId": "llm_mqg1j9ru_b798b25a"
+      },
+      "pass": true,
+      "failures": []
+    }
+  ]
+}

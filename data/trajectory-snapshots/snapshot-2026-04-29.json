@@ -1,0 +1,144 @@
+{
+  "startedAt": "2026-04-29T02:46:21.607Z",
+  "completedAt": "2026-04-29T02:49:19.497Z",
+  "durationMs": 177890,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 2,
+  "failed": 4,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "web_search"
+      ],
+      "responsePreview": "I don't have access to LQCore group chat history or the ability to search past group conversations. The group_decisions tool only tracks explicit agreements and action items, not casual mentions.\n\nIf ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mojge8iv_9806cc65"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [web_search]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "I can't find a public page for LQ Council bot signup. It's likely an internal process — either James has set it up privately or it's not publicly documented yet.\n\nBest bet: check with James directly o",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mojgeon6_0425c65b"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [web_search]"
+      ]
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search",
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Search isn't returning anything right now, so I can't give you a reliable update. My last training data is April 2026 so anything this week is outside what I know and I won't guess.\n\nWant me to try ag",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mojgfc9u_0db32e9e"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [],
+      "responsePreview": "My reasoning runs on a mix of local and cloud models:\n\n- **Default**: Qwen3.6-27B, running locally on the EVO X2 via llama.cpp with Vulkan acceleration. Handles most chat, tool loops, and general ques",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mojgg2bk_1b72bec8"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [system_status, self_describe, lqc_live_llm], got [none]"
+      ]
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [],
+      "responsePreview": "Speculative decoding is an inference acceleration technique that lets a large, slow model generate text faster by using a smaller, fast \"draft\" model to propose candidate tokens first. The large \"targ",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mojgh34v_3826e2b4"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [
+        "web_search",
+        "web_fetch",
+        "web_fetch"
+      ],
+      "responsePreview": "I'm running well. Systems are stable, memory is clear, and I'm ready to help with whatever you need.",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)",
+        "requestId": "llm_mojghilr_54361e23"
+      },
+      "pass": false,
+      "failures": [
+        "forbidden_tool_fired: web_search",
+        "tool_count_exceeded: expected ≤0, got 3"
+      ]
+    }
+  ]
+}

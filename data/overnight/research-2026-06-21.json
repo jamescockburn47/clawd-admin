@@ -1,0 +1,21 @@
+{
+  "date": "2026-06-21",
+  "source": "searxng",
+  "topics": [
+    {
+      "topic": "There are a few things. Can we potentially add this into LQ’s deep infra? Im not sure how much custom work you have done to create this UIUX. How easy would it be to create say a Global AI Regulation tracker and a map using the technique you have usedhere? Say Ray can easily put his MCP in and produce a map or some artifact on the right?",
+      "findings": "No results found for \"There are a few things. Can we potentially add this into LQ’s deep infra? Im not sure how much custom work you have done to create this UIUX. How easy would it be to create say a Global AI Regulation tracker and a map using the technique you have usedhere? Say Ray can easily put his MCP in and produce a map or some artifact on the right?\".",
+      "sources": []
+    },
+    {
+      "topic": "There are a few architectural decisions, which is why it is a hard fork - Deep Agents and Vercel AI Elements primarily.  The rest is moving UI about and the implementation itself.  My fork could just be a reference project.  I won't publicise it unless we decide to.",
+      "findings": "No results found for \"There are a few architectural decisions, which is why it is a hard fork - Deep Agents and Vercel AI Elements primarily.  The rest is moving UI about and the implementation itself.  My fork could just be a reference project.  I won't publicise it unless we decide to.\".",
+      "sources": []
+    },
+    {
+      "topic": "Ray's tracker fits an MCP server work that Kevin is already doing.  However, what maps exactly is using this for EU AI Act compliance.  You map the systems (it is similar to ROPA) but the agent does it for you.  You then call Ray's MCP to pull in knowledge.",
+      "findings": "No results found for \"Ray's tracker fits an MCP server work that Kevin is already doing.  However, what maps exactly is using this for EU AI Act compliance.  You map the systems (it is similar to ROPA) but the agent does it for you.  You then call Ray's MCP to pull in knowledge.\".",
+      "sources": []
+    }
+  ]
+}

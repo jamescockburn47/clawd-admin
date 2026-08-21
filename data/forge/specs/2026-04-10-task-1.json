@@ -1,0 +1,94 @@
+{
+  "spec_id": "spec-20260410-001",
+  "opportunity_id": "meta-20260410-001",
+  "title": "Cortex gather latency reduction via caching and deadline",
+  "goal": "Reduce cortex gather p95 latency from 57.6s to under 8s by adding identity memory caching, a global phase deadline, and request-level memory search deduplication.",
+  "success_criteria": [
+    "Identity memories are cached and reused across requests for a configurable TTL (default 5 minutes), eliminating one 15s-timeout HTTP call per message",
+    "A global cortex deadline (default 10s) ensures gatherIntelligence never exceeds this wall-clock time, returning whatever streams have completed",
+    "Cortex gather p95 latency drops below 12s (measured by trace-analyser cortexP95Ms) within one analysis window",
+    "All existing cortex behaviour is preserved when streams complete within the deadline — no output shape changes",
+    "Cache invalidation works correctly: identity cache is cleared when memory store/update/delete operations occur"
+  ],
+  "description": "The cortex gather pipeline (src/cortex.js) has a p95 latency of 57.6s against an 8s threshold. Root causes: (1) identity memories are fetched via HTTP every single message with identical params ('identity core permanent', category 'identity', limit 10) despite being near-static; (2) Phase 2 memory searches each have 15s timeouts with no global deadline, so if the EVO memory service is slow, the entire pipeline stalls; (3) no request-level deduplication means similar queries within seconds re-hit the memory service. Fix: add identity caching with 5-minute TTL and invalidation hooks, a global Phase 2 deadline via Promise.race, and lower the effective per-stream timeout to 5s within cortex.",
+  "files_to_modify": [
+    "src/cortex.js"
+  ],
+  "approach": [
+    {
+      "order": 1,
+      "file": "src/cortex.js",
+      "action": "modify",
+      "description": "Add identity memory cache: module-level _identityCache = { results: [], ts: 0 } with IDENTITY_CACHE_TTL = 300_000 (5 min). In gatherIntelligence Phase 1, check cache freshness before calling getIdentityMemories(). Export a clearIdentityCache() function for invalidation.",
+      "estimated_lines": 25
+    },
+    {
+      "order": 2,
+      "file": "src/cortex.js",
+      "action": "modify",
+      "description": "Add a Phase 2 global deadline: wrap the Promise.all(Object.values(streams)) in a Promise.race against a PHASE2_DEADLINE_MS = 8000 timer. When the deadline fires, resolve with whatever results are available (use Promise.allSettled internally to capture partial results). Log which streams were abandoned.",
+      "estimated_lines": 40
+    },
+    {
+      "order": 3,
+      "file": "src/cortex.js",
+      "action": "modify",
+      "description": "Add per-stream timeout wrapper: each stream promise is wrapped in a raceWithTimeout(promise, STREAM_TIMEOUT_MS=5000, defaultValue) helper. This is tighter than the 15s MEMORY_SEARCH timeout in constants.js and provides cortex-level control without modifying the banned memory.js file.",
+      "estimated_lines": 15
+    },
+    {
+      "order": 4,
+      "file": "src/cortex.js",
+      "action": "modify",
+      "description": "Add timing telemetry for individual streams: record which streams completed vs timed out vs errored in the cortex log line. Add streamTimings object to the returned timing payload.",
+      "estimated_lines": 20
+    },
+    {
+      "order": 5,
+      "file": "tests/cortex-cache.test.js",
+      "action": "create",
+      "description": "Unit tests: identity cache hit/miss/expiry, deadline triggers partial results, per-stream timeout returns default, clearIdentityCache resets state. Use node:test with mock.fn() and esmock for module mocking.",
+      "estimated_lines": 120
+    }
+  ],
+  "files_new": [
+    "tests/cortex-cache.test.js"
+  ],
+  "tests": {
+    "unit": [
+      "Identity cache returns cached results within TTL without HTTP call",
+      "Identity cache expires after TTL and re-fetches",
+      "clearIdentityCache() forces next call to re-fetch",
+      "Phase 2 deadline returns partial results when slowest stream exceeds deadline",
+      "Phase 2 deadline does not fire when all streams complete in time",
+      "Per-stream timeout returns default value (empty array) when stream exceeds 5s",
+      "Per-stream timeout does not interfere when stream completes in time",
+      "Timing telemetry correctly reports completed vs timed-out streams",
+      "gatherIntelligence output shape is unchanged when all streams succeed",
+      "gatherIntelligence output shape is valid when all streams fail/timeout"
+    ],
+    "integration": [
+      "Full gatherIntelligence call completes within 10s wall-clock even with 15s memory service latency (mocked)"
+    ]
+  },
+  "auto_deployable": false,
+  "auto_deploy_classification": {
+    "verdict": "needs_approval",
+    "reasons": [
+      "Modifies cortex.js which is a core pipeline component affecting every message",
+      "Changes timeout/caching behaviour that could degrade response quality if misconfigured",
+      "Requires validation that partial results from deadline don't produce poor responses"
+    ],
+    "risk": "medium",
+    "touches_core": false,
+    "new_deps": false,
+    "file_count_modified": 1,
+    "total_lines": 220
+  },
+  "risks": [
+    "Identity cache staleness: if James updates identity memories, cached values persist for up to 5 minutes. Mitigation: clearIdentityCache() export, plus cache is short-lived.",
+    "Deadline cutting off valuable context: if memory service is consistently slow, responses lose memory context. Mitigation: log abandoned streams for monitoring; fallback to keyword cache is already in memory.js.",
+    "Per-stream 5s timeout is tighter than current 15s: some legitimate slow searches will now return empty. Mitigation: the keyword cache fallback in memory.js already handles this path; cortex logs will show timeout frequency for tuning.",
+    "Promise.allSettled complexity: partial result assembly must handle 'rejected' status correctly. Mitigation: extensive test coverage for partial-result scenarios."
+  ]
+}

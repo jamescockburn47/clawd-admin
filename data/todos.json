@@ -1,0 +1,188 @@
+[
+  {
+    "id": "mmqwad3bx87h",
+    "text": "Buy Fairy washing tablets",
+    "done": true,
+    "priority": "normal",
+    "createdAt": "2026-03-14T22:26:13.319Z",
+    "completedAt": "2026-03-14T22:26:49.448Z",
+    "dueDate": null,
+    "reminder": "2026-03-15T10:00:00",
+    "reminded": false
+  },
+  {
+    "id": "mmqwf6bz9ohb",
+    "text": "Hang Pan's cat bed",
+    "done": true,
+    "priority": "normal",
+    "createdAt": "2026-03-14T22:29:57.839Z",
+    "completedAt": "2026-03-16T16:06:43.950Z",
+    "dueDate": null,
+    "reminder": "2026-03-15T09:00:00",
+    "reminded": true
+  },
+  {
+    "id": "mmqwq1kakvz0",
+    "text": "Connect MG's laptop and phone to printer",
+    "done": true,
+    "priority": "normal",
+    "createdAt": "2026-03-14T22:38:24.874Z",
+    "completedAt": "2026-03-17T08:11:03.128Z",
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mmqwtc9rbw4a",
+    "text": "Check 3D printer for STEM week talk",
+    "done": true,
+    "priority": "normal",
+    "createdAt": "2026-03-14T22:40:58.719Z",
+    "completedAt": "2026-03-15T20:48:23.011Z",
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mmqwu36jl2wz",
+    "text": "Take outdoor sofa to school on Monday",
+    "done": true,
+    "priority": "normal",
+    "createdAt": "2026-03-14T22:41:33.595Z",
+    "completedAt": "2026-03-16T16:06:52.061Z",
+    "dueDate": "2026-03-16",
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mmry9kq4z7jy",
+    "text": "do my timesheets",
+    "done": true,
+    "priority": "normal",
+    "createdAt": "2026-03-15T16:09:21.964Z",
+    "completedAt": "2026-03-16T16:06:42.827Z",
+    "dueDate": "2026-03-16",
+    "reminder": "2026-03-16T07:30:00",
+    "reminded": true
+  },
+  {
+    "id": "mmtf87vz7i0u",
+    "text": "test voice todo",
+    "done": true,
+    "priority": "normal",
+    "createdAt": "2026-03-16T16:51:58.319Z",
+    "completedAt": "2026-03-16T16:52:04.833Z",
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mmxaej7c703c",
+    "text": "Revisit Clawdbot evolution",
+    "done": false,
+    "priority": "normal",
+    "createdAt": "2026-03-19T09:47:59.544Z",
+    "completedAt": null,
+    "dueDate": "2026-03-26",
+    "reminder": "2026-03-26T09:00:00",
+    "reminded": true
+  },
+  {
+    "id": "mn2wr8s9ap71",
+    "text": "CAPTURED LEARNING — File-edit brittleness: When updating running log files (append-only logs like LEARNINGS.md), default to append. Exact-match surgical edits are fragile unless the anchor text has been read and matched precisely first. Append is the safer, more reliable operation for log files.",
+    "done": false,
+    "priority": "low",
+    "createdAt": "2026-03-23T08:12:35.001Z",
+    "completedAt": null,
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mn34nsq93kg2",
+    "text": "Review group chat thread on memory architecture: redirect dream writes to /memory/YYYY-MM-DD.md on disk, index those files, make EVO X2 the search layer not the source of truth. See conversation with Jamie/85251936243 re OpenClaw doc model.",
+    "done": false,
+    "priority": "normal",
+    "createdAt": "2026-03-23T11:53:51.153Z",
+    "completedAt": null,
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mn3luuhipxtr",
+    "text": "ATLAS — Full proposal committed to memory. Key concept: adaptive litigation AI platform with 7 layers: Living Case Mind (overnight synthesis), Agent Network (8 specialist agents 24/7), Adversarial Engine (Claimant Brain vs Defendant Brain + Referee Agent), Strategic Brain (risk/BATNA/witness/opp modelling), Hearing Layer (live STT + citation check), Jurisdiction Layer (CPR/PD57AC/PD51U native), optional Learned Hand judicial bridge. Core pitch: every other legal AI stops when you close the laptop — ATLAS keeps thinking. James is founding architect. Shlomo introduction pending.",
+    "done": true,
+    "priority": "high",
+    "createdAt": "2026-03-23T19:55:13.494Z",
+    "completedAt": "2026-05-01T21:14:47.384Z",
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mn3lvf1tn5my",
+    "text": "Store ATLAS full proposal to memory — Living Case Mind, Agent Network, Adversarial Engine, Strategic Brain, Hearing Layer, Jurisdiction Layer, Learned Hand Bridge",
+    "done": true,
+    "priority": "high",
+    "createdAt": "2026-03-23T19:55:40.145Z",
+    "completedAt": "2026-05-01T21:14:47.385Z",
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mn7w964fia5w",
+    "text": "Disclosure deadline",
+    "done": false,
+    "priority": "high",
+    "createdAt": "2026-03-26T19:57:22.624Z",
+    "completedAt": null,
+    "dueDate": "2026-03-27",
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mn93kjkv2fjt",
+    "done": false,
+    "priority": "normal",
+    "createdAt": "2026-03-27T16:09:56.767Z",
+    "completedAt": null,
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mnxp7184wws0",
+    "text": "[IMPROVE] Add mid-session correction mechanism: when James provides a direct correction mid-conversation, apply immediately to active context AND log to IMPROVE pipeline — do not wait for overnight CONSOLIDATE stage",
+    "done": false,
+    "priority": "high",
+    "createdAt": "2026-04-13T21:21:46.228Z",
+    "completedAt": null,
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mo08qkor69dl",
+    "text": "James is fixing the LID issue today. Be available for technical questions on LID-windowing and anchoring on key.participant in the ingestion layer.",
+    "done": false,
+    "priority": "normal",
+    "createdAt": "2026-04-15T16:04:22.971Z",
+    "completedAt": null,
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  },
+  {
+    "id": "mqgdw14g9nsz",
+    "text": "moorstead_code tool error — parameter name mismatch, investigate and add llama mob to moor world",
+    "done": false,
+    "priority": "high",
+    "createdAt": "2026-06-16T08:32:19.120Z",
+    "completedAt": null,
+    "dueDate": null,
+    "reminder": null,
+    "reminded": false
+  }
+]

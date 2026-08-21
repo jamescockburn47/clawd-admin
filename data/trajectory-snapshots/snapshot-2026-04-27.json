@@ -1,0 +1,134 @@
+{
+  "startedAt": "2026-04-27T02:45:06.396Z",
+  "completedAt": "2026-04-27T02:54:39.033Z",
+  "durationMs": 572637,
+  "corpusVersion": "1.0.0",
+  "promptCount": 6,
+  "passed": 2,
+  "failed": 4,
+  "results": [
+    {
+      "id": "memory-recall-group",
+      "question": "has anyone in LQCore said anything about duckdns in the last week",
+      "toolsCalled": [
+        "lqc_knowledge",
+        "group_decisions"
+      ],
+      "responsePreview": "No, no one in LQCore has mentioned DuckDNS in the last week. The search returned some unrelated decisions from that period.",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [memory_search], got [lqc_knowledge, group_decisions]"
+      ]
+    },
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "lqc_bot_author_guide"
+      ],
+      "responsePreview": "Here's the process:\n\n**1. Build your endpoint**\nWrite a `/debate` HTTP endpoint that accepts POST with the DebateRoundRequest schema and returns DebateRoundResponse. Must be HTTPS in production (local",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "web-current-events",
+      "question": "what's the latest news on anthropic this week",
+      "toolsCalled": [
+        "web_search",
+        "web_search",
+        "web_search"
+      ],
+      "responsePreview": "Here's the latest on Anthropic this week, James:\n\n**1. Claude Opus 4.7 Launch (April 16)**\nAnthropic released Claude Opus 4.7, their latest flagship model with improved performance across coding, agen",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)"
+      },
+      "pass": true,
+      "failures": []
+    },
+    {
+      "id": "system-self-awareness",
+      "question": "what models are you currently running on for your reasoning",
+      "toolsCalled": [],
+      "responsePreview": "Two main models, plus a few local specialists:\n\n*   **Default:** MiniMax M2.7. Handles almost everything—chat, tool use, planning, legal work. Fast and cost-effective.\n*   **Premium:** Claude Opus 4.6",
+      "meta": {
+        "category": "system",
+        "classifySource": "4b_classifier",
+        "routeReason": "claude-only category",
+        "routeForceClaude": true,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)"
+      },
+      "pass": false,
+      "failures": [
+        "missing_required_tool: expected one of [system_status, self_describe, lqc_live_llm], got [none]"
+      ]
+    },
+    {
+      "id": "pure-knowledge",
+      "question": "explain speculative decoding in one paragraph",
+      "toolsCalled": [
+        "lqc_knowledge"
+      ],
+      "responsePreview": "Speculative decoding is a technique to speed up autoregressive generation by using a small, fast \"draft\" model to propose several tokens at once, which the larger target model then verifies in a singl",
+      "meta": {
+        "category": "general_knowledge",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)"
+      },
+      "pass": false,
+      "failures": [
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "responsePreview": "Running well. Uptime 66 hours, memory usage low, WhatsApp connected. Voice listener isn't responding but everything else is solid.\n\nWhy do you ask — something acting up on your end?",
+      "meta": {
+        "category": "conversational",
+        "classifySource": "4b_classifier",
+        "routeReason": null,
+        "routeForceClaude": false,
+        "provider": "qwen",
+        "providerReason": "qwen_local_default",
+        "modelName": "qwen3.6-27b-q6_k + qwen3.5-0.8b-draft (llama-server :8080, EVO X2, spec-decode)"
+      },
+      "pass": false,
+      "failures": [
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    }
+  ]
+}

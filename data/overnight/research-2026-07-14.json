@@ -1,0 +1,21 @@
+{
+  "date": "2026-07-14",
+  "source": "searxng",
+  "topics": [
+    {
+      "topic": "Mercor business model analysis",
+      "findings": "**Overnight Research Briefing: Mercor Business Model Analysis**\n\n**Status:** No data available.\n\n**Findings:**\n*   Search results for \"Mercor business model analysis\" returned no matches.\n*   No fetched page text was provided for analysis.\n\n**Uncertainty:**\n*   It is unclear if \"Mercor\" refers to a specific private entity, a typo for another company (e.g., Mercer, Mercari), or a niche startup with limited public digital footprint.\n*   Without source material, no analysis of revenue streams, value proposition, or operational structure can be performed.\n\n**Recommendation:**\n*   Verify the correct spelling of the company name.\n*   Provide specific URLs or documents if internal or non-indexed sources are available.",
+      "sources": []
+    },
+    {
+      "topic": "AI companies purchasing domain-specific training data",
+      "findings": "No results found for \"AI companies purchasing domain-specific training data\".",
+      "sources": []
+    },
+    {
+      "topic": "Case-based knowledge elicitation techniques for experts",
+      "findings": "No results found for \"Case-based knowledge elicitation techniques for experts\".",
+      "sources": []
+    }
+  ]
+}

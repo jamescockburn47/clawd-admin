@@ -1,0 +1,23 @@
+{
+  "date": "2026-04-04",
+  "startedAt": "2026-04-04T03:30:02.759Z",
+  "finishedAt": "2026-04-04T03:30:37.436Z",
+  "phases": {
+    "analysis": {
+      "status": "error",
+      "elapsed": 0,
+      "error": "llamaBreaker.exec is not a function"
+    },
+    "meta": {
+      "status": "ok",
+      "elapsed": 34.6,
+      "error": null
+    }
+  },
+  "tasks": [],
+  "errors": [],
+  "spec": null,
+  "branch": null,
+  "deployAction": null,
+  "metaAction": "implemented"
+}

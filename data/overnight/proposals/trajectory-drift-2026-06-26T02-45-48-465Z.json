@@ -1,0 +1,28 @@
+{
+  "type": "trajectory-drift",
+  "detected_at": "2026-06-26T02:45:48.465Z",
+  "failed_count": 2,
+  "failing": [
+    {
+      "id": "knowledge-lqcouncil-signup",
+      "question": "how do I sign up a bot to lqcouncil",
+      "toolsCalled": [
+        "lqc_knowledge"
+      ],
+      "failures": [
+        "missing_required_tool: expected one of [lqc_self_describe, lqc_bot_author_guide], got [lqc_knowledge]"
+      ]
+    },
+    {
+      "id": "empty-tool-conversational",
+      "question": "how are you today",
+      "toolsCalled": [
+        "system_status"
+      ],
+      "failures": [
+        "tool_count_exceeded: expected ≤0, got 1"
+      ]
+    }
+  ],
+  "recommended_action": "Review each failing trajectory. (a) Missing required tool → classifier may be re-routing; check recent router.js or cortex changes. (b) Forbidden tool fired → check tool-routing guards (e.g. group-tool-policy for owner-restricted tools leaking). (c) Tool count exceeded → check for runaway tool loops. If the expected behaviour has legitimately changed, update data/trajectory-baselines/clint.json."
+}
