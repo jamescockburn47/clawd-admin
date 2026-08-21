@@ -1,0 +1,99 @@
+{
+  "title": "Deadline-aware cortex with per-stream latency instrumentation",
+  "description": "The cortex Phase 2 intelligence gathering has no overall time budget. It fires up to 5 parallel streams (memory search, dreams, insights, web prefetch, system snapshot) via Promise.all, each with independent timeouts of 10-15s. If any single stream is slow, the entire cortex — and therefore the entire response pipeline — blocks. This spec adds a configurable deadline to cortex Phase 2 that proceeds with partial results when the deadline expires, and instruments per-stream timing so the trace analyser can identify which streams are responsible for tail latency.",
+  "files_to_modify": [
+    "src/constants.js",
+    "src/cortex.js",
+    "src/tasks/trace-analyser.js"
+  ],
+  "approach": [
+    {
+      "order": 1,
+      "file": "src/constants.js",
+      "action": "modify",
+      "description": "Add CORTEX section with PHASE2_DEADLINE_MS (4000ms default) and PHASE1_DEADLINE_MS (2000ms default). These cap total cortex time so the downstream model call and tool loop have budget remaining within a reasonable total response window.",
+      "estimated_lines": 8
+    },
+    {
+      "order": 2,
+      "file": "src/cortex.js",
+      "action": "modify",
+      "description": "Replace the bare `Promise.all(Object.values(streams))` on line 146 with a deadline-aware wrapper: (a) Create a `withDeadline(promises, deadlineMs)` utility that returns a `Promise.allSettled` race against a timeout. Settled promises return their value; pending promises at deadline return null. (b) Record per-stream timing: wrap each stream promise to capture its individual duration. (c) Return per-stream timing in the `timing` object alongside existing phase1Ms/phase2Ms/totalMs. (d) Log which streams were truncated by the deadline. (e) Add a `deadlineHit: boolean` flag to the timing return.",
+      "estimated_lines": 55
+    },
+    {
+      "order": 3,
+      "file": "src/tasks/trace-analyser.js",
+      "action": "modify",
+      "description": "Add a new anomaly detector: `cortex_deadline_truncation`. When >20% of traces show cortex deadline hits, flag it with the most-frequently-truncated stream name. This closes the feedback loop so overnight analysis can identify recurring slow streams.",
+      "estimated_lines": 25
+    }
+  ],
+  "tests": [
+    {
+      "type": "unit",
+      "file": "tests/cortex-deadline.test.js",
+      "cases": [
+        "withDeadline resolves all promises that complete before deadline",
+        "withDeadline returns null for promises still pending at deadline",
+        "withDeadline records per-stream timing for resolved streams",
+        "withDeadline sets deadlineHit=true when any stream is truncated",
+        "withDeadline sets deadlineHit=false when all streams complete in time",
+        "withDeadline handles empty streams object (no Phase 2 work)",
+        "withDeadline handles all streams failing (all return null, no crash)",
+        "Per-stream timing values are non-negative integers",
+        "gatherIntelligence returns partial memoryFragment when streams are truncated",
+        "gatherIntelligence timing object includes streamTimings map"
+      ]
+    },
+    {
+      "type": "unit",
+      "file": "tests/trace-analyser-deadline.test.js",
+      "cases": [
+        "Detects cortex_deadline_truncation when >20% of traces hit deadline",
+        "Does not flag cortex_deadline_truncation below threshold",
+        "Identifies most-frequently-truncated stream in anomaly detail"
+      ]
+    }
+  ],
+  "auto_deployable": false,
+  "auto_deploy_classification": {
+    "verdict": "needs_approval",
+    "reasons": [
+      "Modifies cortex.js which controls the intelligence gathering pipeline — a wrong deadline could degrade response quality by dropping critical context",
+      "Modifies constants.js which is imported across the codebase",
+      "Changes to the cortex timing return shape could affect consumers (claude.js reads cortexTiming)"
+    ],
+    "risk": "medium",
+    "touches_core": false,
+    "new_deps": false,
+    "file_count_modified": 3,
+    "total_lines": 88
+  },
+  "risks": [
+    {
+      "risk": "Deadline too aggressive — important context dropped",
+      "mitigation": "Default 4000ms is generous (current Phase 2 p50 is likely <1s). Only tail latency affected. Partial results still include identity memories (Phase 1, separate deadline) and any streams that completed. Log truncation so overnight analysis catches chronic drops."
+    },
+    {
+      "risk": "Changed timing return shape breaks claude.js",
+      "mitigation": "New fields are additive (streamTimings, deadlineHit). Existing fields (phase1Ms, phase2Ms, totalMs) are unchanged. claude.js destructures only the existing fields so new ones are silently ignored until claude.js is updated to log them."
+    },
+    {
+      "risk": "Promise.allSettled semantics differ from Promise.all",
+      "mitigation": "We unwrap allSettled results to match the current contract: resolved → value, rejected → null (same as current .catch() handlers). No behaviour change for streams that complete within deadline."
+    },
+    {
+      "risk": "Per-stream timing overhead",
+      "mitigation": "Wrapping promises with Date.now() bookends adds <1ms total overhead. Negligible vs the ms-to-seconds scale of the streams themselves."
+    }
+  ],
+  "success_criteria": [
+    "Cortex Phase 2 never exceeds PHASE2_DEADLINE_MS + 50ms tolerance regardless of stream behaviour",
+    "When deadline triggers, memoryFragment is assembled from whatever streams completed — not empty",
+    "Per-stream timing (streamTimings map) is present in cortex return value with entries for each launched stream",
+    "Trace analyser detects and reports cortex_deadline_truncation anomaly when truncation rate exceeds 20%",
+    "All existing cortex log fields remain unchanged (backwards compatible)",
+    "No new npm dependencies"
+  ]
+}

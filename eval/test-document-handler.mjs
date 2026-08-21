@@ -1,0 +1,1 @@
+[ERROR: HTTPConnectionPool(host='10.0.0.2', port=8080): Max retries exceeded with url: /v1/chat/completions (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x7fffb01b3850>: Failed to establish a new connection: [Errno 111] Connection refused'))]

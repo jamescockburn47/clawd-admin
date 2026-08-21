@@ -1,4 +1,95 @@
 {
   "version": 1,
-  "labels": []
+  "labels": [
+    {
+      "msg": "Got any tasks due this week I should focus on?",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "What’s on my list for tomorrow?",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Any urgent tasks I missed this morning?",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Can you flag what’s high priority this week?",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "I’m free after 3, any tasks I can tackle?",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Let me know if anything’s due before Monday.",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "What’s the next thing on my plate?",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Can you highlight anything time-sensitive?",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Quick check: any pending items from last week?",
+      "expected": "task",
+      "source": "lr-mni52g2t",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Just saw a new message—any action needed?",
+      "expected": "email",
+      "source": "lr-mni52s4w",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Can you sort my messages by priority?",
+      "expected": "email",
+      "source": "lr-mni52s4w",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Did you see the message from the manager?",
+      "expected": "email",
+      "source": "lr-mni52s4w",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "Should I send a follow-up to the team?",
+      "expected": "email",
+      "source": "lr-mni52s50",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "What’s the latest on the client email?",
+      "expected": "email",
+      "source": "lr-mni52s52",
+      "added": "2026-04-03T00:02:02.873Z"
+    },
+    {
+      "msg": "What’s the next step for that client?",
+      "expected": "email",
+      "source": "lr-mni52s52",
+      "added": "2026-04-03T00:02:02.873Z"
+    }
+  ]
 }

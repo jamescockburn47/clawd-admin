@@ -1,0 +1,13 @@
+{
+  "groups": {
+    "120363407496928531@g.us": {
+      "allowedProjects": [
+        "sovren"
+      ],
+      "projectScopeMode": "single_project_only",
+      "offTopicPolicy": "soft_redirect",
+      "label": "SOVREN Demo Group",
+      "mode": "project"
+    }
+  }
+}

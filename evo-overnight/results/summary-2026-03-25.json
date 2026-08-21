@@ -1,0 +1,45 @@
+{
+  "date": "2026-03-25T22:17:55.060946",
+  "elapsed_seconds": 1,
+  "results": [
+    {
+      "task": "router-eval-expansion",
+      "rounds": 12,
+      "new_labels": 0,
+      "proposed_rules": 0,
+      "misclassifications": 0,
+      "branch": "overnight-eval-2026-03-25",
+      "eval_output": "/bin/sh: 1: node: not found"
+    },
+    {
+      "task": "unit-test-generation",
+      "modules": [
+        {
+          "module": "router.js",
+          "rounds": 0,
+          "final_pass": true,
+          "tests_count": 0
+        },
+        {
+          "module": "engagement.js",
+          "rounds": 0,
+          "final_pass": true,
+          "tests_count": 0
+        },
+        {
+          "module": "lquorum-rag.js",
+          "rounds": 0,
+          "final_pass": true,
+          "tests_count": 0
+        },
+        {
+          "module": "interaction-log.js",
+          "rounds": 0,
+          "final_pass": true,
+          "tests_count": 0
+        }
+      ],
+      "branch": "overnight-tests-2026-03-25"
+    }
+  ]
+}

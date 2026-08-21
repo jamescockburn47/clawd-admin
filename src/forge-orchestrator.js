@@ -45,10 +45,13 @@ let lastForgeDate = null;
 
 // --- Exports ---
 
-async function runForgeSession(sendFn, todayStr) {
+export async function checkForge(sendFn, todayStr, hours, minutes) {
+  if (lastForgeDate === todayStr) return;
   // Forge runs at 04:00 (was 04:30 — shifted to give 3h before 07:00 hard stop).
   // Consumes: dream diary (22:05), deep think (23:00), self-improve (01:00),
   // extraction (02:00), trace analysis (03:00), ground truth (03:30).
+  if (hours !== 4 || minutes < 0) return;
+
   lastForgeDate = todayStr;
   logger.info('forge: starting overnight session');
 
@@ -151,16 +154,6 @@ async function runForgeSession(sendFn, todayStr) {
   // Persist to history
   appendToHistory(session);
   logger.info({ phases: Object.keys(session.phases) }, 'forge: session complete');
-}
-
-export async function checkForge(sendFn, todayStr, hours, minutes) {
-  if (lastForgeDate === todayStr) return;
-  if (hours !== 4 || minutes < 0) return;
-  return runForgeSession(sendFn, todayStr);
-}
-
-export async function runForgeNow(sendFn, todayStr) {
-  return runForgeSession(sendFn, todayStr);
 }
 
 export function getLastForgeDate() {
@@ -512,7 +505,6 @@ If nothing warrants changing tonight, output { "action": "none", "reason": "expl
 
 async function phaseNightlyTouch(session) {
   const brief = session.phases.analysis?.brief || 'No brief available.';
-  const { stdout: beforeHead } = await localExec(`cd ${REPO_DIR} && git rev-parse HEAD`, 10000);
 
   // Build context from last 7 nightly touches
   const reports = readdirSync(REPORTS_DIR).filter(f => f.endsWith('.json')).sort().slice(-7);
@@ -541,14 +533,11 @@ async function phaseNightlyTouch(session) {
     result = { action: 'unknown', description: output.slice(0, 300) };
   }
 
-  // Get the list of files actually changed only if the touch created a new commit.
+  // Get the list of files actually changed
   let files = [];
   try {
-    const { stdout: afterHead } = await localExec(`cd ${REPO_DIR} && git rev-parse HEAD`, 10000);
-    if (afterHead !== beforeHead) {
-      const { stdout } = await localExec(`cd ${REPO_DIR} && git diff --name-only ${beforeHead} ${afterHead}`, 10000);
-      files = stdout.split('\n').filter(Boolean);
-    }
+    const { stdout } = await localExec(`cd ${REPO_DIR} && git diff HEAD~1 HEAD --name-only 2>/dev/null || echo ''`, 10000);
+    files = stdout.split('\n').filter(Boolean);
   } catch { /* non-fatal */ }
 
   logger.info({ action: result.action, target: result.target, files }, 'forge: nightly touch complete');

@@ -1,0 +1,35 @@
+{
+  "date": "2026-04-04",
+  "startedAt": "2026-04-04T05:49:09.821Z",
+  "finishedAt": "2026-04-04T05:57:13.605Z",
+  "phases": {
+    "analysis": {
+      "status": "ok",
+      "elapsed": 27.6,
+      "error": null
+    },
+    "nightlyTouch": {
+      "status": "ok",
+      "elapsed": 68.3,
+      "error": null
+    },
+    "architect": {
+      "status": "ok",
+      "elapsed": 224.4,
+      "error": null
+    },
+    "meta": {
+      "status": "ok",
+      "elapsed": 163.5,
+      "error": null
+    }
+  },
+  "tasks": [],
+  "errors": [],
+  "spec": "Deadline-aware cortex with per-stream latency instrumentation",
+  "branch": null,
+  "deployAction": null,
+  "nightlyTouchAction": "none",
+  "nightlyTouchFiles": [],
+  "metaAction": "none"
+}

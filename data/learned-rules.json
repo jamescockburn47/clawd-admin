@@ -1,6 +1,79 @@
 {
   "version": 1,
-  "lastModified": null,
+  "lastModified": "2026-04-03T00:02:02.870Z",
   "maxRules": 20,
-  "rules": []
+  "rules": [
+    {
+      "id": "lr-mni52g2t",
+      "category": "task",
+      "pattern": "\\b(task|tasks|to do|due|urgent|priority|high priority|time-sensitive|pending|next|on my list|on my plate|due this week|due before)\\b",
+      "added": "2026-04-03T00:01:47.237Z",
+      "source": "cycle-mni506oq",
+      "reason": "This pattern captures key task-related terms and phrases that are specific to task management (e.g., \"due\", \"urgent\", \"priority\", \"pending\", \"next\", \"on my list\") while avoiding common words. It excludes non-task messages because none of the exclusion messages contain these specific task-focused terms. The use of \\b ensures word boundaries prevent false matches (e.g., \"check\" in \"check my email\" is not matched as part of \"check\" in \"check my tasks\").",
+      "matches": "got any tasks due this week i should focus on?, i need to finish that invoice by friday—don’t forget., what’s on my list for tomorrow?, any urgent tasks i missed this morning?, can you flag what’s high priority this week?, i’m free after 3, any tasks i can tackle?, let me know if anything’s due before monday., just finished the presentation prep—added it., is the budget review still on the list?, need to reschedule the team sync—any conflicts?, what’s the next thing on my plate?, can you highlight anything time-sensitive?, i’ve got a meeting at 2—anything i should prep?, did i log the expense claim yet?, quick check: any pending items from last week?",
+      "approved": true,
+      "survivedCycles": 0,
+      "graduated": false
+    },
+    {
+      "id": "lr-mni52g2v",
+      "category": "task",
+      "pattern": "\\b(due|due this week|due before|due by)\\b",
+      "added": "2026-04-03T00:01:47.239Z",
+      "source": "cycle-mni506oq",
+      "reason": "This pattern targets explicit time-bound task indicators (\"due\", \"due by\", \"due before\") which are highly specific to task classification. It avoids false positives because none of the exclusion messages contain these phrases. The word boundaries prevent partial matches (e.g., \"due\" in \"due to\" or \"due to\" in \"due to travel\" is not triggered since the exclusion messages don’t use \"due\" in this context).",
+      "matches": "got any tasks due this week i should focus on?, i need to finish that invoice by friday—don’t forget., let me know if anything’s due before monday., quick check: any pending items from last week?",
+      "approved": true,
+      "survivedCycles": 0,
+      "graduated": false
+    },
+    {
+      "id": "lr-mni52s4w",
+      "category": "email",
+      "pattern": "\\b(message|messages)\\b",
+      "added": "2026-04-03T00:02:02.864Z",
+      "source": "cycle-mni506oq",
+      "reason": "This pattern targets the word \"message(s)\" which appears in several email-related contexts but is not used in the exclusion categories. It avoids false positives because none of the excluded messages contain \"message\" in a way that would trigger a match (e.g., \"my tasks\" doesn't include \"message\"). It's specific enough to avoid overmatching while capturing key missed cases.",
+      "matches": "\"just saw a new message—any action needed?\", \"did you see the message from the manager?\", \"what’s the latest on the client email?\"",
+      "approved": true,
+      "survivedCycles": 0,
+      "graduated": false
+    },
+    {
+      "id": "lr-mni52s4y",
+      "category": "email",
+      "pattern": "\\b(action|action needed)\\b",
+      "added": "2026-04-03T00:02:02.866Z",
+      "source": "cycle-mni506oq",
+      "reason": "\"action\" and \"action needed\" are commonly used in email or task follow-up contexts. These phrases are not present in any exclusion messages, and the pattern is specific enough to avoid false positives (e.g., \"add to my todo list\" doesn't contain \"action\"). It captures intent related to email processing without overlapping with other categories.",
+      "matches": "\"just saw a new message—any action needed?\", \"what’s the next step for that client?\"",
+      "approved": true,
+      "survivedCycles": 0,
+      "graduated": false
+    },
+    {
+      "id": "lr-mni52s50",
+      "category": "email",
+      "pattern": "\\b(follow-up|follow up)\\b",
+      "added": "2026-04-03T00:02:02.868Z",
+      "source": "cycle-mni506oq",
+      "reason": "\"follow-up\" is a strong indicator of email-related communication, especially in professional contexts. It does not appear in any exclusion messages and is not used in task, calendar, travel, or system contexts. This pattern is highly specific and safe.",
+      "matches": "\"should i send a follow-up to the team?\"",
+      "approved": true,
+      "survivedCycles": 0,
+      "graduated": false
+    },
+    {
+      "id": "lr-mni52s52",
+      "category": "email",
+      "pattern": "\\b(client|client email)\\b",
+      "added": "2026-04-03T00:02:02.870Z",
+      "source": "cycle-mni506oq",
+      "reason": "\"client\" and \"client email\" are strongly associated with email communication in a business context. These phrases are not used in any of the exclusion messages, and the pattern avoids false positives due to their specificity.",
+      "matches": "\"what’s the latest on the client email?\", \"what’s the next step for that client?\"",
+      "approved": true,
+      "survivedCycles": 0,
+      "graduated": false
+    }
+  ]
 }
